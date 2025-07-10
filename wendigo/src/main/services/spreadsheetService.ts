@@ -5,15 +5,21 @@ import { SheetsAdapter } from './adapters/sheetsAdapter'
 export class SpreadsheetService {
   private adapter: SpreadsheetAdapter | null = null
   private type: 'excel' | 'sheets' | null = null
+  private spreadsheetId: string | null = null
 
-  async connect(type: 'excel' | 'sheets'): Promise<boolean> {
+  async connect(type: 'excel' | 'sheets', options?: { spreadsheetId?: string }): Promise<boolean> {
     try {
       this.type = type
       
       if (type === 'excel') {
         this.adapter = new ExcelAdapter()
       } else {
-        this.adapter = new SheetsAdapter()
+        // For Google Sheets, spreadsheetId is required
+        if (!options?.spreadsheetId) {
+          throw new Error('spreadsheetId is required for Google Sheets connection')
+        }
+        this.spreadsheetId = options.spreadsheetId
+        this.adapter = new SheetsAdapter(options.spreadsheetId)
       }
       
       return await this.adapter.connect()
@@ -28,6 +34,7 @@ export class SpreadsheetService {
       await this.adapter.disconnect()
       this.adapter = null
       this.type = null
+      this.spreadsheetId = null
     }
   }
 

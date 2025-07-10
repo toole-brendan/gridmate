@@ -11,8 +11,8 @@ const api = {
   setOpacity: (value: number) => ipcRenderer.invoke('window:setOpacity', value),
 
   // Spreadsheet operations
-  connectSpreadsheet: (type: 'excel' | 'sheets') => 
-    ipcRenderer.invoke('spreadsheet:connect', type),
+  connectSpreadsheet: (type: 'excel' | 'sheets', options?: { spreadsheetId?: string }) => 
+    ipcRenderer.invoke('spreadsheet:connect', type, options),
   getActiveRange: () => ipcRenderer.invoke('spreadsheet:getActiveRange'),
   setCellValue: (cell: string, value: any) => 
     ipcRenderer.invoke('spreadsheet:setCellValue', cell, value),

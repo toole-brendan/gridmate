@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+
+  <!-- Begin Basic Settings: Add-in metadata, used for all versions of Office unless override provided -->
+  <Id>12345678-1234-1234-1234-123456789012</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Wendigo Team</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Wendigo - AI Financial Assistant"/>
+  <Description DefaultValue="AI-powered financial modeling assistant for Excel"/>
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://wendigo.ai/support"/>
+
+  <!-- Domains that will be allowed when navigating. For example, if you use ShowTaskpane and then have an href link, navigation will only be allowed if the domain is on this list. -->
+  <AppDomains>
+    <AppDomain>https://wendigo.ai</AppDomain>
+    <AppDomain>https://localhost:3000</AppDomain>
+  </AppDomains>
+
+  <!-- End Basic Settings -->
+
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/excel"/>
+  </DefaultSettings>
+
+  <!-- Begin TaskPane Mode integration -->
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <!-- End TaskPane Mode integration -->
+
+  <!-- Begin Add-in Commands Mode integration -->
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <!-- PrimaryCommandSurface is the main ribbon -->
+          <GetStarted>
+            <Title resid="Wendigo.GetStarted.Title"/>
+            <Description resid="Wendigo.GetStarted.Description"/>
+            <LearnMoreUrl resid="Wendigo.GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+
+          <!-- Function file is a HTML page that includes the JavaScript where functions for ExecuteAction will be called -->
+          <FunctionFile resid="Wendigo.DesktopFunctionFile.Url"/>
+
+          <!-- PrimaryCommandSurface is the main Office Ribbon -->
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <!-- Use OfficeTab to extend an existing Tab. Use CustomTab to create a new tab -->
+            <OfficeTab id="TabHome">
+              <!-- Ensure you provide a unique id for the group. Recommendation for any IDs is to namespace using your company name. -->
+              <Group id="Wendigo.Group1">
+                <!-- Label for your group. resid must point to a ShortString resource -->
+                <Label resid="Wendigo.Group1Label"/>
+                <!-- Icons. Required sizes 16,32,80, optional 20, 24, 40, 48, 64. Strongly recommended to provide all sizes for great UX -->
+                <Icon>
+                  <bt:Image size="16" resid="Wendigo.tpicon_16x16"/>
+                  <bt:Image size="32" resid="Wendigo.tpicon_32x32"/>
+                  <bt:Image size="80" resid="Wendigo.tpicon_80x80"/>
+                </Icon>
+
+                <!-- Control. It can be of type "Button" or "Menu" -->
+                <Control xsi:type="Button" id="Wendigo.TaskpaneButton">
+                  <Label resid="Wendigo.TaskpaneButton.Label"/>
+                  <Supertip>
+                    <!-- ToolTip title. resid must point to a ShortString resource -->
+                    <Title resid="Wendigo.TaskpaneButton.Label"/>
+                    <!-- ToolTip description. resid must point to a LongString resource -->
+                    <Description resid="Wendigo.TaskpaneButton.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Wendigo.tpicon_16x16"/>
+                    <bt:Image size="32" resid="Wendigo.tpicon_32x32"/>
+                    <bt:Image size="80" resid="Wendigo.tpicon_80x80"/>
+                  </Icon>
+
+                  <!-- This is what happens when the command is triggered (E.g. click on the Ribbon). Supported actions are ExecuteFunction or ShowTaskpane -->
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>ButtonId1</TaskpaneId>
+                    <!-- Provide a url resource id for the location that will be displayed on the task pane -->
+                    <SourceLocation resid="Wendigo.Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <!-- You can use resources across hosts and form factors -->
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Wendigo.tpicon_16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
+        <bt:Image id="Wendigo.tpicon_32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+        <bt:Image id="Wendigo.tpicon_80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Wendigo.DesktopFunctionFile.Url" DefaultValue="https://localhost:3000/functions.html"/>
+        <bt:Url id="Wendigo.Taskpane.Url" DefaultValue="https://localhost:3000/excel"/>
+        <bt:Url id="Wendigo.GetStarted.LearnMoreUrl" DefaultValue="https://wendigo.ai/learn"/>
+      </bt:Urls>
+      <!-- ShortStrings max characters==125 -->
+      <bt:ShortStrings>
+        <bt:String id="Wendigo.TaskpaneButton.Label" DefaultValue="Open Wendigo"/>
+        <bt:String id="Wendigo.Group1Label" DefaultValue="AI Assistant"/>
+        <bt:String id="Wendigo.GetStarted.Title" DefaultValue="Get started with Wendigo!"/>
+      </bt:ShortStrings>
+      <!-- LongStrings max characters==250 -->
+      <bt:LongStrings>
+        <bt:String id="Wendigo.TaskpaneButton.Tooltip" DefaultValue="Click to open Wendigo AI assistant"/>
+        <bt:String id="Wendigo.GetStarted.Description" DefaultValue="Wendigo loaded successfully. Click the 'Open Wendigo' button to get started."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+  <!-- End Add-in Commands Mode integration -->
+</OfficeApp>

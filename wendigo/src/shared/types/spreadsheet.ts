@@ -77,7 +77,7 @@ export interface SpreadsheetAdapter {
 }
 
 export interface SpreadsheetChange {
-  type: 'cell' | 'range' | 'sheet' | 'workbook'
+  type: 'cell' | 'range' | 'sheet' | 'workbook' | 'formula' | 'selection'
   target: string
   oldValue?: any
   newValue?: any

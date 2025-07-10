@@ -25,9 +25,9 @@ export function setupIpcHandlers(ipcMain: IpcMain, windowManager: WindowManager)
     windowManager.setOpacity(value)
   })
 
-  ipcMain.handle('spreadsheet:connect', async (_, type: 'excel' | 'sheets') => {
+  ipcMain.handle('spreadsheet:connect', async (_, type: 'excel' | 'sheets', options?: { spreadsheetId?: string }) => {
     try {
-      return await spreadsheetService.connect(type)
+      return await spreadsheetService.connect(type, options)
     } catch (error) {
       console.error('Failed to connect to spreadsheet:', error)
       throw error

@@ -3,12 +3,14 @@ import { TitleBar } from './components/TitleBar'
 import { ChatPanel } from './components/ChatPanel'
 import { StatusBar } from './components/StatusBar'
 import { ConnectionStatus } from './components/ConnectionStatus'
+import { GoogleSheetsConnect } from './components/GoogleSheetsConnect'
 import { useSpreadsheetStore } from './store/spreadsheetStore'
 import { useChatStore } from './store/chatStore'
 
 function App() {
   const [isConnected, setIsConnected] = useState(false)
   const [connectionType, setConnectionType] = useState<'excel' | 'sheets' | null>(null)
+  const [showSheetsDialog, setShowSheetsDialog] = useState(false)
   const { setActiveRange } = useSpreadsheetStore()
 
   useEffect(() => {
@@ -16,9 +18,15 @@ function App() {
     handleConnect('excel')
   }, [])
 
-  const handleConnect = async (type: 'excel' | 'sheets') => {
+  const handleConnect = async (type: 'excel' | 'sheets', options?: { spreadsheetId?: string }) => {
+    // Show dialog for Google Sheets if no spreadsheetId provided
+    if (type === 'sheets' && !options?.spreadsheetId) {
+      setShowSheetsDialog(true)
+      return
+    }
+    
     try {
-      const connected = await window.wendigo.connectSpreadsheet(type)
+      const connected = await window.wendigo.connectSpreadsheet(type, options)
       if (connected) {
         setIsConnected(true)
         setConnectionType(type)
@@ -36,7 +44,13 @@ function App() {
     } catch (error) {
       console.error('Failed to connect:', error)
       setIsConnected(false)
+      alert(`Failed to connect: ${error.message || 'Unknown error'}`)
     }
+  }
+  
+  const handleSheetsConnect = async (spreadsheetId: string) => {
+    setShowSheetsDialog(false)
+    await handleConnect('sheets', { spreadsheetId })
   }
 
   return (
@@ -56,6 +70,13 @@ function App() {
         
         <StatusBar />
       </div>
+      
+      {showSheetsDialog && (
+        <GoogleSheetsConnect
+          onConnect={handleSheetsConnect}
+          onCancel={() => setShowSheetsDialog(false)}
+        />
+      )}
     </div>
   )
 }

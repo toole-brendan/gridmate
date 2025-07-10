@@ -13,7 +13,7 @@ declare global {
       setOpacity: (value: number) => Promise<void>
 
       // Spreadsheet operations
-      connectSpreadsheet: (type: 'excel' | 'sheets') => Promise<boolean>
+      connectSpreadsheet: (type: 'excel' | 'sheets', options?: { spreadsheetId?: string }) => Promise<boolean>
       getActiveRange: () => Promise<any>
       setCellValue: (cell: string, value: any) => Promise<void>
 

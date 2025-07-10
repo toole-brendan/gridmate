@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Wendigo - AI Financial Assistant for Excel</title>
+    
+    <!-- Office JavaScript API -->
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        /* Custom styles for Office theme */
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        
+        #container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .office-fabric {
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", sans-serif;
+        }
+        
+        /* Loading animation */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #0078d4;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="office-fabric bg-white">
+    <div id="container">
+        <!-- Loading state -->
+        <div id="loading" class="flex items-center justify-center h-full">
+            <div class="text-center">
+                <div class="loader mx-auto mb-4"></div>
+                <p class="text-gray-600">Initializing Wendigo...</p>
+            </div>
+        </div>
+        
+        <!-- Main app container -->
+        <div id="root" style="display: none;"></div>
+        
+        <!-- Error state -->
+        <div id="error" style="display: none;" class="flex items-center justify-center h-full p-4">
+            <div class="text-center max-w-md">
+                <svg class="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <h2 class="text-xl font-semibold text-gray-900 mb-2">Failed to Initialize</h2>
+                <p id="error-message" class="text-gray-600 mb-4">Unable to connect to Excel. Please try again.</p>
+                <button onclick="location.reload()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                    Reload
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Office initialization
+        Office.onReady((info) => {
+            console.log('Office.js initialized', info);
+            
+            if (info.host === Office.HostType.Excel) {
+                // Hide loading, show app
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('root').style.display = 'block';
+                
+                // Initialize WebSocket connection to Electron app
+                initializeConnection();
+                
+                // Load React app
+                loadReactApp();
+            } else {
+                showError('This add-in is designed for Excel only.');
+            }
+        }).catch((error) => {
+            console.error('Office.js initialization failed:', error);
+            showError('Failed to initialize Office.js: ' + error.message);
+        });
+        
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'flex';
+            document.getElementById('error-message').textContent = message;
+        }
+        
+        function initializeConnection() {
+            // WebSocket connection to the Express server
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(`${protocol}//localhost:3000/ws`);
+            
+            ws.onopen = () => {
+                console.log('Connected to Wendigo server');
+                // Authenticate with the server
+                ws.send(JSON.stringify({
+                    type: 'auth',
+                    host: 'excel',
+                    version: Office.context.diagnostics.version
+                }));
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('Received from server:', data);
+                
+                // Handle messages from Electron app
+                if (data.type === 'execute_action') {
+                    executeExcelAction(data.action);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onclose = () => {
+                console.log('Disconnected from Wendigo server');
+                // Attempt to reconnect after 5 seconds
+                setTimeout(initializeConnection, 5000);
+            };
+            
+            // Store WebSocket instance globally
+            window.wendigoWS = ws;
+        }
+        
+        async function executeExcelAction(action) {
+            try {
+                await Excel.run(async (context) => {
+                    switch (action.type) {
+                        case 'read_cell':
+                            const range = context.workbook.getSelectedRange();
+                            range.load(['values', 'address']);
+                            await context.sync();
+                            
+                            window.wendigoWS.send(JSON.stringify({
+                                type: 'cell_data',
+                                address: range.address,
+                                values: range.values
+                            }));
+                            break;
+                            
+                        case 'write_cell':
+                            const targetRange = context.workbook.worksheets.getActiveWorksheet()
+                                .getRange(action.address);
+                            targetRange.values = [[action.value]];
+                            await context.sync();
+                            break;
+                            
+                        // Add more actions as needed
+                    }
+                });
+            } catch (error) {
+                console.error('Excel action failed:', error);
+                window.wendigoWS.send(JSON.stringify({
+                    type: 'error',
+                    message: error.message
+                }));
+            }
+        }
+        
+        function loadReactApp() {
+            // This will be replaced with the actual React app bundle
+            // For now, show a placeholder
+            const root = document.getElementById('root');
+            root.innerHTML = `
+                <div class="h-full flex flex-col">
+                    <div class="bg-blue-600 text-white p-4">
+                        <h1 class="text-xl font-semibold">Wendigo AI Assistant</h1>
+                        <p class="text-sm opacity-90">Connected to Excel</p>
+                    </div>
+                    <div class="flex-1 p-4">
+                        <div class="bg-gray-100 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-gray-600">Excel add-in is ready!</p>
+                            <p class="text-xs text-gray-500 mt-2">
+                                Host: ${Office.context.host}<br>
+                                Platform: ${Office.context.platform}
+                            </p>
+                        </div>
+                        <div id="excel-app-root">
+                            <!-- React app will be mounted here -->
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

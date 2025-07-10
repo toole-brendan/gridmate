@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wendigo Icon Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .icon-container {
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            display: block;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        // Icon sizes needed for Office Add-in
+        const sizes = [16, 32, 64, 80];
+        
+        sizes.forEach(size => {
+            const container = document.createElement('div');
+            container.className = 'icon-container';
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw background
+            ctx.fillStyle = '#0078d4'; // Microsoft blue
+            ctx.fillRect(0, 0, size, size);
+            
+            // Draw "W" for Wendigo
+            ctx.fillStyle = 'white';
+            ctx.font = `bold ${size * 0.6}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('W', size / 2, size / 2);
+            
+            container.appendChild(canvas);
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.textContent = `Download icon-${size}.png`;
+            link.download = `icon-${size}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.style.display = 'block';
+            link.style.marginTop = '10px';
+            
+            container.appendChild(link);
+            document.body.appendChild(container);
+        });
+        
+        // Note for manual process
+        const note = document.createElement('div');
+        note.innerHTML = `
+            <h3>Manual Icon Creation Instructions:</h3>
+            <p>1. Open this HTML file in a browser</p>
+            <p>2. Click each download link to save the PNG files</p>
+            <p>3. Move the downloaded files to /workspace/wendigo/assets/</p>
+            <p>4. Or use any image editor to create ${sizes.join('x')}, ${sizes.join('x')} pixel icons</p>
+        `;
+        note.style.width = '100%';
+        note.style.marginTop = '20px';
+        document.body.appendChild(note);
+    </script>
+</body>
+</html>

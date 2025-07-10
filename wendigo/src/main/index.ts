@@ -6,6 +6,7 @@ import { WindowManager } from './windowManager'
 import * as dotenv from 'dotenv'
 import { ErrorHandler } from './utils/errorHandler'
 import { logger, getLogFilePaths } from './utils/logger'
+import { ExcelAddinServer } from './services/excelAddinServer'
 
 // Load environment variables from .env file
 dotenv.config()
@@ -24,6 +25,7 @@ logger.info('Starting Wendigo application', {
 
 let mainWindow: BrowserWindow | null = null
 let windowManager: WindowManager
+let excelAddinServer: ExcelAddinServer | null = null
 
 function createWindow(): void {
   const primaryDisplay = screen.getPrimaryDisplay()
@@ -81,6 +83,15 @@ app.whenReady().then(() => {
     createWindow()
     setupIpcHandlers(ipcMain, windowManager)
     logger.info('Window created and IPC handlers set up successfully')
+    
+    // Start Excel add-in server
+    excelAddinServer = new ExcelAddinServer()
+    excelAddinServer.start().then(() => {
+      logger.info('Excel add-in server started successfully')
+    }).catch((error) => {
+      logger.error('Failed to start Excel add-in server:', error)
+      // Don't quit the app, just log the error
+    })
   } catch (error) {
     logger.fatal('Failed to initialize application:', error)
     app.quit()
@@ -96,6 +107,16 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   logger.info('All windows closed')
+  
+  // Stop Excel add-in server
+  if (excelAddinServer) {
+    excelAddinServer.stop().then(() => {
+      logger.info('Excel add-in server stopped')
+    }).catch((error) => {
+      logger.error('Error stopping Excel add-in server:', error)
+    })
+  }
+  
   if (process.platform !== 'darwin') {
     logger.info('Quitting application')
     app.quit()

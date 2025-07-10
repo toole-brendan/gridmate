@@ -5,13 +5,16 @@
   "main": "./dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && npm run build:excel",
+    "build:excel": "vite build --config vite.excel.config.ts",
     "postinstall": "electron-builder install-app-deps",
     "preview": "electron-vite preview",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "test": "jest"
+    "test": "jest",
+    "generate-certs": "node scripts/generate-certs.js",
+    "sideload-excel": "node scripts/sideload-excel.js"
   },
   "keywords": [
     "financial-modeling",
@@ -27,6 +30,7 @@
     "@google-cloud/local-auth": "^3.0.1",
     "@microsoft/office-js": "^1.1.85",
     "@reduxjs/toolkit": "^2.0.1",
+    "@types/ws": "^8.18.1",
     "axios": "^1.6.7",
     "better-sqlite3": "^9.4.0",
     "chromadb": "^1.8.1",
@@ -41,6 +45,7 @@
     "uuid": "^9.0.1",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0",
+    "ws": "^8.18.3",
     "zustand": "^4.5.0"
   },
   "devDependencies": {

@@ -92,4 +92,13 @@ export function setupIpcHandlers(ipcMain: IpcMain, windowManager: WindowManager)
       throw error
     }
   })
+  
+  ipcMain.handle('ai:testConnection', async () => {
+    try {
+      return await aiService.testConnection()
+    } catch (error) {
+      console.error('Failed to test AI connection:', error)
+      return false
+    }
+  })
 }

@@ -6,8 +6,15 @@ export class AIService {
   private conversationHistory: ChatMessage[] = []
 
   constructor() {
-    const apiKey = process.env.ANTHROPIC_API_KEY || ''
-    this.anthropic = new Anthropic({ apiKey })
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) {
+      console.warn('ANTHROPIC_API_KEY not found in environment variables')
+    }
+    this.anthropic = new Anthropic({ 
+      apiKey: apiKey || '',
+      // Add timeout for better error handling
+      timeout: 30000, // 30 seconds
+    })
   }
 
   async chat(message: string, context?: any): Promise<AIResponse> {
@@ -21,7 +28,7 @@ export class AIService {
       })
 
       const response = await this.anthropic.messages.create({
-        model: 'claude-3-sonnet-20240229',
+        model: 'claude-3-5-sonnet-20241022', // Using latest Claude 3.5 Sonnet
         max_tokens: 1024,
         temperature: 0.7,
         system: systemPrompt,
@@ -32,7 +39,7 @@ export class AIService {
       })
 
       const assistantMessage = response.content[0]
-      if (assistantMessage.type === 'text') {
+      if (assistantMessage && assistantMessage.type === 'text') {
         this.conversationHistory.push({
           role: 'assistant',
           content: assistantMessage.text,
@@ -49,6 +56,20 @@ export class AIService {
       throw new Error('Unexpected response format')
     } catch (error) {
       console.error('AI chat error:', error)
+      // Provide more detailed error information
+      if (error instanceof Anthropic.APIError) {
+        console.error('API Error:', {
+          status: error.status,
+          message: error.message,
+          type: error.type
+        })
+        
+        if (error.status === 401) {
+          throw new Error('Invalid API key. Please check your ANTHROPIC_API_KEY in .env file')
+        } else if (error.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later')
+        }
+      }
       throw error
     }
   }
@@ -59,7 +80,7 @@ Context: ${JSON.stringify(context || {})}
 Return only the formula, starting with =`
 
     const response = await this.anthropic.messages.create({
-      model: 'claude-3-sonnet-20240229',
+      model: 'claude-3-5-sonnet-20241022', // Using latest Claude 3.5 Sonnet
       max_tokens: 256,
       temperature: 0.3,
       system: 'You are an expert in Excel formulas and financial modeling. Generate accurate, efficient formulas.',
@@ -67,7 +88,7 @@ Return only the formula, starting with =`
     })
 
     const content = response.content[0]
-    if (content.type === 'text') {
+    if (content && content.type === 'text') {
       return this.extractFormula(content.text)
     }
     
@@ -115,5 +136,27 @@ Always prioritize accuracy and provide clear explanations for financial calculat
 
   clearHistory(): void {
     this.conversationHistory = []
+  }
+  
+  /**
+   * Test the API connection
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      const response = await this.anthropic.messages.create({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Hi' }]
+      })
+      return response.content.length > 0
+    } catch (error) {
+      if (error instanceof Anthropic.APIError) {
+        console.error('API connection test failed:', {
+          status: error.status,
+          message: error.message
+        })
+      }
+      return false
+    }
   }
 }

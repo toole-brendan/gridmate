@@ -3,6 +3,10 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { WindowManager } from './windowManager'
+import * as dotenv from 'dotenv'
+
+// Load environment variables from .env file
+dotenv.config()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
@@ -24,7 +28,8 @@ function createWindow(): void {
     alwaysOnTop: true,
     transparent: false,
     backgroundColor: '#ffffff',
-    titleBarStyle: 'hidden',
+    titleBarStyle: 'customButtonsOnHover', // This hides traffic lights on macOS
+    trafficLightPosition: { x: -100, y: -100 }, // Move traffic lights off-screen
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,

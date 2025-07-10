@@ -2,7 +2,7 @@
   "name": "wendigo",
   "version": "0.1.0",
   "description": "AI-Powered Financial Modeling Assistant for Excel and Google Sheets",
-  "main": "./dist/main/main.js",
+  "main": "./dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

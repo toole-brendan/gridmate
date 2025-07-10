@@ -4,11 +4,23 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { WindowManager } from './windowManager'
 import * as dotenv from 'dotenv'
+import { ErrorHandler } from './utils/errorHandler'
+import { logger, getLogFilePaths } from './utils/logger'
 
 // Load environment variables from .env file
 dotenv.config()
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
+
+// Initialize error handler as early as possible
+const errorHandler = ErrorHandler.getInstance()
+
+logger.info('Starting Wendigo application', {
+  nodeVersion: process.version,
+  electronVersion: process.versions.electron,
+  isDevelopment,
+  logFiles: getLogFilePaths()
+})
 
 let mainWindow: BrowserWindow | null = null
 let windowManager: WindowManager
@@ -57,38 +69,70 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  logger.info('App ready, creating window')
+  
   electronApp.setAppUserModelId('com.wendigo.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  createWindow()
-  setupIpcHandlers(ipcMain, windowManager)
+  try {
+    createWindow()
+    setupIpcHandlers(ipcMain, windowManager)
+    logger.info('Window created and IPC handlers set up successfully')
+  } catch (error) {
+    logger.fatal('Failed to initialize application:', error)
+    app.quit()
+  }
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      logger.info('Reactivating app, creating new window')
+      createWindow()
+    }
   })
 })
 
 app.on('window-all-closed', () => {
+  logger.info('All windows closed')
   if (process.platform !== 'darwin') {
+    logger.info('Quitting application')
     app.quit()
   }
 })
 
 ipcMain.handle('app:minimize', () => {
-  mainWindow?.minimize()
+  try {
+    mainWindow?.minimize()
+    logger.debug('Window minimized')
+  } catch (error) {
+    logger.error('Failed to minimize window:', error)
+    throw error
+  }
 })
 
 ipcMain.handle('app:maximize', () => {
-  if (mainWindow?.isMaximized()) {
-    mainWindow.unmaximize()
-  } else {
-    mainWindow?.maximize()
+  try {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize()
+      logger.debug('Window unmaximized')
+    } else {
+      mainWindow?.maximize()
+      logger.debug('Window maximized')
+    }
+  } catch (error) {
+    logger.error('Failed to toggle maximize:', error)
+    throw error
   }
 })
 
 ipcMain.handle('app:close', () => {
-  mainWindow?.close()
+  try {
+    logger.info('Close requested, shutting down window')
+    mainWindow?.close()
+  } catch (error) {
+    logger.error('Failed to close window:', error)
+    throw error
+  }
 })

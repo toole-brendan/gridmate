@@ -6,7 +6,7 @@
 - **Desktop Framework**: Electron (cross-platform desktop app)
 - **Frontend**: React + TypeScript with Tailwind CSS
 - **Backend**: Node.js + Express for local server
-- **AI/LLM**: OpenAI API with fallback to local models (Ollama)
+- **AI/LLM**: Anthropic Claude Sonnet 3.5 with fallback to local models (Ollama)
 - **Vector Database**: ChromaDB or Weaviate for context management
 - **Spreadsheet Integration**: 
   - Excel: Office.js API + COM automation
@@ -163,7 +163,7 @@ class SheetsAdapter implements SpreadsheetAdapter {
 3. **Context from current workbook** only
 4. **Simple DCF and financial statement** templates
 5. **Change tracking** with undo/redo
-6. **GPT-4 integration** with rate limiting
+6. **Claude Sonnet 3.5 integration** with rate limiting
 
 ### Post-MVP Roadmap
 - Multi-document context (PDFs, Word docs)

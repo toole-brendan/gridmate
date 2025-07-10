@@ -62,7 +62,7 @@ Transform financial modeling workflows by providing an intelligent AI assistant 
 
 ### Backend
 - **Server**: Node.js + Express (local)
-- **AI/LLM**: OpenAI GPT-4 with local fallback (Ollama)
+- **AI/LLM**: Anthropic Claude Sonnet 3.5 with local fallback (Ollama)
 - **Vector DB**: ChromaDB for context management
 - **Database**: SQLite for audit trails and settings
 

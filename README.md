@@ -4,7 +4,7 @@ Wendigo is a desktop application that serves as "Cursor for financial modeling" 
 
 ## Features
 
-- 🤖 **AI-Powered Assistance**: GPT-4 powered chat interface for financial modeling help
+- 🤖 **AI-Powered Assistance**: Claude Sonnet 3.5 powered chat interface for financial modeling help
 - 📊 **Native Integration**: Seamless sidebar overlay for Excel and Google Sheets
 - 🔍 **Context Awareness**: Understands your entire model and referenced documents
 - ✅ **Human-in-the-Loop**: All changes previewed and require approval
@@ -24,7 +24,7 @@ Wendigo is a desktop application that serves as "Cursor for financial modeling" 
 
 - **Frontend**: React + TypeScript + Tailwind CSS
 - **Desktop**: Electron
-- **AI/LLM**: OpenAI GPT-4 (with local fallback)
+- **AI/LLM**: Anthropic Claude Sonnet 3.5 (with local fallback)
 - **Database**: SQLite + ChromaDB
 - **Integration**: Office.js (Excel) + Google Sheets API
 

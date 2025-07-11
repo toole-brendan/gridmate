@@ -1,6 +1,6 @@
 # Excel Add-in Side-loading Guide
 
-This guide explains how to side-load the Wendigo Excel add-in for development and testing.
+This guide explains how to side-load the Gridmate Excel add-in for development and testing.
 
 ## Prerequisites
 
@@ -12,15 +12,15 @@ This guide explains how to side-load the Wendigo Excel add-in for development an
    - Run `npm run generate-certs` to generate self-signed certificates
    - This requires `mkcert` to be installed on your system
 
-3. **Running Wendigo App**
-   - The Wendigo Electron app must be running
+3. **Running Gridmate App**
+   - The Gridmate Electron app must be running
    - Excel add-in server starts automatically on port 3000
 
 ## Side-loading Methods
 
 ### Method 1: Using Office Add-in Commands (Recommended for Windows)
 
-1. Start the Wendigo app:
+1. Start the Gridmate app:
    ```bash
    npm run dev
    ```
@@ -31,11 +31,11 @@ This guide explains how to side-load the Wendigo Excel add-in for development an
 
 4. Click **Manage My Add-ins** > **Upload My Add-in**
 
-5. Browse to `/workspace/wendigo/manifest.xml` and select it
+5. Browse to `/workspace/gridmate/manifest.xml` and select it
 
 6. Click **Upload**
 
-7. The Wendigo add-in will appear in the Home tab
+7. The Gridmate add-in will appear in the Home tab
 
 ### Method 2: Shared Folder (Windows)
 
@@ -54,11 +54,11 @@ This guide explains how to side-load the Wendigo Excel add-in for development an
 
 4. Insert the add-in:
    - Insert > Add-ins > MY ORGANIZATION
-   - Select Wendigo
+   - Select Gridmate
 
 ### Method 3: Side-loading on Mac
 
-1. Start the Wendigo app:
+1. Start the Gridmate app:
    ```bash
    npm run dev
    ```
@@ -70,14 +70,14 @@ This guide explains how to side-load the Wendigo Excel add-in for development an
 
 3. Copy the manifest:
    ```bash
-   cp /workspace/wendigo/manifest.xml ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/
+   cp /workspace/gridmate/manifest.xml ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/
    ```
 
 4. Open Excel
 
 5. Go to **Insert** > **Add-ins** > **My Add-ins**
 
-6. Select Wendigo from the list
+6. Select Gridmate from the list
 
 ### Method 4: Using Script (Automated)
 
@@ -94,9 +94,9 @@ This script will:
 
 ## Verifying the Installation
 
-1. Look for the **Wendigo** button in the Excel ribbon (Home tab)
+1. Look for the **Gridmate** button in the Excel ribbon (Home tab)
 
-2. Click the button to open the Wendigo taskpane
+2. Click the button to open the Gridmate taskpane
 
 3. Check the connection status in the taskpane header
 
@@ -115,8 +115,8 @@ If you see SSL certificate warnings:
 
 ### Connection Issues
 
-1. **Check if Wendigo app is running**
-   - The Excel add-in requires the main Wendigo app to be running
+1. **Check if Gridmate app is running**
+   - The Excel add-in requires the main Gridmate app to be running
    - Look for "Excel add-in server running at https://localhost:3000" in the logs
 
 2. **Verify port 3000 is available**
@@ -146,7 +146,7 @@ If you see SSL certificate warnings:
 
 ## Development Workflow
 
-1. **Start Wendigo in development mode:**
+1. **Start Gridmate in development mode:**
    ```bash
    npm run dev
    ```
@@ -158,7 +158,7 @@ If you see SSL certificate warnings:
 
 3. **Hot reload:**
    - The React app supports hot reload
-   - For server changes, restart the Wendigo app
+   - For server changes, restart the Gridmate app
 
 4. **Debug in Excel:**
    - Use Excel's built-in DevTools (F12)
@@ -181,7 +181,7 @@ After successfully side-loading:
    - Cell reading/writing
    - Formula suggestions
 
-2. Configure AI settings in the main Wendigo app
+2. Configure AI settings in the main Gridmate app
 
 3. Try financial modeling features:
    - DCF analysis

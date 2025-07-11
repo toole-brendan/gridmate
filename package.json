@@ -1,5 +1,5 @@
 {
-  "name": "wendigo",
+  "name": "gridmate",
   "version": "0.1.0",
   "description": "AI-Powered Financial Modeling Assistant for Excel and Google Sheets",
   "main": "./dist/main/index.js",
@@ -22,7 +22,7 @@
     "ai",
     "electron"
   ],
-  "author": "Wendigo Team",
+  "author": "Gridmate Team",
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.20.1",

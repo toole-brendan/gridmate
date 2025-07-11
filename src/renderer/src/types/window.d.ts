@@ -3,7 +3,7 @@ import { ElectronAPI } from '@electron-toolkit/preload'
 declare global {
   interface Window {
     electron: ElectronAPI
-    wendigo: {
+    gridmate: {
       // Window controls
       minimize: () => Promise<void>
       maximize: () => Promise<void>

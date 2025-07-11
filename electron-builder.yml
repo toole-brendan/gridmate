@@ -1,5 +1,5 @@
-appId: com.wendigo.app
-productName: Wendigo
+appId: com.gridmate.app
+productName: Gridmate
 directories:
   output: dist
   buildResources: build
@@ -13,7 +13,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: Wendigo
+  executableName: Gridmate
   target:
     - nsis
     - portable
@@ -35,12 +35,12 @@ linux:
     - AppImage
     - snap
     - deb
-  maintainer: wendigo.app
+  maintainer: gridmate.app
   category: Utility
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
   provider: github
-  owner: wendigo
-  repo: wendigo-app
+  owner: gridmate
+  repo: gridmate-app

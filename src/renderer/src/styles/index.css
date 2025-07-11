@@ -11,27 +11,27 @@
 }
 
 @layer components {
-  .wendigo-btn {
+  .gridmate-btn {
     @apply px-4 py-2 rounded-md font-medium transition-colors duration-200;
-    @apply bg-wendigo-primary text-white hover:bg-wendigo-secondary;
-    @apply focus:outline-none focus:ring-2 focus:ring-wendigo-accent focus:ring-offset-2;
+    @apply bg-gridmate-primary text-white hover:bg-gridmate-secondary;
+    @apply focus:outline-none focus:ring-2 focus:ring-gridmate-accent focus:ring-offset-2;
   }
 
-  .wendigo-btn-secondary {
+  .gridmate-btn-secondary {
     @apply px-4 py-2 rounded-md font-medium transition-colors duration-200;
     @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
     @apply dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
     @apply focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2;
   }
 
-  .wendigo-input {
+  .gridmate-input {
     @apply w-full px-3 py-2 border rounded-md;
     @apply border-gray-300 dark:border-gray-600;
     @apply bg-white dark:bg-gray-800;
-    @apply focus:outline-none focus:ring-2 focus:ring-wendigo-accent focus:border-transparent;
+    @apply focus:outline-none focus:ring-2 focus:ring-gridmate-accent focus:border-transparent;
   }
 
-  .wendigo-card {
+  .gridmate-card {
     @apply bg-white dark:bg-gray-800 rounded-lg shadow-md p-4;
     @apply border border-gray-200 dark:border-gray-700;
   }

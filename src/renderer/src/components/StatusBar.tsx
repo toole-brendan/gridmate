@@ -29,7 +29,7 @@ export const StatusBar: React.FC = () => {
       </div>
       
       <div className="ml-auto">
-        <span className="text-wendigo-accent">v0.1.0</span>
+        <span className="text-gridmate-accent">v0.1.0</span>
       </div>
     </div>
   )

@@ -72,7 +72,7 @@ export const ExcelAddinApp: React.FC = () => {
     const ws = new WebSocket(`${protocol}//localhost:3000/ws`)
 
     ws.onopen = () => {
-      console.log('Connected to Wendigo server')
+      console.log('Connected to Gridmate server')
       ws.send(JSON.stringify({
         type: 'auth',
         host: 'excel-addin',
@@ -228,7 +228,7 @@ export const ExcelAddinApp: React.FC = () => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: 'Not connected to Wendigo server. Please check your connection.',
+        content: 'Not connected to Gridmate server. Please check your connection.',
         timestamp: new Date()
       }])
     }
@@ -245,7 +245,7 @@ export const ExcelAddinApp: React.FC = () => {
         <div className="flex items-center gap-2">
           <FileSpreadsheet size={20} />
           <div>
-            <h1 className="text-lg font-semibold">Wendigo AI</h1>
+            <h1 className="text-lg font-semibold">Gridmate AI</h1>
             <p className="text-xs opacity-90">
               {excelContext.isConnected ? 'Connected' : 'Disconnected'}
             </p>

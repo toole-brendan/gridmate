@@ -70,7 +70,7 @@ export class SECEdgarService {
     this.client = axios.create({
       baseURL: this.baseURL,
       headers: {
-        'User-Agent': 'Wendigo/1.0 (support@wendigo.app)',
+        'User-Agent': 'Gridmate/1.0 (support@gridmate.app)',
         'Accept': 'application/json',
         'Accept-Encoding': 'gzip, deflate'
       },

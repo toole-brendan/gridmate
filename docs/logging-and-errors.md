@@ -2,7 +2,7 @@
 
 ## Overview
 
-Wendigo implements comprehensive error handling and structured logging to ensure reliability and debuggability in production environments.
+Gridmate implements comprehensive error handling and structured logging to ensure reliability and debuggability in production environments.
 
 ## Error Handling
 

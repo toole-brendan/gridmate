@@ -1,6 +1,6 @@
-# AI Integration Plan - Making Wendigo a Best-in-Class AI App
+# AI Integration Plan - Making Gridmate a Best-in-Class AI App
 
-Based on Andrej Karpathy's YC presentation on what makes successful AI applications (Cursor, Perplexity), this document outlines how to integrate these principles into Wendigo.
+Based on Andrej Karpathy's YC presentation on what makes successful AI applications (Cursor, Perplexity), this document outlines how to integrate these principles into Gridmate.
 
 ## Core Principle: Keep AI on a Leash
 - **No fully autonomous agents** - AI remains a copilot, not autopilot
@@ -270,4 +270,4 @@ interface AISpreadsheetAPI {
 - Cost optimization (smaller models for simple tasks)
 - Better accuracy with task-specific fine-tuning
 
-This plan ensures Wendigo follows the successful patterns of Cursor and Perplexity while adapting them specifically for financial modeling workflows.
+This plan ensures Gridmate follows the successful patterns of Cursor and Perplexity while adapting them specifically for financial modeling workflows.

@@ -16,7 +16,7 @@ const isDevelopment = process.env.NODE_ENV !== 'production'
 // Initialize error handler as early as possible
 const errorHandler = ErrorHandler.getInstance()
 
-logger.info('Starting Wendigo application', {
+logger.info('Starting Gridmate application', {
   nodeVersion: process.version,
   electronVersion: process.versions.electron,
   isDevelopment,
@@ -73,7 +73,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   logger.info('App ready, creating window')
   
-  electronApp.setAppUserModelId('com.wendigo.app')
+  electronApp.setAppUserModelId('com.gridmate.app')
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

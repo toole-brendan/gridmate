@@ -27,11 +27,11 @@ export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
         >
           <div className="flex-shrink-0">
             {message.role === 'user' ? (
-              <div className="w-8 h-8 bg-wendigo-primary rounded-full flex items-center justify-center">
+              <div className="w-8 h-8 bg-gridmate-primary rounded-full flex items-center justify-center">
                 <User className="w-4 h-4 text-white" />
               </div>
             ) : (
-              <div className="w-8 h-8 bg-wendigo-accent rounded-full flex items-center justify-center">
+              <div className="w-8 h-8 bg-gridmate-accent rounded-full flex items-center justify-center">
                 <Bot className="w-4 h-4 text-white" />
               </div>
             )}
@@ -107,7 +107,7 @@ export const MessageList: React.FC<MessageListProps> = ({ messages }) => {
                 {message.metadata.suggestions.map((suggestion, idx) => (
                   <button
                     key={idx}
-                    className="text-xs px-2 py-1 bg-wendigo-accent/10 text-wendigo-accent rounded hover:bg-wendigo-accent/20 transition-colors"
+                    className="text-xs px-2 py-1 bg-gridmate-accent/10 text-gridmate-accent rounded hover:bg-gridmate-accent/20 transition-colors"
                   >
                     {suggestion}
                   </button>

@@ -23,7 +23,7 @@ export class AuditService {
 
   constructor() {
     try {
-      const dbPath = join(app.getPath('userData'), 'wendigo-audit.db')
+      const dbPath = join(app.getPath('userData'), 'gridmate-audit.db')
       this.db = new Database(dbPath)
       this.initializeDatabase()
     } catch (error) {

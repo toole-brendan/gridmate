@@ -1,8 +1,8 @@
-# Wendigo - AI-Powered Financial Modeling Assistant
+# Gridmate - AI-Powered Financial Modeling Assistant
 
 ## Project Overview
 
-Wendigo is a desktop application that serves as "Cursor for financial modeling" - an AI-powered assistant that integrates directly with Excel and Google Sheets to help financial analysts, portfolio managers, and investment professionals build, analyze, and audit complex financial models with unprecedented speed and accuracy.
+Gridmate is a desktop application that serves as "Cursor for financial modeling" - an AI-powered assistant that integrates directly with Excel and Google Sheets to help financial analysts, portfolio managers, and investment professionals build, analyze, and audit complex financial models with unprecedented speed and accuracy.
 
 ## Core Mission
 
@@ -109,7 +109,7 @@ This application targets professional financial analysts who:
 
 ### User Workflow
 1. Analyst opens their Excel/Sheets model
-2. Wendigo sidebar appears with context-aware chat
+2. Gridmate sidebar appears with context-aware chat
 3. Analyst can ask questions, request changes, or generate analyses
 4. AI suggests improvements or automates repetitive tasks
 5. All changes are previewed and require approval

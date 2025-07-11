@@ -144,7 +144,7 @@ export class ExcelAddinServer {
       // Send initial connection success message
       ws.send(JSON.stringify({ 
         type: 'connected', 
-        message: 'Connected to Wendigo Excel add-in server',
+        message: 'Connected to Gridmate Excel add-in server',
         clientId
       }))
 

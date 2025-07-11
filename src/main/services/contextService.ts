@@ -37,7 +37,7 @@ export interface Context {
 export class ContextService {
   private chroma: ChromaClient
   private collection: Collection | null = null
-  private readonly collectionName = 'wendigo_financial_docs'
+  private readonly collectionName = 'gridmate_financial_docs'
   
   // Chunking parameters optimized for financial documents
   private readonly chunkSize = 1000 // chars
@@ -55,7 +55,7 @@ export class ContextService {
       // Create or get collection
       this.collection = await this.chroma.getOrCreateCollection({
         name: this.collectionName,
-        metadata: { description: 'Financial documents for Wendigo' }
+        metadata: { description: 'Financial documents for Gridmate' }
       })
       logger.info('Context service initialized', { 
         collection: this.collectionName 

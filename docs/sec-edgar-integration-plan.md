@@ -280,4 +280,4 @@ User: "Compare Apple and Google earnings"
 - Don't redistribute raw EDGAR data
 - Include disclaimers about data accuracy
 
-This integration will make Wendigo a powerful tool for financial analysts to quickly access and analyze earnings data directly within their spreadsheet workflow.
+This integration will make Gridmate a powerful tool for financial analysts to quickly access and analyze earnings data directly within their spreadsheet workflow.

@@ -49,7 +49,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isConnected }) => {
       }
 
       // Call AI
-      const response = await window.wendigo.chat(userMessage, context)
+      const response = await window.gridmate.chat(userMessage, context)
       
       // Add AI response
       addMessage({
@@ -90,7 +90,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isConnected }) => {
           No Spreadsheet Connected
         </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Connect to Excel or Google Sheets to start using Wendigo
+          Connect to Excel or Google Sheets to start using Gridmate
         </p>
       </div>
     )
@@ -102,10 +102,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isConnected }) => {
         {messages.length === 0 ? (
           <div className="p-6">
             <div className="flex items-center justify-center mb-6">
-              <Sparkles className="w-8 h-8 text-wendigo-primary" />
+              <Sparkles className="w-8 h-8 text-gridmate-primary" />
             </div>
             <h2 className="text-xl font-semibold text-center mb-4">
-              Welcome to Wendigo
+              Welcome to Gridmate
             </h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 text-center mb-6">
               Your AI assistant for financial modeling. Try these suggestions:
@@ -133,14 +133,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isConnected }) => {
               }
             }}
             placeholder="Ask about your spreadsheet..."
-            className="flex-1 resize-none wendigo-input"
+            className="flex-1 resize-none gridmate-input"
             rows={1}
             disabled={isLoading}
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="wendigo-btn disabled:opacity-50 disabled:cursor-not-allowed"
+            className="gridmate-btn disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />

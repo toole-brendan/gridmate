@@ -8,17 +8,17 @@
   <!-- Begin Basic Settings: Add-in metadata, used for all versions of Office unless override provided -->
   <Id>12345678-1234-1234-1234-123456789012</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Wendigo Team</ProviderName>
+  <ProviderName>Gridmate Team</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Wendigo - AI Financial Assistant"/>
+  <DisplayName DefaultValue="Gridmate - AI Financial Assistant"/>
   <Description DefaultValue="AI-powered financial modeling assistant for Excel"/>
   <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
-  <SupportUrl DefaultValue="https://wendigo.ai/support"/>
+  <SupportUrl DefaultValue="https://gridmate.ai/support"/>
 
   <!-- Domains that will be allowed when navigating. For example, if you use ShowTaskpane and then have an href link, navigation will only be allowed if the domain is on this list. -->
   <AppDomains>
-    <AppDomain>https://wendigo.ai</AppDomain>
+    <AppDomain>https://gridmate.ai</AppDomain>
     <AppDomain>https://localhost:3000</AppDomain>
   </AppDomains>
 
@@ -44,49 +44,49 @@
         <DesktopFormFactor>
           <!-- PrimaryCommandSurface is the main ribbon -->
           <GetStarted>
-            <Title resid="Wendigo.GetStarted.Title"/>
-            <Description resid="Wendigo.GetStarted.Description"/>
-            <LearnMoreUrl resid="Wendigo.GetStarted.LearnMoreUrl"/>
+            <Title resid="Gridmate.GetStarted.Title"/>
+            <Description resid="Gridmate.GetStarted.Description"/>
+            <LearnMoreUrl resid="Gridmate.GetStarted.LearnMoreUrl"/>
           </GetStarted>
 
           <!-- Function file is a HTML page that includes the JavaScript where functions for ExecuteAction will be called -->
-          <FunctionFile resid="Wendigo.DesktopFunctionFile.Url"/>
+          <FunctionFile resid="Gridmate.DesktopFunctionFile.Url"/>
 
           <!-- PrimaryCommandSurface is the main Office Ribbon -->
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <!-- Use OfficeTab to extend an existing Tab. Use CustomTab to create a new tab -->
             <OfficeTab id="TabHome">
               <!-- Ensure you provide a unique id for the group. Recommendation for any IDs is to namespace using your company name. -->
-              <Group id="Wendigo.Group1">
+              <Group id="Gridmate.Group1">
                 <!-- Label for your group. resid must point to a ShortString resource -->
-                <Label resid="Wendigo.Group1Label"/>
+                <Label resid="Gridmate.Group1Label"/>
                 <!-- Icons. Required sizes 16,32,80, optional 20, 24, 40, 48, 64. Strongly recommended to provide all sizes for great UX -->
                 <Icon>
-                  <bt:Image size="16" resid="Wendigo.tpicon_16x16"/>
-                  <bt:Image size="32" resid="Wendigo.tpicon_32x32"/>
-                  <bt:Image size="80" resid="Wendigo.tpicon_80x80"/>
+                  <bt:Image size="16" resid="Gridmate.tpicon_16x16"/>
+                  <bt:Image size="32" resid="Gridmate.tpicon_32x32"/>
+                  <bt:Image size="80" resid="Gridmate.tpicon_80x80"/>
                 </Icon>
 
                 <!-- Control. It can be of type "Button" or "Menu" -->
-                <Control xsi:type="Button" id="Wendigo.TaskpaneButton">
-                  <Label resid="Wendigo.TaskpaneButton.Label"/>
+                <Control xsi:type="Button" id="Gridmate.TaskpaneButton">
+                  <Label resid="Gridmate.TaskpaneButton.Label"/>
                   <Supertip>
                     <!-- ToolTip title. resid must point to a ShortString resource -->
-                    <Title resid="Wendigo.TaskpaneButton.Label"/>
+                    <Title resid="Gridmate.TaskpaneButton.Label"/>
                     <!-- ToolTip description. resid must point to a LongString resource -->
-                    <Description resid="Wendigo.TaskpaneButton.Tooltip"/>
+                    <Description resid="Gridmate.TaskpaneButton.Tooltip"/>
                   </Supertip>
                   <Icon>
-                    <bt:Image size="16" resid="Wendigo.tpicon_16x16"/>
-                    <bt:Image size="32" resid="Wendigo.tpicon_32x32"/>
-                    <bt:Image size="80" resid="Wendigo.tpicon_80x80"/>
+                    <bt:Image size="16" resid="Gridmate.tpicon_16x16"/>
+                    <bt:Image size="32" resid="Gridmate.tpicon_32x32"/>
+                    <bt:Image size="80" resid="Gridmate.tpicon_80x80"/>
                   </Icon>
 
                   <!-- This is what happens when the command is triggered (E.g. click on the Ribbon). Supported actions are ExecuteFunction or ShowTaskpane -->
                   <Action xsi:type="ShowTaskpane">
                     <TaskpaneId>ButtonId1</TaskpaneId>
                     <!-- Provide a url resource id for the location that will be displayed on the task pane -->
-                    <SourceLocation resid="Wendigo.Taskpane.Url"/>
+                    <SourceLocation resid="Gridmate.Taskpane.Url"/>
                   </Action>
                 </Control>
               </Group>
@@ -99,25 +99,25 @@
     <!-- You can use resources across hosts and form factors -->
     <Resources>
       <bt:Images>
-        <bt:Image id="Wendigo.tpicon_16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
-        <bt:Image id="Wendigo.tpicon_32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
-        <bt:Image id="Wendigo.tpicon_80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+        <bt:Image id="Gridmate.tpicon_16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
+        <bt:Image id="Gridmate.tpicon_32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+        <bt:Image id="Gridmate.tpicon_80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Wendigo.DesktopFunctionFile.Url" DefaultValue="https://localhost:3000/functions.html"/>
-        <bt:Url id="Wendigo.Taskpane.Url" DefaultValue="https://localhost:3000/excel"/>
-        <bt:Url id="Wendigo.GetStarted.LearnMoreUrl" DefaultValue="https://wendigo.ai/learn"/>
+        <bt:Url id="Gridmate.DesktopFunctionFile.Url" DefaultValue="https://localhost:3000/functions.html"/>
+        <bt:Url id="Gridmate.Taskpane.Url" DefaultValue="https://localhost:3000/excel"/>
+        <bt:Url id="Gridmate.GetStarted.LearnMoreUrl" DefaultValue="https://gridmate.ai/learn"/>
       </bt:Urls>
       <!-- ShortStrings max characters==125 -->
       <bt:ShortStrings>
-        <bt:String id="Wendigo.TaskpaneButton.Label" DefaultValue="Open Wendigo"/>
-        <bt:String id="Wendigo.Group1Label" DefaultValue="AI Assistant"/>
-        <bt:String id="Wendigo.GetStarted.Title" DefaultValue="Get started with Wendigo!"/>
+        <bt:String id="Gridmate.TaskpaneButton.Label" DefaultValue="Open Gridmate"/>
+        <bt:String id="Gridmate.Group1Label" DefaultValue="AI Assistant"/>
+        <bt:String id="Gridmate.GetStarted.Title" DefaultValue="Get started with Gridmate!"/>
       </bt:ShortStrings>
       <!-- LongStrings max characters==250 -->
       <bt:LongStrings>
-        <bt:String id="Wendigo.TaskpaneButton.Tooltip" DefaultValue="Click to open Wendigo AI assistant"/>
-        <bt:String id="Wendigo.GetStarted.Description" DefaultValue="Wendigo loaded successfully. Click the 'Open Wendigo' button to get started."/>
+        <bt:String id="Gridmate.TaskpaneButton.Tooltip" DefaultValue="Click to open Gridmate AI assistant"/>
+        <bt:String id="Gridmate.GetStarted.Description" DefaultValue="Gridmate loaded successfully. Click the 'Open Gridmate' button to get started."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

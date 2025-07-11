@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Wendigo - AI Financial Assistant for Excel</title>
+    <title>Gridmate - AI Financial Assistant for Excel</title>
     
     <!-- Office JavaScript API -->
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
@@ -52,7 +52,7 @@
         <div id="loading" class="flex items-center justify-center h-full">
             <div class="text-center">
                 <div class="loader mx-auto mb-4"></div>
-                <p class="text-gray-600">Initializing Wendigo...</p>
+                <p class="text-gray-600">Initializing Gridmate...</p>
             </div>
         </div>
         
@@ -109,7 +109,7 @@
             const ws = new WebSocket(`${protocol}//localhost:3000/ws`);
             
             ws.onopen = () => {
-                console.log('Connected to Wendigo server');
+                console.log('Connected to Gridmate server');
                 // Authenticate with the server
                 ws.send(JSON.stringify({
                     type: 'auth',
@@ -133,13 +133,13 @@
             };
             
             ws.onclose = () => {
-                console.log('Disconnected from Wendigo server');
+                console.log('Disconnected from Gridmate server');
                 // Attempt to reconnect after 5 seconds
                 setTimeout(initializeConnection, 5000);
             };
             
             // Store WebSocket instance globally
-            window.wendigoWS = ws;
+            window.gridmateWS = ws;
         }
         
         async function executeExcelAction(action) {
@@ -151,7 +151,7 @@
                             range.load(['values', 'address']);
                             await context.sync();
                             
-                            window.wendigoWS.send(JSON.stringify({
+                            window.gridmateWS.send(JSON.stringify({
                                 type: 'cell_data',
                                 address: range.address,
                                 values: range.values
@@ -170,7 +170,7 @@
                 });
             } catch (error) {
                 console.error('Excel action failed:', error);
-                window.wendigoWS.send(JSON.stringify({
+                window.gridmateWS.send(JSON.stringify({
                     type: 'error',
                     message: error.message
                 }));
@@ -184,7 +184,7 @@
             root.innerHTML = `
                 <div class="h-full flex flex-col">
                     <div class="bg-blue-600 text-white p-4">
-                        <h1 class="text-xl font-semibold">Wendigo AI Assistant</h1>
+                        <h1 class="text-xl font-semibold">Gridmate AI Assistant</h1>
                         <p class="text-sm opacity-90">Connected to Excel</p>
                     </div>
                     <div class="flex-1 p-4">

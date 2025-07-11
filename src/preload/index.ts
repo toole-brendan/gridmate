@@ -40,11 +40,11 @@ const api = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('wendigo', api)
+    contextBridge.exposeInMainWorld('gridmate', api)
   } catch (error) {
     console.error(error)
   }
 } else {
   window.electron = electronAPI
-  window.wendigo = api
+  window.gridmate = api
 }

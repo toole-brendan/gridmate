@@ -1,6 +1,6 @@
-# Wendigo - AI-Powered Financial Modeling Assistant
+# Gridmate - AI-Powered Financial Modeling Assistant
 
-Wendigo is a desktop application that serves as "Cursor for financial modeling" - an AI-powered assistant that integrates directly with Excel and Google Sheets to help financial analysts build and analyze complex financial models.
+Gridmate is a desktop application that serves as "Cursor for financial modeling" - an AI-powered assistant that integrates directly with Excel and Google Sheets to help financial analysts build and analyze complex financial models.
 
 ## Features
 
@@ -47,8 +47,8 @@ See [implementation-plan.md](implementation-plan.md) for detailed technical road
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/wendigo/wendigo-app.git
-cd wendigo-app
+git clone https://github.com/gridmate/gridmate-app.git
+cd gridmate-app
 ```
 
 2. Install dependencies:

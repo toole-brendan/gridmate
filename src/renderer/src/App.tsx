@@ -26,17 +26,17 @@ function App() {
     }
     
     try {
-      const connected = await window.wendigo.connectSpreadsheet(type, options)
+      const connected = await window.gridmate.connectSpreadsheet(type, options)
       if (connected) {
         setIsConnected(true)
         setConnectionType(type)
         
         // Get initial active range
-        const range = await window.wendigo.getActiveRange()
+        const range = await window.gridmate.getActiveRange()
         setActiveRange(range)
         
         // Subscribe to changes
-        window.wendigo.onSpreadsheetChange((change) => {
+        window.gridmate.onSpreadsheetChange((change) => {
           console.log('Spreadsheet change:', change)
           // Handle spreadsheet changes
         })

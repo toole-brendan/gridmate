@@ -8,7 +8,7 @@ const { execSync } = require('child_process')
 const manifestPath = path.join(__dirname, '../manifest.xml')
 
 function sideloadWindows() {
-  console.log('📋 Side-loading Wendigo add-in on Windows...')
+  console.log('📋 Side-loading Gridmate add-in on Windows...')
   
   // Check if manifest exists
   if (!fs.existsSync(manifestPath)) {
@@ -25,7 +25,7 @@ function sideloadWindows() {
   console.log(`4. Browse to: ${manifestPath}`)
   console.log('5. Click "Upload"')
   console.log('')
-  console.log('The Wendigo button will appear in the Home tab.')
+  console.log('The Gridmate button will appear in the Home tab.')
   
   // Attempt to open the manifest folder
   try {
@@ -37,7 +37,7 @@ function sideloadWindows() {
 }
 
 function sideloadMac() {
-  console.log('📋 Side-loading Wendigo add-in on macOS...')
+  console.log('📋 Side-loading Gridmate add-in on macOS...')
   
   const wefPath = path.join(
     os.homedir(),
@@ -51,7 +51,7 @@ function sideloadMac() {
   }
   
   // Copy manifest
-  const destPath = path.join(wefPath, 'wendigo-manifest.xml')
+  const destPath = path.join(wefPath, 'gridmate-manifest.xml')
   try {
     fs.copyFileSync(manifestPath, destPath)
     console.log(`✅ Copied manifest to: ${destPath}`)
@@ -64,10 +64,10 @@ function sideloadMac() {
   console.log('Next steps:')
   console.log('1. Open Excel')
   console.log('2. Go to: Insert > Add-ins > My Add-ins')
-  console.log('3. You should see "Wendigo - AI Financial Assistant"')
+  console.log('3. You should see "Gridmate - AI Financial Assistant"')
   console.log('4. Click to add it')
   console.log('')
-  console.log('The Wendigo button will appear in the Home tab.')
+  console.log('The Gridmate button will appear in the Home tab.')
   
   // Try to open Excel
   try {
@@ -85,20 +85,20 @@ function sideloadLinux() {
   console.log('For Linux users, consider:')
   console.log('1. Using Excel Online (limited add-in support)')
   console.log('2. Running Excel in a Windows VM')
-  console.log('3. Using the Wendigo desktop app directly')
+  console.log('3. Using the Gridmate desktop app directly')
 }
 
 function main() {
-  console.log('🚀 Wendigo Excel Add-in Side-loader')
+  console.log('🚀 Gridmate Excel Add-in Side-loader')
   console.log('===================================')
   console.log('')
   
-  // Check if Wendigo is running
+  // Check if Gridmate is running
   try {
     const response = execSync('curl -s http://localhost:3000/health', { encoding: 'utf8' })
-    console.log('✅ Wendigo server is running')
+    console.log('✅ Gridmate server is running')
   } catch (error) {
-    console.log('⚠️  Wendigo server is not running')
+    console.log('⚠️  Gridmate server is not running')
     console.log('   Please start it with: npm run dev')
     console.log('')
   }

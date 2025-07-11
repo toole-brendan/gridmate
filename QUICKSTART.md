@@ -1,4 +1,4 @@
-# Wendigo Quick Start Guide
+# Gridmate Quick Start Guide
 
 ## Running the Application
 
@@ -20,7 +20,7 @@
 
 ## First Time Setup
 
-When you first launch Wendigo:
+When you first launch Gridmate:
 
 1. The app will appear as a sidebar on the right side of your screen
 2. Click "Connect Excel" or "Connect Sheets" to establish a connection

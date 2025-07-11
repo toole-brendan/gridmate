@@ -198,7 +198,7 @@ Return only the formula, starting with =`
   }
 
   private buildSystemPrompt(context?: any): string {
-    const basePrompt = `You are Wendigo, an AI assistant for financial modeling in Excel and Google Sheets.
+    const basePrompt = `You are Gridmate, an AI assistant for financial modeling in Excel and Google Sheets.
 You help financial analysts build accurate models, fix errors, and improve their workflows.
 Always prioritize accuracy and provide clear explanations for financial calculations.`
 

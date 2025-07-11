@@ -1,6 +1,6 @@
 # Setting Up Real Excel and Google Sheets Connections
 
-This guide explains how to configure Wendigo to connect to real Excel and Google Sheets instead of using simulated data.
+This guide explains how to configure Gridmate to connect to real Excel and Google Sheets instead of using simulated data.
 
 ## Google Sheets Integration
 
@@ -18,7 +18,7 @@ This guide explains how to configure Wendigo to connect to real Excel and Google
 1. Go to "APIs & Services" > "Credentials"
 2. Click "Create Credentials" > "OAuth client ID"
 3. Choose "Desktop app" as the application type
-4. Name it "Wendigo Desktop App"
+4. Name it "Gridmate Desktop App"
 5. Download the credentials JSON file
 
 ### 3. Configure Environment Variables
@@ -34,17 +34,17 @@ This guide explains how to configure Wendigo to connect to real Excel and Google
    GOOGLE_CLIENT_SECRET=your_client_secret_here
    ```
 
-### 4. Using Google Sheets in Wendigo
+### 4. Using Google Sheets in Gridmate
 
-1. Start Wendigo: `npm run dev`
+1. Start Gridmate: `npm run dev`
 2. Click "Connect Sheets" button
 3. Enter your Google Sheets URL or ID
-4. Authorize Wendigo to access your Google account
+4. Authorize Gridmate to access your Google account
 5. Your spreadsheet is now connected!
 
 ## Excel Integration
 
-Wendigo supports Excel through two methods:
+Gridmate supports Excel through two methods:
 
 ### Method 1: Office Add-in (Recommended for Production)
 
@@ -101,7 +101,7 @@ The current implementation includes a simulated Excel adapter for development. T
 ### Excel Connection Issues
 
 1. **Office.js not available**:
-   - Ensure you're running Wendigo as an Office Add-in
+   - Ensure you're running Gridmate as an Office Add-in
    - Check that the manifest is properly loaded
    - Verify Office.js CDN is accessible
 

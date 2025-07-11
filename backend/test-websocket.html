@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gridmate WebSocket Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .sent {
+            background-color: #e3f2fd;
+            text-align: right;
+        }
+        .received {
+            background-color: #f5f5f5;
+        }
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Gridmate WebSocket Test Client</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Connection</h2>
+            <div id="status" class="status disconnected">Disconnected</div>
+            
+            <div class="section">
+                <input type="text" id="wsUrl" value="ws://localhost:8080/ws" placeholder="WebSocket URL">
+                <button id="connectBtn" onclick="connect()">Connect</button>
+                <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            </div>
+            
+            <div class="section">
+                <h3>Authentication</h3>
+                <input type="text" id="authToken" placeholder="Auth Token" value="test-token">
+                <button onclick="sendAuth()">Authenticate</button>
+            </div>
+            
+            <div class="section">
+                <h3>Chat Message</h3>
+                <textarea id="chatMessage" placeholder="Enter your message" rows="3">Can you help me create a SUM formula for cells A1 to A10?</textarea>
+                <button onclick="sendChatMessage()">Send Chat</button>
+            </div>
+            
+            <div class="section">
+                <h3>Cell Update</h3>
+                <input type="text" id="sheet" placeholder="Sheet Name" value="Sheet1">
+                <input type="text" id="cell" placeholder="Cell (e.g., A1)" value="A1">
+                <input type="text" id="cellValue" placeholder="Value" value="100">
+                <button onclick="sendCellUpdate()">Update Cell</button>
+            </div>
+            
+            <div class="section">
+                <h3>Selection</h3>
+                <input type="text" id="selectedCell" placeholder="Selected Cell" value="B2">
+                <button onclick="sendSelectionChanged()">Send Selection</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Messages</h2>
+            <div id="messages" class="messages"></div>
+            
+            <h3>Custom Message</h3>
+            <textarea id="customMessage" placeholder="Enter JSON message" rows="5">{
+  "type": "subscribe",
+  "data": {
+    "type": "cell",
+    "cells": ["Sheet1!A1", "Sheet1!B2"]
+  }
+}</textarea>
+            <button onclick="sendCustomMessage()">Send Custom</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageId = 0;
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.textContent = 'Connected';
+                status.className = 'status connected';
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+            } else {
+                status.textContent = 'Disconnected';
+                status.className = 'status disconnected';
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+            }
+        }
+        
+        function addMessage(content, type = 'received') {
+            const messages = document.getElementById('messages');
+            const message = document.createElement('div');
+            message.className = `message ${type}`;
+            message.textContent = typeof content === 'object' ? JSON.stringify(content, null, 2) : content;
+            messages.appendChild(message);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            
+            try {
+                ws = new WebSocket(url);
+                
+                ws.onopen = function() {
+                    updateStatus(true);
+                    addMessage('Connected to WebSocket server', 'received');
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        addMessage(message, 'received');
+                    } catch (e) {
+                        addMessage(event.data, 'received');
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    addMessage(`Error: ${error}`, 'error');
+                };
+                
+                ws.onclose = function() {
+                    updateStatus(false);
+                    addMessage('Disconnected from WebSocket server', 'error');
+                    ws = null;
+                };
+                
+            } catch (error) {
+                addMessage(`Connection error: ${error.message}`, 'error');
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+        
+        function sendMessage(type, data) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage('Not connected to WebSocket server', 'error');
+                return;
+            }
+            
+            const message = {
+                id: `msg_${++messageId}`,
+                type: type,
+                timestamp: new Date().toISOString(),
+                data: data
+            };
+            
+            ws.send(JSON.stringify(message));
+            addMessage(message, 'sent');
+        }
+        
+        function sendAuth() {
+            const token = document.getElementById('authToken').value;
+            sendMessage('auth', { token: token });
+        }
+        
+        function sendChatMessage() {
+            const content = document.getElementById('chatMessage').value;
+            sendMessage('chat_message', {
+                content: content,
+                sessionId: `session_${Date.now()}`,
+                context: {
+                    activeSheet: document.getElementById('sheet').value
+                }
+            });
+        }
+        
+        function sendCellUpdate() {
+            const sheet = document.getElementById('sheet').value;
+            const cell = document.getElementById('cell').value;
+            const value = document.getElementById('cellValue').value;
+            
+            sendMessage('cell_update', {
+                sheet: sheet,
+                cell: cell,
+                value: value
+            });
+        }
+        
+        function sendSelectionChanged() {
+            const sheet = document.getElementById('sheet').value;
+            const selectedCell = document.getElementById('selectedCell').value;
+            
+            sendMessage('selection_changed', {
+                sheet: sheet,
+                selectedCell: selectedCell
+            });
+        }
+        
+        function sendCustomMessage() {
+            try {
+                const customMsg = JSON.parse(document.getElementById('customMessage').value);
+                if (customMsg.type && customMsg.data) {
+                    sendMessage(customMsg.type, customMsg.data);
+                } else {
+                    addMessage('Custom message must have "type" and "data" fields', 'error');
+                }
+            } catch (e) {
+                addMessage(`Invalid JSON: ${e.message}`, 'error');
+            }
+        }
+        
+        // Connect automatically on load
+        window.onload = function() {
+            // Uncomment to auto-connect
+            // connect();
+        };
+    </script>
+</body>
+</html>

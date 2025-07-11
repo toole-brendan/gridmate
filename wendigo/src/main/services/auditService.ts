@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import { join } from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
+import { logger } from '../utils/logger'
 
 export interface AuditEntry {
   id?: string
@@ -16,15 +17,24 @@ export interface AuditEntry {
 }
 
 export class AuditService {
-  private db: Database.Database
+  private db: Database.Database | null = null
+  private inMemoryLog: AuditEntry[] = []
+  private useInMemory: boolean = false
 
   constructor() {
-    const dbPath = join(app.getPath('userData'), 'wendigo-audit.db')
-    this.db = new Database(dbPath)
-    this.initializeDatabase()
+    try {
+      const dbPath = join(app.getPath('userData'), 'wendigo-audit.db')
+      this.db = new Database(dbPath)
+      this.initializeDatabase()
+    } catch (error) {
+      logger.warn('Failed to initialize SQLite database, using in-memory fallback:', error)
+      this.useInMemory = true
+    }
   }
 
   private initializeDatabase(): void {
+    if (!this.db) return
+    
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS audit_log (
         id TEXT PRIMARY KEY,
@@ -36,54 +46,76 @@ export class AuditService {
         response TEXT,
         timestamp INTEGER NOT NULL,
         metadata TEXT
-      )
-    `)
+      );
 
-    this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
       CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(type);
     `)
   }
 
-  async recordChange(entry: AuditEntry): Promise<void> {
+  addEntry(entry: Omit<AuditEntry, 'id' | 'timestamp'>): void {
+    const auditEntry: AuditEntry = {
+      id: uuidv4(),
+      timestamp: new Date(),
+      ...entry
+    }
+
+    if (this.useInMemory) {
+      this.inMemoryLog.push(auditEntry)
+      // Keep only last 1000 entries in memory
+      if (this.inMemoryLog.length > 1000) {
+        this.inMemoryLog = this.inMemoryLog.slice(-1000)
+      }
+      return
+    }
+
+    if (!this.db) return
+
     const stmt = this.db.prepare(`
-      INSERT INTO audit_log (id, type, target, old_value, new_value, timestamp, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO audit_log (id, type, target, old_value, new_value, message, response, timestamp, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     stmt.run(
-      uuidv4(),
-      entry.type,
-      entry.target || null,
-      JSON.stringify(entry.oldValue),
-      JSON.stringify(entry.newValue),
-      entry.timestamp.getTime(),
-      JSON.stringify(entry.metadata || {})
+      auditEntry.id,
+      auditEntry.type,
+      auditEntry.target || null,
+      JSON.stringify(auditEntry.oldValue) || null,
+      JSON.stringify(auditEntry.newValue) || null,
+      auditEntry.message || null,
+      auditEntry.response || null,
+      auditEntry.timestamp.getTime(),
+      JSON.stringify(auditEntry.metadata) || null
     )
   }
 
-  async recordInteraction(entry: AuditEntry): Promise<void> {
-    const stmt = this.db.prepare(`
-      INSERT INTO audit_log (id, type, message, response, timestamp, metadata)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `)
-
-    stmt.run(
-      uuidv4(),
-      entry.type,
-      entry.message || null,
-      entry.response || null,
-      entry.timestamp.getTime(),
-      JSON.stringify(entry.metadata || {})
-    )
-  }
-
-  async getHistory(filter?: {
+  getEntries(filter?: {
     type?: string
     startDate?: Date
     endDate?: Date
     limit?: number
-  }): Promise<AuditEntry[]> {
+  }): AuditEntry[] {
+    if (this.useInMemory) {
+      let entries = [...this.inMemoryLog]
+      
+      if (filter?.type) {
+        entries = entries.filter(e => e.type === filter.type)
+      }
+      if (filter?.startDate) {
+        entries = entries.filter(e => e.timestamp >= filter.startDate!)
+      }
+      if (filter?.endDate) {
+        entries = entries.filter(e => e.timestamp <= filter.endDate!)
+      }
+      if (filter?.limit) {
+        entries = entries.slice(-filter.limit)
+      }
+      
+      return entries
+    }
+
+    if (!this.db) return []
+
     let query = 'SELECT * FROM audit_log WHERE 1=1'
     const params: any[] = []
 
@@ -109,8 +141,7 @@ export class AuditService {
       params.push(filter.limit)
     }
 
-    const stmt = this.db.prepare(query)
-    const rows = stmt.all(...params)
+    const rows = this.db.prepare(query).all(...params)
 
     return rows.map(row => ({
       id: row.id,
@@ -125,19 +156,29 @@ export class AuditService {
     }))
   }
 
-  async clearHistory(beforeDate?: Date): Promise<number> {
+  clearEntries(beforeDate?: Date): void {
+    if (this.useInMemory) {
+      if (beforeDate) {
+        this.inMemoryLog = this.inMemoryLog.filter(e => e.timestamp >= beforeDate)
+      } else {
+        this.inMemoryLog = []
+      }
+      return
+    }
+
+    if (!this.db) return
+
     if (beforeDate) {
       const stmt = this.db.prepare('DELETE FROM audit_log WHERE timestamp < ?')
-      const result = stmt.run(beforeDate.getTime())
-      return result.changes
+      stmt.run(beforeDate.getTime())
     } else {
-      const stmt = this.db.prepare('DELETE FROM audit_log')
-      const result = stmt.run()
-      return result.changes
+      this.db.exec('DELETE FROM audit_log')
     }
   }
 
   close(): void {
-    this.db.close()
+    if (this.db) {
+      this.db.close()
+    }
   }
 }

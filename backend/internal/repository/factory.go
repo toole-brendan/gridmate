@@ -12,5 +12,7 @@ func NewRepositories(db *database.DB) *Repositories {
 		AuditLogs:  NewAuditLogRepository(db),
 		Sessions:   NewSessionRepository(db),
 		APIKeys:    NewAPIKeyRepository(db),
+		Documents:  NewDocumentRepository(db),
+		Embeddings: NewEmbeddingRepository(db),
 	}
 }

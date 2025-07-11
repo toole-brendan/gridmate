@@ -50,12 +50,31 @@ type SessionRepository interface {
 }
 
 type APIKeyRepository interface {
-	Create(ctx context.Context, userID uuid.UUID, name, keyHash, keyPrefix string) (*uuid.UUID, error)
+	Create(ctx context.Context, apiKey *models.APIKey, plainKey string) error
+	GetByID(ctx context.Context, id uuid.UUID) (*models.APIKey, error)
 	GetByKeyHash(ctx context.Context, keyHash string) (*models.APIKey, error)
 	GetByUserID(ctx context.Context, userID uuid.UUID) ([]*models.APIKey, error)
 	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	IsActive(ctx context.Context, keyHash string) (bool, error)
+	ValidateAPIKey(ctx context.Context, plainKey string) (*models.APIKey, error)
+}
+
+type DocumentRepository interface {
+	Create(ctx context.Context, doc *models.Document) error
+	GetByID(ctx context.Context, id uuid.UUID) (*models.Document, error)
+	GetByUserID(ctx context.Context, userID uuid.UUID, limit int) ([]*models.Document, error)
+	Update(ctx context.Context, doc *models.Document) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	Search(ctx context.Context, userID uuid.UUID, query string, limit int) ([]*models.Document, error)
+}
+
+type EmbeddingRepository interface {
+	Create(ctx context.Context, embedding *models.Embedding) error
+	BatchCreate(ctx context.Context, embeddings []*models.Embedding) error
+	GetByDocumentID(ctx context.Context, documentID uuid.UUID) ([]*models.Embedding, error)
+	SearchSimilar(ctx context.Context, userID uuid.UUID, embedding []float32, limit int) ([]*models.Embedding, error)
+	DeleteByDocumentID(ctx context.Context, documentID uuid.UUID) error
 }
 
 type Repositories struct {
@@ -64,4 +83,6 @@ type Repositories struct {
 	AuditLogs  AuditLogRepository
 	Sessions   SessionRepository
 	APIKeys    APIKeyRepository
+	Documents  DocumentRepository
+	Embeddings EmbeddingRepository
 }

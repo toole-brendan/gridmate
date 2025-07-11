@@ -23,6 +23,7 @@ import (
 	"github.com/gridmate/backend/internal/routes"
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/ai"
+	"github.com/gridmate/backend/internal/services/documents"
 	"github.com/gridmate/backend/internal/websocket"
 )
 
@@ -69,6 +70,14 @@ func main() {
 	// Initialize AI service
 	aiService := ai.NewService(cfg, logger)
 
+	// Initialize document service
+	var docService *documents.DocumentService
+	if aiService != nil {
+		docService = documents.NewDocumentService(logger, aiService, repos.Documents, repos.Embeddings)
+	} else {
+		logger.Warn("Document service not initialized - AI service unavailable")
+	}
+
 	// Initialize Excel bridge service
 	excelBridge := services.NewExcelBridge(wsHub, logger)
 	excelBridge.SetAIService(aiService)
@@ -91,7 +100,7 @@ func main() {
 	router.HandleFunc("/ws/status", wsHandler.GetStatus).Methods("GET")
 
 	// Register API routes
-	routes.RegisterAPIRoutes(router, repos, jwtManager, logger)
+	routes.RegisterAPIRoutes(router, repos, jwtManager, excelBridge, docService, logger)
 
 	// Configure CORS
 	corsOptions := cors.New(cors.Options{

@@ -4,7 +4,8 @@
       "Bash(npm install:*)",
       "Bash(mkdir:*)",
       "Bash(npm run:*)",
-      "WebFetch(domain:docs.anthropic.com)"
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(git remote set-url:*)"
     ],
     "deny": []
   }

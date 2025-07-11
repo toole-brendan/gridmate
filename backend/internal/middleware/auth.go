@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/gridmate/backend/internal/auth"
 	"github.com/gridmate/backend/internal/repository"
 	"github.com/sirupsen/logrus"
@@ -21,20 +20,20 @@ const (
 
 type AuthMiddleware struct {
 	jwtManager *auth.JWTManager
-	repos      *repository.Repositories
+	apiKeyRepo repository.APIKeyRepository
 	logger     *logrus.Logger
 }
 
-func NewAuthMiddleware(jwtManager *auth.JWTManager, repos *repository.Repositories, logger *logrus.Logger) *AuthMiddleware {
+func NewAuthMiddleware(jwtManager *auth.JWTManager, apiKeyRepo repository.APIKeyRepository, logger *logrus.Logger) *AuthMiddleware {
 	return &AuthMiddleware{
 		jwtManager: jwtManager,
-		repos:      repos,
+		apiKeyRepo: apiKeyRepo,
 		logger:     logger,
 	}
 }
 
-// RequireAuth validates JWT tokens and adds user info to context
-func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
+// Authenticate validates JWT tokens and adds user info to context
+func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
 		if token == "" {
@@ -42,15 +41,10 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, err := m.jwtManager.ValidateToken(token)
+		claims, err := m.jwtManager.ValidateAccessToken(token)
 		if err != nil {
 			m.logger.WithError(err).Debug("Invalid token")
 			respondUnauthorized(w, "Invalid authentication token")
-			return
-		}
-
-		if claims.TokenType != "access" {
-			respondUnauthorized(w, "Invalid token type")
 			return
 		}
 
@@ -110,43 +104,29 @@ func (m *AuthMiddleware) APIKeyAuth(next http.Handler) http.Handler {
 		apiKey := r.Header.Get("X-API-Key")
 		if apiKey == "" {
 			// Fall back to Bearer token auth
-			m.RequireAuth(next).ServeHTTP(w, r)
+			m.Authenticate(next).ServeHTTP(w, r)
 			return
 		}
 
-		// Hash the API key and look it up
-		keyHash := auth.HashAPIKey(apiKey)
-		key, err := m.repos.APIKeys.GetByKeyHash(r.Context(), keyHash)
+		// Validate the API key
+		apiKeyInfo, err := m.apiKeyRepo.ValidateAPIKey(r.Context(), apiKey)
 		if err != nil {
 			m.logger.WithError(err).Debug("Invalid API key")
 			respondUnauthorized(w, "Invalid API key")
 			return
 		}
 
-		if !key.IsActive {
-			respondUnauthorized(w, "API key is inactive")
-			return
-		}
-
-		// Get user info
-		user, err := m.repos.Users.GetByID(r.Context(), key.UserID)
-		if err != nil {
-			m.logger.WithError(err).Error("Failed to get user for API key")
-			respondInternalError(w)
-			return
-		}
-
 		// Update last used timestamp
 		go func() {
-			if err := m.repos.APIKeys.UpdateLastUsed(context.Background(), key.ID); err != nil {
+			if err := m.apiKeyRepo.UpdateLastUsed(context.Background(), apiKeyInfo.ID); err != nil {
 				m.logger.WithError(err).Error("Failed to update API key last used")
 			}
 		}()
 
 		// Add user info to context
-		ctx := context.WithValue(r.Context(), UserIDKey, user.ID)
-		ctx = context.WithValue(ctx, UserEmailKey, user.Email)
-		ctx = context.WithValue(ctx, UserRoleKey, user.Role)
+		ctx := context.WithValue(r.Context(), UserIDKey, apiKeyInfo.UserID)
+		ctx = context.WithValue(ctx, UserEmailKey, "") // API keys don't have email
+		ctx = context.WithValue(ctx, UserRoleKey, "api")
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -197,8 +177,8 @@ func respondInternalError(w http.ResponseWriter) {
 
 // Context helper functions
 
-func GetUserID(ctx context.Context) (uuid.UUID, bool) {
-	userID, ok := ctx.Value(UserIDKey).(uuid.UUID)
+func GetUserID(ctx context.Context) (string, bool) {
+	userID, ok := ctx.Value(UserIDKey).(string)
 	return userID, ok
 }
 

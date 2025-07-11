@@ -97,6 +97,37 @@ Transform financial modeling workflows by providing an intelligent AI assistant 
 - Security-first approach for data handling
 - Performance optimization for large models
 
+## Technical Implementation Notes
+
+### UUID vs String ID Handling
+The backend uses PostgreSQL UUID types for all IDs in the database models. However:
+- **Database Models**: Use `uuid.UUID` type from `github.com/google/uuid`
+- **JWT Claims**: Use string representation of UUIDs
+- **HTTP Handlers**: Convert between string (from JWT/requests) and UUID (for database)
+- **API Responses**: Return string representations of UUIDs to clients
+
+Example pattern for handlers:
+```go
+// Get string ID from context
+userIDStr := r.Context().Value("user_id").(string)
+
+// Parse to UUID for database operations
+userID, err := uuid.Parse(userIDStr)
+if err != nil {
+    h.sendError(w, http.StatusBadRequest, "Invalid user ID")
+    return
+}
+
+// Use UUID with repository
+user, err := h.userRepo.GetByID(r.Context(), userID)
+
+// Return string in response
+resp := UserResponse{
+    ID: user.ID.String(),
+    // ...
+}
+```
+
 ## Important Context for AI Assistance
 
 ### Domain Knowledge

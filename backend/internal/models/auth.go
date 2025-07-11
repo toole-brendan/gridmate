@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"time"
 
@@ -54,4 +56,12 @@ type CreateAPIKeyRequest struct {
 type CreateAPIKeyResponse struct {
 	APIKey    *APIKey `json:"api_key"`
 	PlainKey  string  `json:"plain_key"`
+}
+
+func GenerateAPIKey() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return "sk_" + base64.URLEncoding.EncodeToString(b)[:43] // Remove padding
 }

@@ -15,10 +15,12 @@ import (
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 	
+	"github.com/gridmate/backend/internal/auth"
 	"github.com/gridmate/backend/internal/config"
 	"github.com/gridmate/backend/internal/database"
 	"github.com/gridmate/backend/internal/handlers"
 	"github.com/gridmate/backend/internal/repository"
+	"github.com/gridmate/backend/internal/routes"
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/websocket"
@@ -56,6 +58,9 @@ func main() {
 	// Initialize repositories
 	repos := repository.NewRepositories(db)
 
+	// Initialize JWT manager
+	jwtManager := auth.NewJWTManager(&cfg.JWT)
+
 	// Initialize WebSocket hub
 	wsHub := websocket.NewHub(logger)
 	go wsHub.Run()
@@ -85,17 +90,8 @@ func main() {
 	router.HandleFunc("/ws", wsHandler.HandleWebSocket)
 	router.HandleFunc("/ws/status", wsHandler.GetStatus).Methods("GET")
 
-	// API routes
-	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	
-	// Add middleware
-	apiRouter.Use(loggingMiddleware(logger))
-	
-	// TODO: Add more routes here
-	apiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"message":"Welcome to Gridmate API","version":"1.0.0"}`)
-	}).Methods("GET")
+	// Register API routes
+	routes.RegisterAPIRoutes(router, repos, jwtManager, logger)
 
 	// Configure CORS
 	corsOptions := cors.New(cors.Options{

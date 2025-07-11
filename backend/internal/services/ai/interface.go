@@ -25,12 +25,14 @@ type AIProvider interface {
 
 // CompletionRequest represents a request for text completion
 type CompletionRequest struct {
-	Messages    []Message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Temperature float32   `json:"temperature,omitempty"`
-	TopP        float32   `json:"top_p,omitempty"`
-	Stream      bool      `json:"stream,omitempty"`
-	Model       string    `json:"model,omitempty"`
+	Messages      []Message `json:"messages"`
+	MaxTokens     int       `json:"max_tokens,omitempty"`
+	Temperature   float32   `json:"temperature,omitempty"`
+	TopP          float32   `json:"top_p,omitempty"`
+	Stream        bool      `json:"stream,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	SystemPrompt  string    `json:"system_prompt,omitempty"`
+	StopSequences []string  `json:"stop_sequences,omitempty"`
 }
 
 // CompletionResponse represents a completion response

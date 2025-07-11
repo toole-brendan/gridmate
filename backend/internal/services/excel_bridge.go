@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -80,13 +79,12 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 	session := eb.getOrCreateSession(clientID, message.SessionID)
 	
 	// Build context for AI
-	context := eb.buildContext(session, message.Context)
+	msgContext := eb.buildContext(session, message.Context)
 	
 	// Process with AI if available
 	var content string
 	var suggestions []string
 	var actions []websocket.ProposedAction
-	var err error
 	
 	if eb.aiService != nil {
 		// Create financial context for AI
@@ -105,12 +103,12 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 		}
 	} else {
 		// Fallback response when AI service is not available
-		content = eb.generateFallbackResponse(message.Content, context)
-		suggestions = eb.generateFallbackSuggestions(context)
+		content = eb.generateFallbackResponse(message.Content, msgContext)
+		suggestions = eb.generateFallbackSuggestions(msgContext)
 	}
 	
 	// Merge AI actions with any additional detected actions
-	if additionalActions := eb.detectRequestedActions(message.Content, context); len(additionalActions) > 0 {
+	if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
 		actions = append(actions, additionalActions...)
 	}
 	

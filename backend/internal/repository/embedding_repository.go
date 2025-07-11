@@ -6,17 +6,17 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	
+	"github.com/gridmate/backend/internal/database"
 	"github.com/gridmate/backend/internal/models"
 )
 
 type embeddingRepository struct {
-	db *sqlx.DB
+	db *database.DB
 }
 
-func NewEmbeddingRepository(db *sqlx.DB) EmbeddingRepository {
+func NewEmbeddingRepository(db *database.DB) EmbeddingRepository {
 	return &embeddingRepository{db: db}
 }
 

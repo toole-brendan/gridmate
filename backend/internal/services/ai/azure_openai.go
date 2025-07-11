@@ -142,15 +142,19 @@ func (p *AzureOpenAIProvider) Complete(ctx context.Context, request *CompletionR
 
 	choice := response.Choices[0]
 	return &CompletionResponse{
-		Content:      choice.Message.Content,
-		TokensUsed:   response.Usage.TotalTokens,
-		FinishReason: choice.FinishReason,
-		Model:        response.Model,
+		Content: choice.Message.Content,
+		Model:   response.Model,
+		Usage: Usage{
+			PromptTokens:     response.Usage.PromptTokens,
+			CompletionTokens: response.Usage.CompletionTokens,
+			TotalTokens:      response.Usage.TotalTokens,
+		},
+		Created: time.Now(),
 	}, nil
 }
 
 // CompleteStream generates a streaming completion for the given request
-func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *CompletionRequest) (<-chan StreamChunk, error) {
+func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *CompletionRequest) (<-chan CompletionChunk, error) {
 	openAIReq := p.buildRequest(request, true)
 	
 	body, err := json.Marshal(openAIReq)
@@ -159,7 +163,7 @@ func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *Compl
 	}
 
 	url := fmt.Sprintf("%s/openai/deployments/%s/chat/completions?api-version=%s",
-		p.config.BaseURL, p.config.Model, azureAPIVersion)
+		p.config.Endpoint, p.config.Model, azureAPIVersion)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
@@ -179,7 +183,7 @@ func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *Compl
 		return nil, fmt.Errorf("azure openai API error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	chunks := make(chan StreamChunk, 100)
+	chunks := make(chan CompletionChunk, 100)
 	
 	go func() {
 		defer close(chunks)
@@ -190,7 +194,7 @@ func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *Compl
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if err != io.EOF {
-					chunks <- StreamChunk{Error: err}
+					chunks <- CompletionChunk{Error: err}
 				}
 				break
 			}
@@ -202,7 +206,7 @@ func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *Compl
 
 			data := strings.TrimPrefix(line, "data: ")
 			if data == "[DONE]" {
-				chunks <- StreamChunk{Done: true}
+				chunks <- CompletionChunk{Done: true}
 				break
 			}
 
@@ -215,10 +219,10 @@ func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *Compl
 			if len(streamResp.Choices) > 0 {
 				choice := streamResp.Choices[0]
 				if choice.Delta.Content != "" {
-					chunks <- StreamChunk{Content: choice.Delta.Content}
+					chunks <- CompletionChunk{Content: choice.Delta.Content}
 				}
 				if choice.FinishReason != nil && *choice.FinishReason != "" {
-					chunks <- StreamChunk{Done: true}
+					chunks <- CompletionChunk{Done: true}
 				}
 			}
 		}
@@ -241,8 +245,8 @@ func (p *AzureOpenAIProvider) Embed(ctx context.Context, texts []string) ([][]fl
 	}
 
 	embeddings := make([][]float32, len(response.Data))
-	for i, data := range response.Data {
-		embeddings[data.Index] = data.Embedding
+	for i := range response.Data {
+		embeddings[response.Data[i].Index] = response.Data[i].Embedding
 	}
 
 	return embeddings, nil
@@ -255,7 +259,7 @@ func (p *AzureOpenAIProvider) GetName() string {
 
 // IsAvailable checks if the provider is configured and available
 func (p *AzureOpenAIProvider) IsAvailable() bool {
-	return p.config.APIKey != "" && p.config.BaseURL != ""
+	return p.config.APIKey != "" && p.config.Endpoint != ""
 }
 
 // buildRequest converts a CompletionRequest to openAIRequest
@@ -307,7 +311,7 @@ func (p *AzureOpenAIProvider) doRequestWithRetry(ctx context.Context, endpoint s
 	}
 
 	url := fmt.Sprintf("%s/openai/deployments/%s%s?api-version=%s",
-		p.config.BaseURL, deployment, endpoint, azureAPIVersion)
+		p.config.Endpoint, deployment, endpoint, azureAPIVersion)
 
 	for attempt := 0; attempt < p.config.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -346,7 +350,11 @@ func (p *AzureOpenAIProvider) doRequestWithRetry(ctx context.Context, endpoint s
 			if val := resp.Header.Get("Retry-After"); val != "" {
 				// Parse retry-after header
 			}
-			return &RateLimitError{RetryAfter: retryAfter}
+			return &AIError{
+				Type:       ErrorTypeRateLimit,
+				Message:    "Rate limit exceeded",
+				RetryAfter: retryAfter,
+			}
 		}
 
 		// Retry on server errors
@@ -369,4 +377,44 @@ func (p *AzureOpenAIProvider) doRequestWithRetry(ctx context.Context, endpoint s
 func (p *AzureOpenAIProvider) setHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("api-key", p.config.APIKey)
+}
+
+// GetProviderName returns the provider name
+func (p *AzureOpenAIProvider) GetProviderName() string {
+	return "azure_openai"
+}
+
+// GetCompletion implements AIProvider interface
+func (p *AzureOpenAIProvider) GetCompletion(ctx context.Context, request CompletionRequest) (*CompletionResponse, error) {
+	return p.Complete(ctx, &request)
+}
+
+// GetStreamingCompletion implements AIProvider interface
+func (p *AzureOpenAIProvider) GetStreamingCompletion(ctx context.Context, request CompletionRequest) (<-chan CompletionChunk, error) {
+	return p.CompleteStream(ctx, &request)
+}
+
+// GetEmbedding implements AIProvider interface
+func (p *AzureOpenAIProvider) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
+	embeddings, err := p.Embed(ctx, []string{text})
+	if err != nil {
+		return nil, err
+	}
+	if len(embeddings) == 0 {
+		return nil, fmt.Errorf("no embeddings returned")
+	}
+	return embeddings[0], nil
+}
+
+// IsHealthy implements AIProvider interface
+func (p *AzureOpenAIProvider) IsHealthy(ctx context.Context) error {
+	// Simple health check - verify we can make a small completion
+	req := CompletionRequest{
+		Messages: []Message{
+			{Role: "user", Content: "test"},
+		},
+		MaxTokens: 1,
+	}
+	_, err := p.GetCompletion(ctx, req)
+	return err
 }

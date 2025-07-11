@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/sirupsen/logrus"
 )
 
 // Service represents the main AI service
@@ -297,8 +298,8 @@ func createProvider(config ServiceConfig) (AIProvider, error) {
 			RetryDelay: 1 * time.Second,
 		}
 
-		// Return Azure OpenAI provider (would need to be implemented)
-		return nil, fmt.Errorf("Azure OpenAI provider not yet implemented")
+		logger := logrus.New()
+		return NewAzureOpenAIProvider(providerConfig, logger), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported AI provider: %s", config.Provider)
@@ -327,19 +328,9 @@ type ChatOptions struct {
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 }
 
-// ChatResponse represents a chat response to the client
-type ChatResponse struct {
-	Message     string    `json:"message"`
-	Actions     []Action  `json:"actions,omitempty"`
-	ModelType   string    `json:"model_type,omitempty"`
-	Usage       Usage     `json:"usage"`
-	Provider    string    `json:"provider"`
-	RequestTime time.Time `json:"request_time"`
-}
 
 // ProcessChatRequest processes a chat request from the client
 func (s *Service) ProcessChatRequest(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-	startTime := time.Now()
 
 	// Override service config with request options if provided
 	if req.Options != nil {
@@ -356,15 +347,22 @@ func (s *Service) ProcessChatRequest(ctx context.Context, req *ChatRequest) (*Ch
 
 	// Convert to client response format
 	chatResponse := &ChatResponse{
-		Message:     response.Content,
-		Actions:     response.Actions,
-		Usage:       response.Usage,
-		Provider:    s.provider.GetProviderName(),
-		RequestTime: startTime,
+		Message:    response.Content,
+		Model:      response.Model,
+		TokensUsed: response.Usage.TotalTokens,
+		Confidence: 0.95, // Default confidence
 	}
 
-	if req.Context != nil {
-		chatResponse.ModelType = req.Context.ModelType
+	// Convert actions to suggested actions format
+	if len(response.Actions) > 0 {
+		chatResponse.SuggestedActions = make([]SuggestedAction, len(response.Actions))
+		for i, action := range response.Actions {
+			chatResponse.SuggestedActions[i] = SuggestedAction{
+				Type:        action.Type,
+				Description: action.Description,
+				Target:      action.Parameters["target"].(string),
+			}
+		}
 	}
 
 	return chatResponse, nil

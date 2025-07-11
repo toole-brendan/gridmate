@@ -186,6 +186,83 @@ func (h *ChatHandler) GetChatSuggestions(w http.ResponseWriter, r *http.Request)
 	h.sendJSON(w, http.StatusOK, map[string][]string{"suggestions": suggestions[:8]})
 }
 
+// SuggestFormula suggests formulas based on context
+type SuggestFormulaRequest struct {
+	Description   string                 `json:"description" validate:"required"`
+	CellReference string                 `json:"cell_reference"`
+	ExcelContext  ExcelContext           `json:"excel_context,omitempty"`
+}
+
+type SuggestFormulaResponse struct {
+	Formulas []FormulaSuggestion `json:"formulas"`
+}
+
+type FormulaSuggestion struct {
+	Formula     string `json:"formula"`
+	Description string `json:"description"`
+	Example     string `json:"example,omitempty"`
+	Confidence  float64 `json:"confidence"`
+}
+
+// SuggestFormula provides AI-powered formula suggestions
+func (h *ChatHandler) SuggestFormula(w http.ResponseWriter, r *http.Request) {
+	var req SuggestFormulaRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Build prompt for formula suggestion
+	prompt := "Suggest Excel formulas for: " + req.Description
+	if req.CellReference != "" {
+		prompt += " (for cell " + req.CellReference + ")"
+	}
+
+	// Add Excel context if available
+	context := make(map[string]interface{})
+	if req.ExcelContext.Worksheet != "" {
+		context["worksheet"] = req.ExcelContext.Worksheet
+		context["cellValues"] = req.ExcelContext.CellValues
+		context["formulas"] = req.ExcelContext.Formulas
+	}
+
+	// Process through Excel bridge
+	chatMsg := websocket.ChatMessage{
+		Content: prompt,
+		Context: context,
+	}
+
+	response, err := h.excelBridge.ProcessChatMessage("", chatMsg)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to process formula suggestion")
+		h.sendError(w, http.StatusInternalServerError, "Failed to generate suggestions")
+		return
+	}
+
+	// Parse AI response into formula suggestions
+	// For now, return mock suggestions
+	suggestions := []FormulaSuggestion{
+		{
+			Formula:     "=SUM(A1:A10)",
+			Description: "Sums values in range A1 to A10",
+			Example:     "=SUM(Revenue!B2:B13)",
+			Confidence:  0.95,
+		},
+		{
+			Formula:     "=SUMIF(A:A,\">0\",B:B)",
+			Description: "Sums values in column B where corresponding value in column A is greater than 0",
+			Example:     "=SUMIF(Expenses!A:A,\"Marketing\",Expenses!B:B)",
+			Confidence:  0.85,
+		},
+	}
+
+	resp := SuggestFormulaResponse{
+		Formulas: suggestions,
+	}
+
+	h.sendJSON(w, http.StatusOK, resp)
+}
+
 func (h *ChatHandler) sendJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

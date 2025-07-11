@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	
+	"github.com/gridmate/backend/internal/database"
 	"github.com/gridmate/backend/internal/models"
 )
 
 type documentRepository struct {
-	db *sqlx.DB
+	db *database.DB
 }
 
-func NewDocumentRepository(db *sqlx.DB) DocumentRepository {
+func NewDocumentRepository(db *database.DB) DocumentRepository {
 	return &documentRepository{db: db}
 }
 

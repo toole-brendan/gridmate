@@ -11,7 +11,7 @@ import (
 )
 
 func RunMigrations(db *DB, migrationsPath string) error {
-	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
+	driver, err := postgres.WithInstance(db.DB.DB, &postgres.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to create migration driver: %w", err)
 	}
@@ -45,7 +45,7 @@ func RunMigrations(db *DB, migrationsPath string) error {
 }
 
 func RollbackMigration(db *DB, migrationsPath string, steps int) error {
-	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
+	driver, err := postgres.WithInstance(db.DB.DB, &postgres.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to create migration driver: %w", err)
 	}

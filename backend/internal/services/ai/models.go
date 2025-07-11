@@ -2,17 +2,6 @@ package ai
 
 import "time"
 
-// FinancialContext provides context about the current financial model
-type FinancialContext struct {
-	ModelType          string   // DCF, LBO, M&A, etc.
-	Industry           string
-	Company            string
-	Period             string   // e.g., "FY2023", "Q4 2023"
-	Currency           string
-	RecentCalculations []string // Recent formulas or calculations
-	ActiveSheet        string
-	ActiveRange        string
-}
 
 // FormulaAssistanceRequest represents a request for formula help
 type FormulaAssistanceRequest struct {

@@ -29,6 +29,9 @@ func RegisterAPIRoutes(
 	apiKeyHandler := handlers.NewAPIKeyHandler(repos, logger)
 	documentHandler := handlers.NewDocumentHandler(docService, logger)
 	chatHandler := handlers.NewChatHandler(excelBridge, docService, logger)
+	excelHandler := handlers.NewExcelHandler(excelBridge, logger)
+	modelsHandler := handlers.NewModelsHandler(logger)
+	auditHandler := handlers.NewAuditHandler(repos, logger)
 	
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtManager, repos.APIKey, logger)
@@ -81,4 +84,19 @@ func RegisterAPIRoutes(
 	chatRoutes := protected.PathPrefix("/ai").Subrouter()
 	chatRoutes.HandleFunc("/chat", chatHandler.Chat).Methods("POST")
 	chatRoutes.HandleFunc("/suggestions", chatHandler.GetChatSuggestions).Methods("GET")
+	chatRoutes.HandleFunc("/suggest", chatHandler.SuggestFormula).Methods("POST")
+	
+	// Excel routes (protected)
+	excelRoutes := protected.PathPrefix("/excel").Subrouter()
+	excelRoutes.HandleFunc("/context", excelHandler.SendContext).Methods("POST")
+	
+	// Model templates routes (protected)
+	modelsRoutes := protected.PathPrefix("/models").Subrouter()
+	modelsRoutes.HandleFunc("/templates", modelsHandler.GetTemplates).Methods("GET")
+	modelsRoutes.HandleFunc("/template", modelsHandler.GetTemplate).Methods("GET")
+	
+	// Audit routes (protected)
+	auditRoutes := protected.PathPrefix("/audit").Subrouter()
+	auditRoutes.HandleFunc("/log", auditHandler.LogAction).Methods("POST")
+	auditRoutes.HandleFunc("/logs", auditHandler.GetLogs).Methods("GET")
 }

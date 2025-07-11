@@ -20,7 +20,7 @@ type APIKeyHandler struct {
 
 func NewAPIKeyHandler(repos *repository.Repositories, logger *logrus.Logger) *APIKeyHandler {
 	return &APIKeyHandler{
-		apiKeyRepo: repos.APIKey,
+		apiKeyRepo: repos.APIKeys,
 		logger:     logger,
 	}
 }

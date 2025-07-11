@@ -2,10 +2,10 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 
@@ -14,7 +14,7 @@ import (
 
 // DB wraps the SQL database connection
 type DB struct {
-	*sql.DB
+	*sqlx.DB
 	logger *logrus.Logger
 }
 
@@ -30,7 +30,7 @@ func New(cfg *config.DatabaseConfig, logger *logrus.Logger) (*DB, error) {
 		cfg.SSLMode,
 	)
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sqlx.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}

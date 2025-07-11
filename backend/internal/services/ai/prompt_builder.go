@@ -3,7 +3,6 @@ package ai
 import (
 	"fmt"
 	"strings"
-	"time"
 )
 
 // PromptBuilder builds context-aware prompts for financial modeling

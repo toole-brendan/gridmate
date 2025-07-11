@@ -36,7 +36,43 @@ See [implementation-plan.md](implementation-plan.md) for detailed technical road
 
 ## Getting Started
 
-*Coming soon - Development setup instructions*
+### Prerequisites
+
+- Node.js 18 or higher
+- npm or yarn
+- Excel (for Excel integration)
+- Google account (for Google Sheets integration)
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/wendigo/wendigo-app.git
+cd wendigo-app
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env and add your ANTHROPIC_API_KEY
+```
+
+4. Run in development mode:
+```bash
+npm run dev
+```
+
+### Building
+
+To build the application for production:
+```bash
+npm run build
+```
 
 ## Documentation
 

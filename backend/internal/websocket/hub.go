@@ -99,6 +99,11 @@ func (h *Hub) Stop() {
 	h.cancel()
 }
 
+// RegisterClient registers a new client with the hub
+func (h *Hub) RegisterClient(client *Client) {
+	h.register <- client
+}
+
 // registerClient adds a new client to the hub
 func (h *Hub) registerClient(client *Client) {
 	h.mutex.Lock()

@@ -68,7 +68,10 @@ func main() {
 	defer wsHub.Stop()
 
 	// Initialize AI service
-	aiService := ai.NewService(cfg, logger)
+	aiService, err := ai.NewServiceFromEnv()
+	if err != nil {
+		logger.WithError(err).Warn("Failed to initialize AI service")
+	}
 
 	// Initialize document service
 	var docService *documents.DocumentService

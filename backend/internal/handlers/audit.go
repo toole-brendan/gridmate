@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	
+	"github.com/gridmate/backend/internal/models"
 	"github.com/gridmate/backend/internal/repository"
 )
 
@@ -51,10 +53,10 @@ type AuditLog struct {
 	WorkspaceID string                 `json:"workspace_id,omitempty"`
 	Action      string                 `json:"action"`
 	EntityType  string                 `json:"entity_type"`
-	EntityID    string                 `json:"entity_id,omitempty"`
+	EntityID    *string                `json:"entity_id,omitempty"`
 	Description string                 `json:"description,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	IPAddress   string                 `json:"ip_address,omitempty"`
+	IPAddress   *string                `json:"ip_address,omitempty"`
 	UserAgent   string                 `json:"user_agent,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 }
@@ -84,31 +86,49 @@ func (h *AuditHandler) LogAction(w http.ResponseWriter, r *http.Request) {
 	}
 	userAgent := r.Header.Get("User-Agent")
 	
-	// Parse workspace ID if provided
-	var workspaceID *uuid.UUID
-	if req.WorkspaceID != "" {
-		wsID, err := uuid.Parse(req.WorkspaceID)
-		if err != nil {
-			h.sendError(w, http.StatusBadRequest, "Invalid workspace ID")
-			return
-		}
-		workspaceID = &wsID
+	// Note: WorkspaceID is in the request but not in the AuditLog model
+	// This might be a future feature
+	
+	// Parse IP address
+	var ipAddr *net.IP
+	if ipAddress != "" {
+		ip := net.ParseIP(ipAddress)
+		ipAddr = &ip
 	}
 	
 	// Create audit log entry
-	auditID, err := h.repos.AuditLogs.LogAction(r.Context(), repository.AuditLogParams{
-		UserID:      userID,
-		WorkspaceID: workspaceID,
-		Action:      req.Action,
-		EntityType:  req.EntityType,
-		EntityID:    req.EntityID,
-		Description: req.Description,
-		Metadata:    req.Metadata,
-		IPAddress:   ipAddress,
-		UserAgent:   userAgent,
-	})
+	auditLog := &models.AuditLog{
+		ID:         uuid.New(),
+		UserID:     &userID,
+		Action:     req.Action,
+		EntityType: &req.EntityType,
+		Changes:    nil, // Will be set below after conversion
+		IPAddress:  ipAddr,
+		UserAgent:  &userAgent,
+		CreatedAt:  time.Now(),
+	}
 	
-	if err != nil {
+	// Parse EntityID if provided
+	if req.EntityID != "" {
+		entID, err := uuid.Parse(req.EntityID)
+		if err != nil {
+			h.sendError(w, http.StatusBadRequest, "Invalid entity ID")
+			return
+		}
+		auditLog.EntityID = &entID
+	}
+	
+	// Convert metadata to JSON
+	if req.Metadata != nil {
+		metadataJSON, err := json.Marshal(req.Metadata)
+		if err != nil {
+			h.sendError(w, http.StatusBadRequest, "Invalid metadata")
+			return
+		}
+		auditLog.Changes = metadataJSON
+	}
+	
+	if err := h.repos.AuditLogs.Create(r.Context(), auditLog); err != nil {
 		h.logger.WithError(err).Error("Failed to create audit log")
 		h.sendError(w, http.StatusInternalServerError, "Failed to log action")
 		return
@@ -121,8 +141,8 @@ func (h *AuditHandler) LogAction(w http.ResponseWriter, r *http.Request) {
 	}).Info("Audit log created")
 	
 	h.sendJSON(w, http.StatusCreated, LogActionResponse{
-		ID:        auditID.String(),
-		CreatedAt: time.Now(),
+		ID:        auditLog.ID.String(),
+		CreatedAt: auditLog.CreatedAt,
 	})
 }
 
@@ -146,60 +166,82 @@ func (h *AuditHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
 		pageSize = 20
 	}
 	
-	workspaceIDStr := r.URL.Query().Get("workspace_id")
+	// workspaceIDStr := r.URL.Query().Get("workspace_id") // Not used in current model
 	entityType := r.URL.Query().Get("entity_type")
 	action := r.URL.Query().Get("action")
 	
 	// Build filter
-	filter := repository.AuditLogFilter{
+	filter := &models.AuditLogFilter{
 		UserID:     &userID,
-		EntityType: entityType,
-		Action:     action,
 		Limit:      pageSize,
 		Offset:     (page - 1) * pageSize,
 	}
 	
-	if workspaceIDStr != "" {
-		wsID, err := uuid.Parse(workspaceIDStr)
-		if err != nil {
-			h.sendError(w, http.StatusBadRequest, "Invalid workspace ID")
-			return
-		}
-		filter.WorkspaceID = &wsID
+	if entityType != "" {
+		filter.EntityType = &entityType
+	}
+	if action != "" {
+		filter.Action = &action
 	}
 	
-	// Get logs
-	logs, totalCount, err := h.repos.Audit.GetLogs(r.Context(), filter)
+	// Get logs and count separately
+	logs, err := h.repos.AuditLogs.List(r.Context(), filter)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to get audit logs")
 		h.sendError(w, http.StatusInternalServerError, "Failed to retrieve logs")
 		return
 	}
 	
+	totalCount, err := h.repos.AuditLogs.Count(r.Context(), filter)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to count audit logs")
+		h.sendError(w, http.StatusInternalServerError, "Failed to count logs")
+		return
+	}
+	
 	// Convert to response format
 	responseLogs := make([]AuditLog, len(logs))
 	for i, log := range logs {
-		responseLogs[i] = AuditLog{
-			ID:          log.ID.String(),
-			UserID:      log.UserID.String(),
-			Action:      log.Action,
-			EntityType:  log.EntityType,
-			EntityID:    log.EntityID,
-			Description: log.Description,
-			Metadata:    log.Metadata,
-			IPAddress:   log.IPAddress,
-			UserAgent:   log.UserAgent,
-			CreatedAt:   log.CreatedAt,
+		auditLog := AuditLog{
+			ID:        log.ID.String(),
+			Action:    log.Action,
+			Metadata:  nil, // Will be set below after parsing
+			CreatedAt: log.CreatedAt,
 		}
 		
-		if log.WorkspaceID != nil {
-			responseLogs[i].WorkspaceID = log.WorkspaceID.String()
+		// Parse metadata from Changes field
+		if log.Changes != nil && len(log.Changes) > 0 {
+			var metadata map[string]interface{}
+			if err := json.Unmarshal(log.Changes, &metadata); err == nil {
+				auditLog.Metadata = metadata
+			}
 		}
+		
+		// Handle optional fields
+		if log.UserID != nil {
+			auditLog.UserID = log.UserID.String()
+		}
+		if log.EntityType != nil {
+			auditLog.EntityType = *log.EntityType
+		}
+		if log.EntityID != nil {
+			id := log.EntityID.String()
+			auditLog.EntityID = &id
+		}
+		if log.IPAddress != nil {
+			ipStr := log.IPAddress.String()
+			auditLog.IPAddress = &ipStr
+		}
+		if log.UserAgent != nil {
+			auditLog.UserAgent = *log.UserAgent
+		}
+		
+		responseLogs[i] = auditLog
 	}
 	
 	h.sendJSON(w, http.StatusOK, GetLogsResponse{
 		Logs:       responseLogs,
-		TotalCount: totalCount,
+		TotalCount: int(totalCount),
 		Page:       page,
 		PageSize:   pageSize,
 	})

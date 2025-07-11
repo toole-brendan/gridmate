@@ -34,7 +34,7 @@ func RegisterAPIRoutes(
 	auditHandler := handlers.NewAuditHandler(repos, logger)
 	
 	// Initialize middleware
-	authMiddleware := middleware.NewAuthMiddleware(jwtManager, repos.APIKey, logger)
+	authMiddleware := middleware.NewAuthMiddleware(jwtManager, repos.APIKeys, logger)
 	
 	// API v1 routes
 	api := router.PathPrefix("/api/v1").Subrouter()

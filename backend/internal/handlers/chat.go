@@ -160,7 +160,7 @@ func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
 
 // GetChatSuggestions returns contextual suggestions
 func (h *ChatHandler) GetChatSuggestions(w http.ResponseWriter, r *http.Request) {
-	userIDStr := r.Context().Value("user_id").(string)
+	// userIDStr := r.Context().Value("user_id").(string) // TODO: Use when needed
 	
 	// Get context from query params
 	worksheet := r.URL.Query().Get("worksheet")
@@ -232,7 +232,7 @@ func (h *ChatHandler) SuggestFormula(w http.ResponseWriter, r *http.Request) {
 		Context: context,
 	}
 
-	response, err := h.excelBridge.ProcessChatMessage("", chatMsg)
+	_, err := h.excelBridge.ProcessChatMessage("", chatMsg)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to process formula suggestion")
 		h.sendError(w, http.StatusInternalServerError, "Failed to generate suggestions")

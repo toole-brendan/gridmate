@@ -367,3 +367,20 @@ func (s *Service) ProcessChatRequest(ctx context.Context, req *ChatRequest) (*Ch
 
 	return chatResponse, nil
 }
+
+// GetCompletion implements the AIProvider interface
+func (s *Service) GetCompletion(ctx context.Context, request CompletionRequest) (*CompletionResponse, error) {
+	// Use the underlying provider's GetCompletion method
+	return s.provider.GetCompletion(ctx, request)
+}
+
+// GetStreamingCompletion implements the AIProvider interface
+func (s *Service) GetStreamingCompletion(ctx context.Context, request CompletionRequest) (<-chan CompletionChunk, error) {
+	// Use the underlying provider's GetStreamingCompletion method
+	return s.provider.GetStreamingCompletion(ctx, request)
+}
+
+// GetProviderName implements the AIProvider interface
+func (s *Service) GetProviderName() string {
+	return s.provider.GetProviderName()
+}

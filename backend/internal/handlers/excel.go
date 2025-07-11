@@ -46,13 +46,22 @@ func (h *ExcelHandler) SendContext(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Store context in ExcelBridge
-	h.excelBridge.UpdateContext(userID, services.ExcelContext{
-		WorkbookName:  req.WorkbookName,
-		WorksheetName: req.WorksheetName,
-		SelectedRange: req.SelectedRange,
-		Values:        req.Values,
-		Formulas:      req.Formulas,
-	})
+	// TODO: Implement UpdateContext method in ExcelBridge
+	// h.excelBridge.UpdateContext(userID, services.ExcelContext{
+	// 	WorkbookName:  req.WorkbookName,
+	// 	WorksheetName: req.WorksheetName,
+	// 	SelectedRange: req.SelectedRange,
+	// 	Values:        req.Values,
+	// 	Formulas:      req.Formulas,
+	// })
+	
+	// For now, just log the context
+	h.logger.WithFields(logrus.Fields{
+		"user_id":       userID,
+		"workbook":      req.WorkbookName,
+		"worksheet":     req.WorksheetName,
+		"selected_range": req.SelectedRange,
+	}).Debug("Excel context received")
 	
 	h.logger.WithFields(logrus.Fields{
 		"user_id":  userID,

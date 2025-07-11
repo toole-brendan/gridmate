@@ -27,14 +27,12 @@ func NewAPIKeyHandler(repos *repository.Repositories, logger *logrus.Logger) *AP
 
 type CreateAPIKeyRequest struct {
 	Name        string    `json:"name" validate:"required"`
-	Description string    `json:"description,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
 type CreateAPIKeyResponse struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
 	Key         string     `json:"key"` // Only returned on creation
 	CreatedAt   time.Time  `json:"created_at"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
@@ -43,7 +41,6 @@ type CreateAPIKeyResponse struct {
 type APIKeyListResponse struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
 	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
@@ -71,7 +68,6 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	apiKey := &models.APIKey{
 		UserID:      userID,
 		Name:        req.Name,
-		Description: req.Description,
 		ExpiresAt:   req.ExpiresAt,
 	}
 
@@ -85,7 +81,6 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 	resp := CreateAPIKeyResponse{
 		ID:          apiKey.ID.String(),
 		Name:        apiKey.Name,
-		Description: apiKey.Description,
 		Key:         plainKey, // Return the plain key only on creation
 		CreatedAt:   apiKey.CreatedAt,
 		ExpiresAt:   apiKey.ExpiresAt,
@@ -95,7 +90,14 @@ func (h *APIKeyHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
+	userIDStr := r.Context().Value("user_id").(string)
+	
+	// Parse user ID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
 
 	apiKeys, err := h.apiKeyRepo.GetByUserID(r.Context(), userID)
 	if err != nil {
@@ -108,9 +110,8 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 	resp := make([]APIKeyListResponse, len(apiKeys))
 	for i, key := range apiKeys {
 		resp[i] = APIKeyListResponse{
-			ID:          key.ID,
+			ID:          key.ID.String(),
 			Name:        key.Name,
-			Description: key.Description,
 			LastUsedAt:  key.LastUsedAt,
 			CreatedAt:   key.CreatedAt,
 			ExpiresAt:   key.ExpiresAt,
@@ -121,8 +122,22 @@ func (h *APIKeyHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIKeyHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("user_id").(string)
-	keyID := mux.Vars(r)["id"]
+	userIDStr := r.Context().Value("user_id").(string)
+	keyIDStr := mux.Vars(r)["id"]
+	
+	// Parse user ID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid user ID")
+		return
+	}
+	
+	// Parse key ID
+	keyID, err := uuid.Parse(keyIDStr)
+	if err != nil {
+		h.sendError(w, http.StatusBadRequest, "Invalid API key ID")
+		return
+	}
 
 	// Check if the key belongs to the user
 	apiKey, err := h.apiKeyRepo.GetByID(r.Context(), keyID)

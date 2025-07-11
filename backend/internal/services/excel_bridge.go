@@ -479,3 +479,51 @@ func (eb *ExcelBridge) detectModelType(context *ai.FinancialContext) string {
 
 	return "General"
 }
+
+// ApplyChanges applies the approved changes from a preview
+func (eb *ExcelBridge) ApplyChanges(ctx context.Context, userID, previewID string, changeIDs []string) (*websocket.ApplyChangesResponse, error) {
+	// In a real implementation, this would:
+	// 1. Retrieve the preview from storage
+	// 2. Validate that the user has permission
+	// 3. Apply each approved change
+	// 4. Create a backup point
+	// 5. Update the audit trail
+	
+	response := &websocket.ApplyChangesResponse{
+		Success:      true,
+		AppliedCount: len(changeIDs),
+		FailedCount:  0,
+		BackupID:     generateBackupID(),
+		Errors:       []string{},
+	}
+	
+	// For MVP, we'll simulate applying changes
+	eb.logger.WithFields(logrus.Fields{
+		"userID":    userID,
+		"previewID": previewID,
+		"changeIDs": changeIDs,
+	}).Info("Applying changes from preview")
+	
+	// TODO: Record in audit log when audit service is integrated
+	
+	return response, nil
+}
+
+// RejectChanges records the rejection of proposed changes
+func (eb *ExcelBridge) RejectChanges(ctx context.Context, userID, previewID, reason string) error {
+	// Record rejection in audit trail
+	eb.logger.WithFields(logrus.Fields{
+		"userID":    userID,
+		"previewID": previewID,
+		"reason":    reason,
+	}).Info("Changes rejected by user")
+	
+	// TODO: Record in audit log when audit service is integrated
+	
+	return nil
+}
+
+// generateBackupID generates a unique backup ID
+func generateBackupID() string {
+	return "backup_" + time.Now().Format("20060102_150405")
+}

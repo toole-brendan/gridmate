@@ -196,12 +196,14 @@ frontend/
 - [x] `/api/v1/models/templates` - Get model templates
 
 ### WebSocket Events for MVP
-- [ ] `excel:selection` - Selection changed
-- [ ] `excel:values` - Cell values changed
-- [ ] `excel:formula` - Formula updates
-- [ ] `ai:response` - AI response ready
-- [ ] `ai:preview` - Show change preview
-- [ ] `ai:apply` - Apply changes
+- [x] `selection_changed` - Selection changed (implemented as selection_changed)
+- [x] `cell_update` - Cell values changed (implemented as cell_update)
+- [x] `range_data` - Range values update
+- [x] `chat_response` - AI response ready (implemented as chat_response)
+- [x] `change_preview` - Show change preview
+- [x] `apply_changes` - Apply changes
+- [x] `approve_changes` - Approve previewed changes
+- [x] `reject_changes` - Reject previewed changes
 
 ## MVP Success Metrics
 

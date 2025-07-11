@@ -49,6 +49,8 @@ type ExcelBridgeService interface {
 	GetRangeValues(sheet, rangeAddr string) ([][]interface{}, error)
 	UpdateCell(update CellUpdate) error
 	UpdateRange(rangeData RangeData) error
+	ApplyChanges(ctx context.Context, userID, previewID string, changeIDs []string) (*ApplyChangesResponse, error)
+	RejectChanges(ctx context.Context, userID, previewID, reason string) error
 }
 
 // NewHub creates a new Hub instance
@@ -69,6 +71,11 @@ func NewHub(logger *logrus.Logger) *Hub {
 // SetExcelBridge sets the Excel bridge service
 func (h *Hub) SetExcelBridge(bridge ExcelBridgeService) {
 	h.excelBridge = bridge
+}
+
+// GetExcelBridge returns the Excel bridge service
+func (h *Hub) GetExcelBridge() ExcelBridgeService {
+	return h.excelBridge
 }
 
 // Run starts the hub's main loop

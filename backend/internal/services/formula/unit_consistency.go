@@ -2,7 +2,6 @@ package formula
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"strings"
 )

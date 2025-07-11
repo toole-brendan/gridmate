@@ -198,6 +198,10 @@ func (c *Client) handleMessage(data []byte) error {
 		return c.handleSubscribe(msg)
 	case MessageTypeUnsubscribe:
 		return c.handleUnsubscribe(msg)
+	case MessageTypeApproveChanges:
+		return c.handleApproveChanges(msg)
+	case MessageTypeRejectChanges:
+		return c.handleRejectChanges(msg)
 	default:
 		return c.sendError("unknown_message_type", "Unknown message type: "+string(msg.Type))
 	}
@@ -427,6 +431,63 @@ func (c *Client) isSubscribedTo(key string) bool {
 	c.subMutex.RLock()
 	defer c.subMutex.RUnlock()
 	return c.subscriptions[key]
+}
+
+// Change approval handlers
+func (c *Client) handleApproveChanges(msg *Message) error {
+	var req ApplyChangesRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return err
+	}
+
+	// Get the excel bridge service
+	excelBridge := c.hub.GetExcelBridge()
+	if excelBridge == nil {
+		return c.sendError("service_unavailable", "Excel bridge service not available")
+	}
+
+	// Apply the changes
+	result, err := excelBridge.ApplyChanges(c.ctx, c.userID, req.PreviewID, req.ChangeIDs)
+	if err != nil {
+		return c.sendError("apply_failed", err.Error())
+	}
+
+	// Send response
+	return c.sendMessage(MessageTypeApplyChanges, ApplyChangesResponse{
+		Success:      result.Success,
+		AppliedCount: result.AppliedCount,
+		FailedCount:  result.FailedCount,
+		BackupID:     result.BackupID,
+		Errors:       result.Errors,
+	})
+}
+
+func (c *Client) handleRejectChanges(msg *Message) error {
+	var req struct {
+		PreviewID string `json:"previewId"`
+		Reason    string `json:"reason,omitempty"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return err
+	}
+
+	// Get the excel bridge service
+	excelBridge := c.hub.GetExcelBridge()
+	if excelBridge == nil {
+		return c.sendError("service_unavailable", "Excel bridge service not available")
+	}
+
+	// Record the rejection for audit trail
+	if err := excelBridge.RejectChanges(c.ctx, c.userID, req.PreviewID, req.Reason); err != nil {
+		return c.sendError("reject_failed", err.Error())
+	}
+
+	// Send confirmation
+	return c.sendMessage(MessageTypeNotification, NotificationMessage{
+		Level:   "info",
+		Title:   "Changes Rejected",
+		Message: "The proposed changes have been rejected and will not be applied.",
+	})
 }
 
 // generateClientID generates a unique client ID

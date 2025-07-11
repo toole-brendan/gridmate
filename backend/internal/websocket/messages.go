@@ -19,6 +19,8 @@ const (
 	MessageTypeGetRangeValues   MessageType = "get_range_values"
 	MessageTypeSubscribe        MessageType = "subscribe"
 	MessageTypeUnsubscribe      MessageType = "unsubscribe"
+	MessageTypeApproveChanges   MessageType = "approve_changes"
+	MessageTypeRejectChanges    MessageType = "reject_changes"
 
 	// Server to client message types
 	MessageTypeAuthSuccess      MessageType = "auth_success"
@@ -28,6 +30,8 @@ const (
 	MessageTypeRangeDataUpdate  MessageType = "range_data_update"
 	MessageTypeError            MessageType = "error"
 	MessageTypeNotification     MessageType = "notification"
+	MessageTypeChangePreview    MessageType = "change_preview"
+	MessageTypeApplyChanges     MessageType = "apply_changes"
 )
 
 // Message is the base structure for all WebSocket messages
@@ -147,6 +151,50 @@ type SubscriptionRequest struct {
 	Sheets []string `json:"sheets,omitempty"`
 	Cells  []string `json:"cells,omitempty"`
 	Ranges []string `json:"ranges,omitempty"`
+}
+
+// ChangePreview represents a preview of changes to be applied
+type ChangePreview struct {
+	ID          string           `json:"id"`
+	Changes     []CellChange     `json:"changes"`
+	Description string           `json:"description"`
+	Impact      ChangeImpact     `json:"impact"`
+	SessionID   string           `json:"sessionId"`
+}
+
+// CellChange represents a single cell change in the preview
+type CellChange struct {
+	Sheet       string      `json:"sheet"`
+	Cell        string      `json:"cell"`
+	OldValue    interface{} `json:"oldValue"`
+	NewValue    interface{} `json:"newValue"`
+	OldFormula  string      `json:"oldFormula,omitempty"`
+	NewFormula  string      `json:"newFormula,omitempty"`
+	ChangeType  string      `json:"changeType"` // value, formula, format
+}
+
+// ChangeImpact describes the impact of proposed changes
+type ChangeImpact struct {
+	AffectedCells    []string `json:"affectedCells"`
+	DependentCells   []string `json:"dependentCells"`
+	RecalculationNeeded bool  `json:"recalculationNeeded"`
+	RiskLevel        string   `json:"riskLevel"` // low, medium, high
+}
+
+// ApplyChangesRequest represents a request to apply previewed changes
+type ApplyChangesRequest struct {
+	PreviewID   string   `json:"previewId"`
+	ChangeIDs   []string `json:"changeIds,omitempty"` // Optional: specific changes to apply
+	SkipBackup  bool     `json:"skipBackup,omitempty"`
+}
+
+// ApplyChangesResponse represents the result of applying changes
+type ApplyChangesResponse struct {
+	Success      bool     `json:"success"`
+	AppliedCount int      `json:"appliedCount"`
+	FailedCount  int      `json:"failedCount"`
+	BackupID     string   `json:"backupId,omitempty"`
+	Errors       []string `json:"errors,omitempty"`
 }
 
 // ParseMessage parses a raw WebSocket message into the appropriate type

@@ -258,6 +258,86 @@ frontend/
    - AI service with real Excel data
    - Document context retrieval performance
 
+## Frontend Architecture Recommendations (Simplified for MVP)
+
+### Current Structure Analysis
+The project currently has mixed frontend code within the `src/` directory:
+- Electron desktop app code (unnecessary for MVP)
+- Excel Add-in code (core product)
+- Shared components between both
+
+### Recommended MVP Structure
+```
+gridmate/
+├── backend/                    # ✓ Already properly organized
+├── frontend-excel/             # Core product - Excel Add-in
+│   ├── src/
+│   │   ├── components/         # All UI components (Chat, Autonomy, etc.)
+│   │   ├── services/           # Office.js integration
+│   │   ├── store/              # State management
+│   │   └── app.tsx             # Main entry point
+│   ├── public/
+│   │   ├── manifest.xml        # Move from root
+│   │   ├── excel.html          # Add-in host page
+│   │   └── assets/             # Icons and static assets
+│   ├── package.json            # Excel Add-in specific deps
+│   └── vite.config.ts          # Build configuration
+└── frontend-web/               # Marketing & account management
+    ├── src/
+    │   ├── pages/              # Landing, pricing, docs, dashboard
+    │   ├── components/         # Web-specific components
+    │   └── app.tsx             
+    ├── public/
+    └── package.json
+```
+
+### Why Skip the Electron Desktop App
+1. **Redundant Functionality**
+   - Excel Add-in already provides the full Gridmate experience
+   - No need for a separate desktop app that does the same thing
+   - Users want to work directly in Excel, not switch apps
+
+2. **Simplified Development**
+   - One less codebase to maintain
+   - Faster time to market
+   - Clearer value proposition
+
+3. **Better User Experience**
+   - Native Excel integration is the key differentiator
+   - No context switching between apps
+   - Seamless workflow for financial analysts
+
+### MVP Frontend Priorities
+1. **Excel Add-in** (Primary Product)
+   - Full chat interface with AI
+   - Autonomy controls
+   - Change preview system
+   - Audit trail
+   - All features directly in Excel taskpane
+
+2. **Web Frontend** (Supporting Infrastructure)
+   - Marketing landing page
+   - User registration/login
+   - Account management
+   - Documentation
+   - Billing/subscription management
+
+### Migration Plan (Simplified)
+1. **Phase 1: Extract Excel Add-in**
+   - Move Excel-specific code to `frontend-excel/`
+   - Remove Electron-related code
+   - Update build scripts
+
+2. **Phase 2: Create Web Frontend**
+   - Set up new Next.js or Vite project
+   - Build landing page and auth flows
+   - Connect to backend APIs
+
+3. **Phase 3: Clean Up**
+   - Remove old `src/` directory
+   - Update all documentation
+   - Simplify CI/CD pipelines
+
 ## Immediate Next Steps
 
 1. **Fix Backend Compilation** (Critical)
@@ -265,17 +345,22 @@ frontend/
    - Update models to match database schema
    - Ensure all repository methods are properly implemented
 
-2. **Complete Phase 4 Features**
+2. **Frontend Restructuring** (High Priority)
+   - Implement the recommended frontend separation
+   - Create proper build pipelines for each frontend
+   - Update documentation to reflect new structure
+
+3. **Complete Phase 4 Features**
    - Implement formula error detection
    - Build revenue projection wizard
    - Create sensitivity analysis tools
 
-3. **Integration Testing**
+4. **Integration Testing**
    - Test Excel Add-in with real spreadsheets
    - Verify AI responses with financial context
    - Validate autonomy controls work as expected
 
-4. **Performance Optimization**
+5. **Performance Optimization**
    - Optimize large Excel file handling
    - Implement smart caching for cell values
    - Reduce AI response latency

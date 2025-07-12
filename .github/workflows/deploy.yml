@@ -66,7 +66,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "web-app"
-          app_artifact_location: "web-app/out"
+          app_artifact_location: "out"
           skip_app_build: true
 
   deploy-excel-addin:

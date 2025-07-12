@@ -19,7 +19,9 @@
       "Bash(dig:*)",
       "Bash(chmod:*)",
       "Bash(echo:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": []
   }

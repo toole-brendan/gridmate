@@ -35,10 +35,12 @@ export default function Footer() {
           {/* Logo and description */}
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="flex items-center space-x-2 mb-4">
-              <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">G</span>
-              </div>
-              <span className="text-white font-semibold">Gridmate</span>
+              <img 
+                src="/gridmate_icon.png" 
+                alt="Gridmate logo" 
+                className="w-8 h-8"
+              />
+              <span className="text-white text-lg tracking-[0.2em]" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontWeight: 300 }}>GRIDMATE</span>
             </Link>
             <p className="text-sm text-gray-400">
               AI-powered financial modeling for Excel.
@@ -102,7 +104,7 @@ export default function Footer() {
         {/* Bottom section */}
         <div className="mt-12 pt-8 border-t border-gray-800 flex flex-col md:flex-row justify-between items-center">
           <p className="text-sm text-gray-400">
-            © 2025 Gridmate. All rights reserved.
+            © 2025 GridMate. All rights reserved.
           </p>
           <div className="flex space-x-6 mt-4 md:mt-0">
             <a href="https://twitter.com/gridmate" className="text-gray-400 hover:text-white">

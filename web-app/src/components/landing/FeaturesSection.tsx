@@ -7,6 +7,7 @@ import {
   CpuChipIcon,
   ClockIcon
 } from '@heroicons/react/24/outline'
+import ExcelMockup from './ExcelMockup'
 
 const features = [
   {
@@ -62,6 +63,17 @@ export default function FeaturesSection() {
             Built by financial analysts, for financial analysts. Every feature designed 
             to make your modeling faster, more accurate, and fully auditable.
           </p>
+        </motion.div>
+
+        {/* Excel mockup animation */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6 }}
+          className="max-w-4xl mx-auto mb-16"
+        >
+          <ExcelMockup />
         </motion.div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">

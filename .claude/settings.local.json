@@ -17,7 +17,8 @@
       "Bash(nslookup:*)",
       "Bash(curl:*)",
       "Bash(dig:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(echo:*)"
     ],
     "deny": []
   }

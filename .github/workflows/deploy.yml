@@ -203,16 +203,3 @@ jobs:
             echo "✅ Backend deployed" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Send Slack notification
-        if: ${{ github.event.inputs.environment == 'production' }}
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          text: |
-            Deployment to ${{ github.event.inputs.environment }} completed
-            Components deployed: 
-            - Web App: ${{ github.event.inputs.deploy_webapp }}
-            - Excel Add-in: ${{ github.event.inputs.deploy_excel_addin }}
-            - Backend: ${{ github.event.inputs.deploy_backend }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

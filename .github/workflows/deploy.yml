@@ -1,0 +1,210 @@
+name: Deploy Gridmate Components
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_webapp:
+        description: 'Deploy Web App to Azure Static Web Apps'
+        required: true
+        type: boolean
+        default: true
+      deploy_excel_addin:
+        description: 'Deploy Excel Add-in'
+        required: true
+        type: boolean
+        default: false
+      deploy_backend:
+        description: 'Deploy Backend to Azure'
+        required: true
+        type: boolean
+        default: false
+      environment:
+        description: 'Deployment Environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+        default: production
+
+env:
+  NODE_VERSION: '18.x'
+  GO_VERSION: '1.21'
+
+jobs:
+  deploy-webapp:
+    name: Deploy Web App
+    if: ${{ github.event.inputs.deploy_webapp == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./web-app
+        run: npm ci
+
+      - name: Build Web App
+        working-directory: ./web-app
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ github.event.inputs.environment == 'production' && secrets.PROD_API_URL || secrets.STAGING_API_URL }}
+          NEXT_PUBLIC_ENVIRONMENT: ${{ github.event.inputs.environment }}
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "/web-app"
+          output_location: "out"
+          skip_app_build: true
+        env:
+          PRE_BUILD_COMMAND: "npm install -g @azure/static-web-apps-cli"
+
+  deploy-excel-addin:
+    name: Deploy Excel Add-in
+    if: ${{ github.event.inputs.deploy_excel_addin == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: excel-addin/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./excel-addin
+        run: npm ci
+
+      - name: Build Excel Add-in
+        working-directory: ./excel-addin
+        run: npm run build:prod
+        env:
+          REACT_APP_API_URL: ${{ github.event.inputs.environment == 'production' && secrets.PROD_API_URL || secrets.STAGING_API_URL }}
+          REACT_APP_ENVIRONMENT: ${{ github.event.inputs.environment }}
+
+      - name: Deploy to Azure Storage
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            # Upload to Azure Storage for Office Add-in hosting
+            az storage blob upload-batch \
+              --account-name ${{ secrets.AZURE_STORAGE_ACCOUNT }} \
+              --account-key ${{ secrets.AZURE_STORAGE_KEY }} \
+              --destination '$web' \
+              --source ./excel-addin/dist \
+              --overwrite true
+
+      - name: Update manifest
+        if: ${{ github.event.inputs.environment == 'production' }}
+        working-directory: ./excel-addin
+        run: |
+          # Update manifest with production URLs
+          sed -i 's|https://localhost:3000|https://${{ secrets.EXCEL_ADDIN_PROD_URL }}|g' manifest.xml
+          
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: excel-manifest-${{ github.event.inputs.environment }}
+          path: excel-addin/manifest.xml
+
+  deploy-backend:
+    name: Deploy Backend
+    if: ${{ github.event.inputs.deploy_backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: backend/go.sum
+
+      - name: Build Backend
+        working-directory: ./backend
+        run: |
+          go mod download
+          CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server
+
+      - name: Login to Azure Container Registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        working-directory: ./backend
+        run: |
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/gridmate-backend:${{ github.sha }} .
+          docker tag ${{ secrets.ACR_LOGIN_SERVER }}/gridmate-backend:${{ github.sha }} \
+            ${{ secrets.ACR_LOGIN_SERVER }}/gridmate-backend:${{ github.event.inputs.environment }}
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/gridmate-backend:${{ github.sha }}
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/gridmate-backend:${{ github.event.inputs.environment }}
+
+      - name: Deploy to Azure Container Apps
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az containerapp update \
+              --name gridmate-backend-${{ github.event.inputs.environment }} \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --image ${{ secrets.ACR_LOGIN_SERVER }}/gridmate-backend:${{ github.sha }} \
+              --set-env-vars \
+                DATABASE_URL=secretref:database-url \
+                JWT_SECRET=secretref:jwt-secret \
+                ENVIRONMENT=${{ github.event.inputs.environment }}
+
+  post-deployment:
+    name: Post Deployment Tasks
+    needs: [deploy-webapp, deploy-excel-addin, deploy-backend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ github.event.inputs.deploy_webapp }}" == "true" ]]; then
+            echo "✅ Web App deployed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [[ "${{ github.event.inputs.deploy_excel_addin }}" == "true" ]]; then
+            echo "✅ Excel Add-in deployed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [[ "${{ github.event.inputs.deploy_backend }}" == "true" ]]; then
+            echo "✅ Backend deployed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send Slack notification
+        if: ${{ github.event.inputs.environment == 'production' }}
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Deployment to ${{ github.event.inputs.environment }} completed
+            Components deployed: 
+            - Web App: ${{ github.event.inputs.deploy_webapp }}
+            - Excel Add-in: ${{ github.event.inputs.deploy_excel_addin }}
+            - Backend: ${{ github.event.inputs.deploy_backend }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

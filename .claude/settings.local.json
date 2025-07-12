@@ -5,7 +5,19 @@
       "Bash(mkdir:*)",
       "Bash(npm run:*)",
       "WebFetch(domain:docs.anthropic.com)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "Bash(az account:*)",
+      "Bash(az staticwebapp list:*)",
+      "Bash(az staticwebapp show:*)",
+      "Bash(az staticwebapp secrets list:*)",
+      "Bash(swa deploy:*)",
+      "Bash(az staticwebapp hostname:*)",
+      "Bash(az staticwebapp:*)",
+      "Bash(az rest:*)",
+      "Bash(nslookup:*)",
+      "Bash(curl:*)",
+      "Bash(dig:*)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }

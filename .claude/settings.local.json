@@ -18,7 +18,8 @@
       "Bash(curl:*)",
       "Bash(dig:*)",
       "Bash(chmod:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

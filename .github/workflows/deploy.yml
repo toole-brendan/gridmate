@@ -66,7 +66,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "/web-app"
-          output_location: "out"
+          app_artifact_location: "out"
           skip_app_build: true
         env:
           PRE_BUILD_COMMAND: "npm install -g @azure/static-web-apps-cli"

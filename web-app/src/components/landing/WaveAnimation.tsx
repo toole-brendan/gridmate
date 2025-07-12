@@ -22,7 +22,7 @@ export default function WaveAnimation() {
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-    camera.position.set(0, 0, 6);
+    camera.position.set(0, 0, 6); // Original camera distance
     camera.lookAt(0, 0, 0);
 
     // Setup renderer
@@ -105,7 +105,7 @@ export default function WaveAnimation() {
       }
 
       const linesMaterial = new THREE.LineBasicMaterial({
-        color: 0x4361ee, // Blue color matching the site theme
+        color: 0xffffff, // White color
         transparent: true,
         opacity: 0.4
       });

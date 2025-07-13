@@ -16,20 +16,10 @@ debugDiv.style.cssText = 'position: fixed; top: 0; left: 0; background: yellow; 
 debugDiv.innerHTML = '⏳ Waiting for Office.js...'
 document.body.appendChild(debugDiv)
 
-// Simple test component for debugging
-const TestComponent = () => {
-  console.log('🎨 TestComponent rendering')
-  return (
-    <div style={{ padding: '20px', background: '#f0f0f0', color: '#333' }}>
-      <h1>🚀 Gridmate Excel Add-in Debug Mode</h1>
-      <p>✅ React is working!</p>
-      <p>📅 Time: {new Date().toLocaleTimeString()}</p>
-      <div style={{ marginTop: '20px', padding: '10px', background: '#e0e0e0' }}>
-        <h3>Loading ChatInterface...</h3>
-        <ChatInterfaceWrapper />
-      </div>
-    </div>
-  )
+// Main app component
+const MainApp = () => {
+  console.log('🎨 MainApp rendering')
+  return <ChatInterfaceWrapper />
 }
 
 if (typeof Office !== 'undefined') {
@@ -54,11 +44,7 @@ if (typeof Office !== 'undefined') {
       const root = ReactDOM.createRoot(rootElement)
       console.log('🌳 React root created')
       
-      root.render(
-        <React.StrictMode>
-          <TestComponent />
-        </React.StrictMode>
-      )
+      root.render(<MainApp />)
       
       console.log('✅ React render called')
       debugDiv.innerHTML = '✅ React mounted!'
@@ -84,13 +70,11 @@ if (typeof Office !== 'undefined') {
     if (rootElement) {
       const root = ReactDOM.createRoot(rootElement)
       root.render(
-        <React.StrictMode>
-          <div style={{ padding: '20px', background: '#ffcccc' }}>
-            <h1>⚠️ Running outside Office context</h1>
-            <p>Office.js is not available. This is for testing only.</p>
-            <TestComponent />
-          </div>
-        </React.StrictMode>
+        <div style={{ padding: '20px', background: '#ffcccc' }}>
+          <h1>⚠️ Running outside Office context</h1>
+          <p>Office.js is not available. This is for testing only.</p>
+          <MainApp />
+        </div>
       )
     }
   }, 1000)

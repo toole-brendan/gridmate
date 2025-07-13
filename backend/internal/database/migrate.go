@@ -11,6 +11,8 @@ import (
 )
 
 func RunMigrations(db *DB, migrationsPath string) error {
+	log.Printf("Starting migrations from path: %s", migrationsPath)
+	
 	driver, err := postgres.WithInstance(db.DB.DB, &postgres.Config{})
 	if err != nil {
 		return fmt.Errorf("failed to create migration driver: %w", err)
@@ -25,8 +27,16 @@ func RunMigrations(db *DB, migrationsPath string) error {
 		return fmt.Errorf("failed to create migrate instance: %w", err)
 	}
 
+	// Check current version before migration
+	currentVersion, dirty, _ := m.Version()
+	log.Printf("Current migration version: %d, dirty: %v", currentVersion, dirty)
+
 	// Run migrations
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		// Get more details about the error
+		if currentVersion, dirty, vErr := m.Version(); vErr == nil {
+			log.Printf("Migration failed at version: %d, dirty: %v", currentVersion, dirty)
+		}
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 

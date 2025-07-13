@@ -1,6 +1,6 @@
 -- Create api_keys table for API key authentication
 CREATE TABLE IF NOT EXISTS api_keys (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     key_hash VARCHAR(255) NOT NULL, -- Hashed API key
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 -- Create sessions table for JWT session management
 CREATE TABLE IF NOT EXISTS sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL,
     refresh_token_hash VARCHAR(255),
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 -- Create oauth_providers table for external auth
 CREATE TABLE IF NOT EXISTS oauth_providers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     provider VARCHAR(50) NOT NULL, -- 'azure_ad', 'google', etc.
     provider_user_id VARCHAR(255) NOT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS oauth_providers (
 
 -- Create rate_limits table for tracking API usage
 CREATE TABLE IF NOT EXISTS rate_limits (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     identifier VARCHAR(255) NOT NULL, -- user_id, api_key_id, or IP
     endpoint VARCHAR(255) NOT NULL,
     requests INTEGER DEFAULT 0,

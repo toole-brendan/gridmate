@@ -28,6 +28,7 @@ export class WebSocketClient extends EventEmitter {
         console.log('WebSocket connected')
         this.reconnectAttempts = 0
         this.emit('connected')
+        this.emit('connect') // Also emit 'connect' for compatibility
         
         // Send authentication if token provided
         if (token) {
@@ -74,10 +75,21 @@ export class WebSocketClient extends EventEmitter {
   }
 
   send(message: WebSocketMessage): void {
+    console.log('📤 WebSocket send called:', { 
+      message, 
+      isConnected: this.isConnected(),
+      readyState: this.ws?.readyState 
+    })
+    
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message))
+      const jsonMessage = JSON.stringify(message)
+      console.log('📤 Sending WebSocket message:', jsonMessage)
+      this.ws.send(jsonMessage)
     } else {
-      console.error('WebSocket is not connected')
+      console.error('WebSocket is not connected', {
+        ws: !!this.ws,
+        readyState: this.ws?.readyState
+      })
       this.emit('error', new Error('WebSocket is not connected'))
     }
   }
@@ -85,7 +97,10 @@ export class WebSocketClient extends EventEmitter {
   disconnect(): void {
     this.isIntentionallyClosed = true
     if (this.ws) {
-      this.ws.close()
+      // Only close if the connection is open or connecting
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close()
+      }
       this.ws = null
     }
   }

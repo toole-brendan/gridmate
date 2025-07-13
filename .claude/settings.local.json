@@ -23,7 +23,11 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(sudo security:*)"
+      "Bash(sudo security:*)",
+      "Bash([ -f .env ])",
+      "Bash(az postgres flexible-server firewall-rule list:*)",
+      "Bash(az postgres flexible-server firewall-rule create:*)",
+      "Bash(az postgres flexible-server update:*)"
     ],
     "deny": []
   }

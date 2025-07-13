@@ -1,10 +1,11 @@
 -- Create extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- Note: Azure PostgreSQL has gen_random_uuid() built-in, no extension needed
+-- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(100),
@@ -18,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- Create workspaces table
 CREATE TABLE IF NOT EXISTS workspaces (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -39,7 +40,7 @@ CREATE TABLE IF NOT EXISTS workspace_members (
 
 -- Create models table (financial models)
 CREATE TABLE IF NOT EXISTS models (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     type VARCHAR(50), -- DCF, LBO, M&A, etc.
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS models (
 
 -- Create model_versions table
 CREATE TABLE IF NOT EXISTS model_versions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     model_id UUID NOT NULL REFERENCES models(id) ON DELETE CASCADE,
     version_number INTEGER NOT NULL,
     changes TEXT,
@@ -66,7 +67,7 @@ CREATE TABLE IF NOT EXISTS model_versions (
 
 -- Create conversations table
 CREATE TABLE IF NOT EXISTS conversations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     model_id UUID REFERENCES models(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id),
     title VARCHAR(255),
@@ -77,7 +78,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 -- Create messages table
 CREATE TABLE IF NOT EXISTS messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     role VARCHAR(20) NOT NULL, -- 'user' or 'assistant'
     content TEXT NOT NULL,
@@ -87,7 +88,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 -- Create audit_logs table
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id),
     action VARCHAR(100) NOT NULL,
     entity_type VARCHAR(50),

@@ -69,9 +69,13 @@ namespace GridmateSignalR.Hubs
         }
 
         // Send chat message to backend
-        public async Task SendChatMessage(string sessionId, string content)
+        public async Task SendChatMessage(string sessionId, string content, object excelContext = null)
         {
             _logger.LogInformation($"Chat message from session {sessionId}: {content}");
+            if (excelContext != null)
+            {
+                _logger.LogInformation($"Excel context provided: {System.Text.Json.JsonSerializer.Serialize(excelContext)}");
+            }
             
             try
             {
@@ -81,6 +85,7 @@ namespace GridmateSignalR.Hubs
                 {
                     sessionId,
                     content,
+                    excelContext,
                     timestamp = DateTime.UtcNow
                 });
 
@@ -99,6 +104,34 @@ namespace GridmateSignalR.Hubs
             {
                 _logger.LogError(ex, "Error forwarding to backend");
                 await Clients.Caller.SendAsync("error", "Failed to process message");
+            }
+        }
+
+        // Handle selection updates from Excel add-in
+        public async Task UpdateSelection(string sessionId, string selection, string worksheet)
+        {
+            _logger.LogInformation($"Selection update for session {sessionId}: {selection} on {worksheet}");
+            
+            try
+            {
+                // Forward to Go backend
+                var httpClient = _httpClientFactory.CreateClient("GoBackend");
+                var response = await httpClient.PostAsJsonAsync("/api/selection-update", new
+                {
+                    sessionId,
+                    selection,
+                    worksheet,
+                    timestamp = DateTime.UtcNow
+                });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError($"Backend error: {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error forwarding selection update");
             }
         }
 

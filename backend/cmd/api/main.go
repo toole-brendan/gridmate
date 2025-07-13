@@ -125,6 +125,7 @@ func main() {
 	// Chat API endpoints for SignalR bridge
 	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
 	router.HandleFunc("/api/tool-response", signalRHandler.HandleSignalRToolResponse).Methods("POST")
+	router.HandleFunc("/api/selection-update", signalRHandler.HandleSignalRSelectionUpdate).Methods("POST")
 
 	// Register API routes
 	routes.RegisterAPIRoutes(router, repos, jwtManager, excelBridge, docService, logger)

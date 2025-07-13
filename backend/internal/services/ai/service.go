@@ -454,7 +454,7 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 	}
 
 	// Maximum rounds of tool use
-	maxRounds := 5
+	maxRounds := 50
 	
 	for round := 0; round < maxRounds; round++ {
 		log.Info().
@@ -516,6 +516,118 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 		messages = append(messages, assistantMsg)
 
 		// Add tool results
+		toolResultMsg := Message{
+			Role:        "user",
+			ToolResults: toolResults,
+		}
+		messages = append(messages, toolResultMsg)
+	}
+
+	return nil, fmt.Errorf("exceeded maximum rounds of tool use")
+}
+
+// ProcessChatWithToolsAndHistory processes a chat message with history and handles tool calls automatically
+func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID string, userMessage string, context *FinancialContext, chatHistory []Message) (*CompletionResponse, error) {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_message", userMessage).
+		Bool("has_context", context != nil).
+		Int("history_length", len(chatHistory)).
+		Msg("Starting ProcessChatWithToolsAndHistory")
+
+	// Build messages array with history
+	messages := make([]Message, 0, len(chatHistory)+1)
+	
+	// Add chat history
+	for _, msg := range chatHistory {
+		messages = append(messages, Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+	
+	// Add current user message
+	messages = append(messages, Message{Role: "user", Content: userMessage})
+	
+	// Add context if provided
+	if context != nil && context.ModelType == "" {
+		context.ModelType = s.promptBuilder.DetectModelType(context)
+	}
+
+	// If we have context and no history, build the full prompt with context
+	if context != nil && len(chatHistory) == 0 {
+		messages = s.promptBuilder.BuildChatPrompt(userMessage, context)
+	}
+
+	// Maximum rounds of tool use
+	maxRounds := 50
+	
+	for round := 0; round < maxRounds; round++ {
+		log.Info().
+			Int("round", round).
+			Int("messages_count", len(messages)).
+			Msg("Starting tool use round")
+		
+		// Create completion request
+		request := &CompletionRequest{
+			Model:       s.config.DefaultModel,
+			Messages:    messages,
+			MaxTokens:   s.config.MaxTokens,
+			Temperature: s.config.Temperature,
+			TopP:        s.config.TopP,
+			Stream:      false, // Don't stream when using tools
+		}
+
+		// Add financial modeling system prompt
+		request.SystemPrompt = s.promptBuilder.GetFinancialSystemPrompt()
+
+		// Add tools if available
+		if s.config.EnableActions && s.toolExecutor != nil {
+			tools := s.toolExecutor.GetAvailableTools()
+			request.Tools = tools
+			log.Info().
+				Int("tools_count", len(tools)).
+				Str("tool_names", fmt.Sprintf("%v", getToolNames(tools))).
+				Msg("Added tools to ProcessChatWithToolsAndHistory request")
+		}
+
+		// Get response
+		response, err := s.provider.GetCompletion(ctx, request)
+		if err != nil {
+			return nil, fmt.Errorf("AI request failed: %w", err)
+		}
+
+		log.Info().
+			Int("tool_calls_count", len(response.ToolCalls)).
+			Bool("has_content", response.Content != "").
+			Msg("Received response from provider")
+
+		// If no tool calls, we're done
+		if len(response.ToolCalls) == 0 {
+			log.Info().Msg("No tool calls in response, returning final answer")
+			return response, nil
+		}
+
+		// Add assistant message to history
+		assistantMsg := Message{
+			Role:      "assistant",
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
+		}
+		messages = append(messages, assistantMsg)
+
+		// Execute tool calls
+		log.Info().
+			Int("tool_calls_count", len(response.ToolCalls)).
+			Msg("Executing tool calls")
+		
+		toolResults, err := s.executeToolCalls(ctx, sessionID, response.ToolCalls)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to execute tool calls")
+			return nil, fmt.Errorf("tool execution failed: %w", err)
+		}
+
+		// Add tool results to messages
 		toolResultMsg := Message{
 			Role:        "user",
 			ToolResults: toolResults,

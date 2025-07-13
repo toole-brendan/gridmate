@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gridmate/backend/internal/services/ai"
+	"github.com/gridmate/backend/internal/services/chat"
 	"github.com/gridmate/backend/internal/services/excel"
 	"github.com/gridmate/backend/internal/websocket"
 	"github.com/sirupsen/logrus"
@@ -35,6 +36,9 @@ type ExcelBridge struct {
 	
 	// SignalR bridge for SignalR clients
 	signalRBridge interface{} // Will be set by main.go
+	
+	// Chat history management
+	chatHistory *chat.History
 }
 
 // ExcelSession represents an active Excel session
@@ -67,6 +71,7 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 		rangeCache: make(map[string][][]interface{}),
 		aiService:  aiService,
 		sessions:   make(map[string]*ExcelSession),
+		chatHistory: chat.NewHistory(),
 	}
 	
 	// Create Excel bridge implementation for tool executor
@@ -160,6 +165,27 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 	}
 }
 
+// UpdateSignalRSessionSelection updates the selection for a SignalR session
+func (eb *ExcelBridge) UpdateSignalRSessionSelection(sessionID, selection, worksheet string) {
+	eb.sessionMutex.Lock()
+	defer eb.sessionMutex.Unlock()
+	
+	if session, exists := eb.sessions[sessionID]; exists {
+		session.Selection = websocket.SelectionChanged{
+			SelectedRange: selection,
+			SelectedCell:  "", // Not provided in SignalR update
+		}
+		session.ActiveSheet = worksheet
+		session.LastActivity = time.Now()
+		
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"selection":  selection,
+			"worksheet":  worksheet,
+		}).Debug("Updated SignalR session selection")
+	}
+}
+
 // SetSignalRBridge sets the SignalR bridge for forwarding messages
 func (eb *ExcelBridge) SetSignalRBridge(bridge interface{}) {
 	eb.signalRBridge = bridge
@@ -189,6 +215,10 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 	
 	if eb.aiService != nil {
 		eb.logger.Info("AI service is available, processing message")
+		
+		// Add user message to history
+		eb.chatHistory.AddMessage(session.ID, "user", message.Content)
+		
 		// Build comprehensive context using context builder
 		var financialContext *ai.FinancialContext
 		if eb.contextBuilder != nil && session.Selection.SelectedRange != "" {
@@ -212,15 +242,34 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 			financialContext = eb.buildFinancialContext(session, message.Context)
 		}
 		
-		// Process chat message with AI
+		// Get chat history for this session
+		history := eb.chatHistory.GetHistory(session.ID)
+		
+		// Convert chat history to AI message format
+		aiHistory := make([]ai.Message, 0, len(history))
+		for _, msg := range history {
+			// Skip the current message as we'll add it in the AI call
+			if msg.Timestamp.Unix() == eb.chatHistory.GetHistory(session.ID)[len(history)-1].Timestamp.Unix() {
+				continue
+			}
+			aiHistory = append(aiHistory, ai.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+		
+		// Process chat message with AI and history
 		ctx := context.Background()
-		eb.logger.Info("Calling ProcessChatWithTools for session", "session_id", session.ID)
-		response, err := eb.aiService.ProcessChatWithTools(ctx, session.ID, message.Content, financialContext)
+		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory))
+		response, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory)
 		if err != nil {
 			eb.logger.WithError(err).Error("AI processing failed")
 			content = "I encountered an error processing your request. Please try again."
 		} else {
 			content = response.Content
+			// Add AI response to history
+			eb.chatHistory.AddMessage(session.ID, "assistant", content)
+			
 			// Convert AI actions to websocket actions
 			actions = eb.convertAIActions(response.Actions)
 			
@@ -516,13 +565,16 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		context.WorksheetName = session.ActiveSheet
 	}
 
-	// Extract selection information
+	// Extract selection information - handle both websocket.SelectionChanged and string formats
 	if selection, ok := additionalContext["selection"].(websocket.SelectionChanged); ok {
 		if selection.SelectedRange != "" {
 			context.SelectedRange = selection.SelectedRange
 		} else if selection.SelectedCell != "" {
 			context.SelectedRange = selection.SelectedCell
 		}
+	} else if selectionStr, ok := additionalContext["selection"].(string); ok {
+		// Handle selection as string (from SignalR)
+		context.SelectedRange = selectionStr
 	} else if session.Selection.SelectedRange != "" {
 		context.SelectedRange = session.Selection.SelectedRange
 	} else if session.Selection.SelectedCell != "" {

@@ -33,9 +33,10 @@ func NewSignalRHandler(excelBridge *services.ExcelBridge, signalRBridge *SignalR
 
 // SignalRChatRequest represents a chat request from SignalR
 type SignalRChatRequest struct {
-	SessionID string    `json:"sessionId"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
+	SessionID    string                 `json:"sessionId"`
+	Content      string                 `json:"content"`
+	ExcelContext map[string]interface{} `json:"excelContext"`
+	Timestamp    time.Time              `json:"timestamp"`
 }
 
 // SignalRResponse represents a response to SignalR
@@ -59,8 +60,10 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"session_id": req.SessionID,
-		"content":    req.Content,
+		"session_id":     req.SessionID,
+		"content":        req.Content,
+		"has_context":    req.ExcelContext != nil,
+		"excel_context":  req.ExcelContext,
 	}).Info("Received chat message from SignalR")
 
 	// Process the chat message
@@ -71,11 +74,16 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		// Create a mock Excel session for SignalR clients
 		h.excelBridge.CreateSignalRSession(req.SessionID)
 		
-		// Create websocket chat message
+		// Create websocket chat message with Excel context
+		excelContext := req.ExcelContext
+		if excelContext == nil {
+			excelContext = make(map[string]interface{})
+		}
+		
 		chatMsg := websocket.ChatMessage{
 			Content:   req.Content,
 			SessionID: req.SessionID,
-			Context:   make(map[string]interface{}),
+			Context:   excelContext,
 		}
 
 		// Process through Excel bridge
@@ -163,5 +171,44 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 	json.NewEncoder(w).Encode(SignalRResponse{
 		Success: true,
 		Message: "Tool response received",
+	})
+}
+
+// SignalRSelectionUpdate represents a selection update from SignalR
+type SignalRSelectionUpdate struct {
+	SessionID string    `json:"sessionId"`
+	Selection string    `json:"selection"`
+	Worksheet string    `json:"worksheet"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// HandleSignalRSelectionUpdate processes selection updates from SignalR
+func (h *SignalRHandler) HandleSignalRSelectionUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req SignalRSelectionUpdate
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.WithError(err).Error("Failed to decode selection update")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"session_id": req.SessionID,
+		"selection":  req.Selection,
+		"worksheet":  req.Worksheet,
+	}).Info("Received selection update from SignalR")
+
+	// Update the session's selection in the Excel bridge
+	h.excelBridge.UpdateSignalRSessionSelection(req.SessionID, req.Selection, req.Worksheet)
+
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(SignalRResponse{
+		Success: true,
+		Message: "Selection update received",
 	})
 }

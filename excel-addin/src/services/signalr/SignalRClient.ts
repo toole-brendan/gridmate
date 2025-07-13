@@ -172,7 +172,9 @@ export class SignalRClient extends EventEmitter {
             console.error('No session ID available')
             return
           }
-          await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content)
+          // Include Excel context if available
+          const excelContext = message.data.excelContext || null
+          await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content, excelContext)
           break
           
         case 'tool_response':
@@ -180,6 +182,18 @@ export class SignalRClient extends EventEmitter {
             message.data.request_id, 
             message.data.result,
             message.data.error
+          )
+          break
+          
+        case 'selection_update':
+          if (!this.sessionId) {
+            console.error('No session ID available')
+            return
+          }
+          await this.connection.invoke('UpdateSelection', 
+            this.sessionId,
+            message.data.selection,
+            message.data.worksheet
           )
           break
           

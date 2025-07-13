@@ -27,7 +27,9 @@
       "Bash([ -f .env ])",
       "Bash(az postgres flexible-server firewall-rule list:*)",
       "Bash(az postgres flexible-server firewall-rule create:*)",
-      "Bash(az postgres flexible-server update:*)"
+      "Bash(az postgres flexible-server update:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }

@@ -123,6 +123,55 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     }
   }, [])
 
+  // Subscribe to Excel selection changes
+  useEffect(() => {
+    if (!Office?.context?.document || !signalRClient.current) return
+
+    const handleSelectionChange = async () => {
+      try {
+        if (signalRClient.current?.isConnected()) {
+          const context = await ExcelService.getInstance().getContext()
+          
+          await signalRClient.current.send({
+            id: Date.now().toString(),
+            type: 'selection_update',
+            timestamp: new Date().toISOString(),
+            data: {
+              sessionID: sessionIdRef.current,
+              selection: context.selectedRange,
+              worksheet: context.worksheet
+            }
+          })
+          
+          console.log('📍 Sent selection update:', context.selectedRange)
+        }
+      } catch (error) {
+        console.error('Failed to send selection update:', error)
+      }
+    }
+
+    // Register event handler
+    Office.context.document.addHandlerAsync(
+      Office.EventType.DocumentSelectionChanged,
+      handleSelectionChange,
+      (result: any) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          console.log('✅ Selection change handler registered')
+        } else {
+          console.error('❌ Failed to register selection handler:', result.error)
+        }
+      }
+    )
+
+    // Cleanup
+    return () => {
+      Office.context.document.removeHandlerAsync(
+        Office.EventType.DocumentSelectionChanged,
+        { handler: handleSelectionChange }
+      )
+    }
+  }, [signalRClient.current])
+
   const handleToolRequest = async (toolRequest: any) => {
     console.log('🛠️ Handling tool request:', toolRequest)
     console.log('🛠️ Full tool request data:', JSON.stringify(toolRequest, null, 2))
@@ -199,17 +248,38 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     setIsLoading(true)
 
     try {
+      // Collect Excel context before sending
+      let excelContext = null
+      try {
+        const context = await ExcelService.getInstance().getContext()
+        excelContext = {
+          worksheet: context.worksheet || 'Sheet1',
+          selection: context.selectedRange || '',
+          workbook: context.workbook || 'Workbook'
+        }
+        console.log('📊 Collected Excel context:', excelContext)
+      } catch (contextError) {
+        console.warn('Failed to collect Excel context:', contextError)
+        // Continue without context rather than failing completely
+        excelContext = {
+          worksheet: 'Sheet1',
+          selection: '',
+          workbook: 'Workbook'
+        }
+      }
+
       await signalRClient.current.send({
         id: Date.now().toString(),
         type: 'chat_message',
         timestamp: new Date().toISOString(),
         data: {
           content: messageContent,
-          sessionID: sessionIdRef.current
+          sessionID: sessionIdRef.current,
+          excelContext: excelContext
         }
       })
       
-      addToLog(`→ Sent chat message`)
+      addToLog(`→ Sent chat message with context`)
     } catch (error) {
       console.error('Failed to send message:', error)
       setIsLoading(false)

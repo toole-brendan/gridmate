@@ -348,16 +348,20 @@ export class ExcelService {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
       const excelRange = worksheet.getRange(range)
       
-      excelRange.load(['rowCount', 'columnCount'])
+      excelRange.load(['rowCount', 'columnCount', 'address'])
       await context.sync()
       
       if (excelRange.rowCount === 1 && excelRange.columnCount === 1) {
         // Single cell
         excelRange.formulas = [[formula]]
       } else {
-        // Multiple cells - Excel will handle relative references automatically
+        // Multiple cells
         if (relative_references) {
-          excelRange.formulas = [[formula]]
+          // For relative references, we need to apply the formula to each cell
+          // and let Excel adjust the references automatically
+          // We do this by setting the formula property (singular) which applies
+          // the formula to all cells in the range with relative reference adjustment
+          excelRange.formula = formula
         } else {
           // For absolute references, apply the same formula to all cells
           const formulas = []

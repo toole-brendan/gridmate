@@ -51,6 +51,13 @@ export default defineConfig({
     cors: {
       origin: true,
       credentials: true
+    },
+    proxy: {
+      '/ws': {
+        target: 'ws://localhost:8080',
+        ws: true,
+        changeOrigin: true
+      }
     }
   },
   build: {

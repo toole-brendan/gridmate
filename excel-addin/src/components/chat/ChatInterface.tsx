@@ -24,8 +24,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   }, [messages])
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
+    console.log('🔤 Key pressed:', e.key, 'Shift:', e.shiftKey)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      console.log('📨 Enter pressed - calling handleSendMessage')
       handleSendMessage()
     }
   }
@@ -57,6 +59,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 className={`max-w-[80%] rounded-lg px-4 py-2 ${
                   message.role === 'user'
                     ? 'bg-blue-600 text-white'
+                    : message.role === 'system'
+                    ? 'bg-green-100 text-green-800 border border-green-200'
                     : 'bg-gray-100 text-gray-900'
                 }`}
               >
@@ -86,12 +90,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask about your financial model..."
-            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400"
             rows={1}
             disabled={isLoading}
           />
           <button
-            onClick={handleSendMessage}
+            onClick={() => {
+              console.log('🔘 Send button clicked')
+              handleSendMessage()
+            }}
             disabled={!input.trim() || isLoading}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >

@@ -113,7 +113,7 @@ func (c *Client) readPump() {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 					c.logger.Errorf("WebSocket error: %v", err)
 				}
-				break
+				return
 			}
 
 			// Parse and handle the message
@@ -239,22 +239,27 @@ func (c *Client) handleChatMessage(msg *Message) error {
 		return err
 	}
 
-	// Forward to the Excel bridge service
-	c.hub.broadcast <- &BroadcastMessage{
-		Type:     MessageTypeChatMessage,
-		Data:     msg.Data,
-		ClientID: c.ID,
+	// Process the message through Excel bridge if available
+	if c.hub.excelBridge != nil {
+		response, err := c.hub.excelBridge.ProcessChatMessage(c.ID, chatMsg)
+		if err != nil {
+			c.logger.WithError(err).Error("Failed to process chat message")
+			// Send error response
+			errorResponse := ChatResponse{
+				Content:   "I encountered an error processing your request. Please try again.",
+				SessionID: chatMsg.SessionID,
+			}
+			return c.sendMessage(MessageTypeChatResponse, errorResponse)
+		}
+		
+		// Send the AI response
+		return c.sendMessage(MessageTypeChatResponse, *response)
 	}
 
-	// TODO: Process with AI and send response
-	// For now, echo back a simple response
+	// Fallback if no Excel bridge available
 	response := ChatResponse{
-		Content:   "Received: " + chatMsg.Content,
+		Content:   "Chat service is currently unavailable. Please try again later.",
 		SessionID: chatMsg.SessionID,
-		Suggestions: []string{
-			"Try asking about specific cells",
-			"Request a formula explanation",
-		},
 	}
 
 	return c.sendMessage(MessageTypeChatResponse, response)

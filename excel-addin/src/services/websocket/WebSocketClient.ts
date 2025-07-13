@@ -40,8 +40,10 @@ export class WebSocketClient extends EventEmitter {
       }
 
       this.ws.onmessage = (event) => {
+        console.log('📥 Raw WebSocket message received:', event.data)
         try {
           const message = JSON.parse(event.data)
+          console.log('📦 Parsed WebSocket message:', message)
           this.emit('message', message)
           
           // Emit specific events based on message type
@@ -82,9 +84,15 @@ export class WebSocketClient extends EventEmitter {
     })
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const jsonMessage = JSON.stringify(message)
-      console.log('📤 Sending WebSocket message:', jsonMessage)
-      this.ws.send(jsonMessage)
+      try {
+        const jsonMessage = JSON.stringify(message)
+        console.log('📤 Sending WebSocket message:', jsonMessage)
+        console.log('📤 Message length:', jsonMessage.length)
+        this.ws.send(jsonMessage)
+      } catch (error) {
+        console.error('❌ Error stringifying message:', error)
+        this.emit('error', error)
+      }
     } else {
       console.error('WebSocket is not connected', {
         ws: !!this.ws,

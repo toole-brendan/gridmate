@@ -400,11 +400,55 @@ func (a *AnthropicProvider) convertFromAnthropicResponse(resp *anthropicResponse
 func (a *AnthropicProvider) parseActionsFromContent(content string) []Action {
 	var actions []Action
 
-	// Look for action suggestions in the response
-	// This is a simplified parser - in production, you might use more sophisticated parsing
-	if strings.Contains(strings.ToLower(content), "update cell") || strings.Contains(strings.ToLower(content), "change cell") {
-		// Try to extract cell references and values
-		// This is a placeholder - implement more robust parsing based on your prompt engineering
+	// Parse ACTION blocks from the response
+	lines := strings.Split(content, "\n")
+	i := 0
+	for i < len(lines) {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "ACTION:") {
+			action := Action{
+				Parameters: make(map[string]interface{}),
+				RequiresApproval: true,
+				Confidence: 0.9,
+			}
+			
+			// Extract action type
+			actionType := strings.TrimSpace(strings.TrimPrefix(line, "ACTION:"))
+			action.Type = actionType
+			
+			// Parse subsequent lines for this action
+			i++
+			for i < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[i]), "ACTION:") {
+				line = strings.TrimSpace(lines[i])
+				
+				if strings.HasPrefix(line, "RANGE:") {
+					action.Parameters["range"] = strings.TrimSpace(strings.TrimPrefix(line, "RANGE:"))
+				} else if strings.HasPrefix(line, "VALUES:") {
+					// Parse JSON array of values
+					valuesStr := strings.TrimSpace(strings.TrimPrefix(line, "VALUES:"))
+					var values []interface{}
+					if err := json.Unmarshal([]byte(valuesStr), &values); err == nil {
+						action.Parameters["values"] = values
+					}
+				} else if strings.HasPrefix(line, "FORMULA:") {
+					action.Parameters["formula"] = strings.TrimSpace(strings.TrimPrefix(line, "FORMULA:"))
+				} else if strings.HasPrefix(line, "DESCRIPTION:") {
+					action.Description = strings.TrimSpace(strings.TrimPrefix(line, "DESCRIPTION:"))
+				}
+				
+				i++
+			}
+			
+			if action.Type != "" && len(action.Parameters) > 0 {
+				actions = append(actions, action)
+			}
+			continue
+		}
+		i++
+	}
+
+	// Fallback to simple detection
+	if len(actions) == 0 && (strings.Contains(strings.ToLower(content), "update cell") || strings.Contains(strings.ToLower(content), "change cell")) {
 		actions = append(actions, Action{
 			Type:             "cell_update",
 			Description:      "AI suggested cell update",

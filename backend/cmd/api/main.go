@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -90,6 +91,9 @@ func main() {
 
 	// Initialize router
 	router := mux.NewRouter()
+	
+	// Add logging middleware
+	router.Use(loggingMiddleware(logger))
 
 	// Health check endpoint
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -181,9 +185,15 @@ func getEnvAsSlice(key string, defaultValue []string) []string {
 	if value == "" {
 		return defaultValue
 	}
-	// Simple comma-separated parsing
-	// TODO: Implement proper parsing with trimming
-	return []string{value}
+	// Parse comma-separated values with trimming
+	var result []string
+	for _, v := range strings.Split(value, ",") {
+		trimmed := strings.TrimSpace(v)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func getLogLevel() logrus.Level {

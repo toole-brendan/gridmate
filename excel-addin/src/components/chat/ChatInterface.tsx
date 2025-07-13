@@ -64,8 +64,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     : 'bg-gray-100 text-gray-900'
                 }`}
               >
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                <p className="text-xs opacity-70 mt-1">
+                <p className="text-sm whitespace-pre-wrap select-text" style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>{message.content}</p>
+                <p className="text-xs opacity-70 mt-1 select-text" style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
                   {new Date(message.timestamp).toLocaleTimeString()}
                 </p>
               </div>
@@ -90,7 +90,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask about your financial model..."
-            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400 text-sm"
+            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400 text-sm select-text"
+            style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
             rows={2}
             disabled={isLoading}
           />

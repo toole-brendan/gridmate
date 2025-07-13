@@ -133,7 +133,7 @@ func Load() (*Config, error) {
 			Provider:            getEnv("AI_PROVIDER", "anthropic"),
 			Model:              getEnv("AI_MODEL", ""),
 			StreamingMode:      getEnvAsBool("AI_STREAMING", true),
-			MaxTokens:          getEnvAsInt("AI_MAX_TOKENS", 4096),
+			MaxTokens:          getEnvAsInt("AI_MAX_TOKENS", 8192), // Increased for complex tool sequences
 			Temperature:        getEnvAsFloat32("AI_TEMPERATURE", 0.7),
 			TopP:               getEnvAsFloat32("AI_TOP_P", 0.9),
 			RequestTimeout:     getEnvAsDuration("AI_REQUEST_TIMEOUT", 30*time.Second),

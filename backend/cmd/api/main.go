@@ -84,7 +84,16 @@ func main() {
 
 	// Initialize Excel bridge service
 	excelBridge := services.NewExcelBridge(wsHub, logger)
-	excelBridge.SetAIService(aiService)
+	if aiService != nil {
+		// Set the tool executor from the bridge to the main AI service
+		excelBridge.SetAIService(aiService)
+		// Re-set the tool executor since SetAIService overwrites it
+		toolExecutor := excelBridge.GetToolExecutor()
+		if toolExecutor != nil {
+			aiService.SetToolExecutor(toolExecutor)
+			logger.Info("Tool executor transferred to main AI service")
+		}
+	}
 
 	// Initialize handlers
 	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)

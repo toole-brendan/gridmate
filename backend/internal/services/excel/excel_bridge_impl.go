@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/websocket"
 )
@@ -48,6 +49,12 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Interface("request", request).
+		Msg("Sending tool request via WebSocket")
 
 	if err := b.hub.SendToSession(sessionID, *message); err != nil {
 		return nil, fmt.Errorf("failed to send tool request: %w", err)

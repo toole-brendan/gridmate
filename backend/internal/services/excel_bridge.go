@@ -73,6 +73,9 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	// Set tool executor in AI service
 	if aiService != nil {
 		aiService.SetToolExecutor(bridge.toolExecutor)
+		logger.Info("Tool executor set in AI service")
+	} else {
+		logger.Warn("AI service is nil, cannot set tool executor")
 	}
 	
 	// Create context builder
@@ -90,6 +93,11 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 // SetAIService sets the AI service for chat processing
 func (eb *ExcelBridge) SetAIService(aiService *ai.Service) {
 	eb.aiService = aiService
+}
+
+// GetToolExecutor returns the tool executor for transferring to main AI service
+func (eb *ExcelBridge) GetToolExecutor() *ai.ToolExecutor {
+	return eb.toolExecutor
 }
 
 // ProcessChatMessage processes a chat message from a client
@@ -132,7 +140,8 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 		
 		// Process chat message with AI
 		ctx := context.Background()
-		response, err := eb.aiService.ProcessChatMessage(ctx, message.Content, financialContext)
+		eb.logger.Info("Calling ProcessChatWithTools for session", "session_id", session.ID)
+		response, err := eb.aiService.ProcessChatWithTools(ctx, session.ID, message.Content, financialContext)
 		if err != nil {
 			eb.logger.WithError(err).Error("AI processing failed")
 			content = "I encountered an error processing your request. Please try again."
@@ -140,17 +149,23 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 			content = response.Content
 			// Convert AI actions to websocket actions
 			actions = eb.convertAIActions(response.Actions)
-			// TODO: Implement tool calling when ready
+			
+			// Only detect additional actions if no tools were used
+			if len(response.ToolCalls) == 0 {
+				if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
+					actions = append(actions, additionalActions...)
+				}
+			}
 		}
 	} else {
 		// Fallback response when AI service is not available
 		content = eb.generateFallbackResponse(message.Content, msgContext)
 		suggestions = eb.generateFallbackSuggestions(msgContext)
-	}
-	
-	// Merge AI actions with any additional detected actions
-	if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
-		actions = append(actions, additionalActions...)
+		
+		// Detect actions from message when AI is not available
+		if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
+			actions = additionalActions
+		}
 	}
 	
 	response := &websocket.ChatResponse{
@@ -240,12 +255,24 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 	
 	session := &ExcelSession{
 		ID:           sessionID,
+		UserID:       clientID,  // Store the client ID to enable direct messaging
 		Context:      make(map[string]interface{}),
 		LastActivity: time.Now(),
 	}
 	
 	eb.sessions[sessionID] = session
 	return session
+}
+
+// GetSession retrieves a session by ID (used by BridgeImpl for routing)
+func (eb *ExcelBridge) GetSession(sessionID string) *ExcelSession {
+	eb.sessionMutex.RLock()
+	defer eb.sessionMutex.RUnlock()
+	
+	if session, ok := eb.sessions[sessionID]; ok {
+		return session
+	}
+	return nil
 }
 
 func (eb *ExcelBridge) buildContext(session *ExcelSession, additionalContext map[string]interface{}) map[string]interface{} {

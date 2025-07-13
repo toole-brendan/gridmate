@@ -250,7 +250,7 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 	}
 
 	if request.MaxTokens == 0 {
-		anthropicReq.MaxTokens = 4096 // Default max tokens
+		anthropicReq.MaxTokens = 8192 // Default max tokens, increased for tool sequences
 	}
 
 	if request.Temperature > 0 {
@@ -305,10 +305,30 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 			
 			// Add tool results
 			for _, toolResult := range msg.ToolResults {
+				// Convert content to string format for Anthropic
+				var content string
+				switch v := toolResult.Content.(type) {
+				case string:
+					content = v
+				case map[string]interface{}:
+					// Handle error format or other maps
+					if errMsg, ok := v["error"].(string); ok && toolResult.IsError {
+						content = errMsg
+					} else {
+						// Convert map to JSON string
+						jsonBytes, _ := json.Marshal(v)
+						content = string(jsonBytes)
+					}
+				default:
+					// Convert any other type to JSON string
+					jsonBytes, _ := json.Marshal(v)
+					content = string(jsonBytes)
+				}
+				
 				contentBlocks = append(contentBlocks, anthropicContentBlock{
 					Type:      "tool_result",
 					ToolUseID: toolResult.ToolUseID,
-					Content:   toolResult.Content,
+					Content:   content,
 					IsError:   toolResult.IsError,
 				})
 			}
@@ -337,6 +357,12 @@ func (a *AnthropicProvider) makeRequest(ctx context.Context, request *anthropicR
 			Underlying: err,
 		}
 	}
+
+	// Log the request for debugging
+	log.Debug().
+		Int("tools_count", len(request.Tools)).
+		Str("request_json", string(jsonData)).
+		Msg("Sending request to Anthropic API")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", AnthropicBaseURL+"/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -591,6 +617,11 @@ func (a *AnthropicProvider) handleHTTPError(err error) *AIError {
 // handleAPIError converts API error responses to AIError
 func (a *AnthropicProvider) handleAPIError(resp *http.Response) *AIError {
 	body, _ := io.ReadAll(resp.Body)
+	
+	log.Error().
+		Int("status_code", resp.StatusCode).
+		Str("response_body", string(body)).
+		Msg("Anthropic API error details")
 	
 	var apiErr anthropicError
 	json.Unmarshal(body, &apiErr)

@@ -50,7 +50,12 @@ func GetExcelTools() []ExcelTool {
 						"items": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
-								"type": "any",
+								"oneOf": []map[string]interface{}{
+									{"type": "string"},
+									{"type": "number"},
+									{"type": "boolean"},
+									{"type": "null"},
+								},
 							},
 						},
 					},

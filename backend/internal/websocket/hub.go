@@ -313,9 +313,22 @@ func (h *Hub) UnregisterToolHandler(sessionID, requestID string) {
 
 // SendToSession sends a message to all clients in a session
 func (h *Hub) SendToSession(sessionID string, message Message) error {
-	// For now, we'll use the sessionID as userID
-	// In a real implementation, you'd map sessions to users properly
-	return h.BroadcastToUser(sessionID, message.Type, message.Data)
+	// The sessionID is actually the client ID in our implementation
+	// Send directly to that client
+	logrus.WithFields(logrus.Fields{
+		"session_id":     sessionID,
+		"message_type":   string(message.Type),
+		"active_clients": len(h.clients),
+	}).Info("SendToSession called")
+	
+	// Log all connected clients for debugging
+	h.mutex.RLock()
+	for clientID := range h.clients {
+		logrus.WithField("client_id", clientID).Debug("Connected client")
+	}
+	h.mutex.RUnlock()
+	
+	return h.SendToClient(sessionID, message.Type, message.Data)
 }
 
 // HandleToolResponse handles a tool response from a client

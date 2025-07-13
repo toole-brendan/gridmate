@@ -38,7 +38,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		config.RequestTimeout = 30 * time.Second
 	}
 	if config.MaxTokens == 0 {
-		config.MaxTokens = 4096
+		config.MaxTokens = 8192 // Increased for complex tool sequences
 	}
 	if config.Temperature == 0 {
 		config.Temperature = 0.7
@@ -66,7 +66,7 @@ func NewServiceFromEnv() (*Service, error) {
 		Provider:        getEnvOrDefault("AI_PROVIDER", "anthropic"),
 		DefaultModel:    getEnvOrDefault("AI_MODEL", ""),
 		StreamingMode:   getEnvOrDefault("AI_STREAMING", "true") == "true",
-		MaxTokens:       4096,
+		MaxTokens:       8192, // Increased for complex tool sequences
 		Temperature:     0.7,
 		TopP:            0.9,
 		RequestTimeout:  30 * time.Second,
@@ -97,10 +97,19 @@ func (s *Service) ProcessChatMessage(ctx context.Context, userMessage string, co
 	}
 
 	// Add Excel tools if enabled
-	// TODO: Enable this when tool calling is fully implemented
-	// if s.config.EnableActions && s.toolExecutor != nil {
-	//     request.Tools = GetExcelTools()
-	// }
+	if s.config.EnableActions && s.toolExecutor != nil {
+		request.Tools = GetExcelTools()
+		log.Info().
+			Bool("actions_enabled", s.config.EnableActions).
+			Bool("tool_executor_available", s.toolExecutor != nil).
+			Int("tools_count", len(request.Tools)).
+			Msg("Adding Excel tools to request")
+	} else {
+		log.Warn().
+			Bool("actions_enabled", s.config.EnableActions).
+			Bool("tool_executor_available", s.toolExecutor != nil).
+			Msg("Tools not added to request")
+	}
 
 	// Get response
 	response, err := s.provider.GetCompletion(ctx, request)
@@ -396,6 +405,9 @@ func (s *Service) GetProviderName() string {
 // SetToolExecutor sets the tool executor for the AI service
 func (s *Service) SetToolExecutor(executor *ToolExecutor) {
 	s.toolExecutor = executor
+	log.Info().
+		Bool("executor_is_nil", executor == nil).
+		Msg("SetToolExecutor called")
 }
 
 // ProcessToolCalls processes tool calls from an AI response
@@ -422,6 +434,12 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 
 // ProcessChatWithTools processes a chat message and handles tool calls automatically
 func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, userMessage string, context *FinancialContext) (*CompletionResponse, error) {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("user_message", userMessage).
+		Bool("has_context", context != nil).
+		Msg("Starting ProcessChatWithTools")
+
 	// Initial message processing
 	messages := []Message{{Role: "user", Content: userMessage}}
 	
@@ -439,6 +457,11 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 	maxRounds := 5
 	
 	for round := 0; round < maxRounds; round++ {
+		log.Info().
+			Int("round", round).
+			Int("max_rounds", maxRounds).
+			Msg("Starting tool use round")
+
 		// Create request
 		request := CompletionRequest{
 			Messages:    messages,
@@ -451,6 +474,14 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 		// Add Excel tools if enabled
 		if s.config.EnableActions && s.toolExecutor != nil {
 			request.Tools = GetExcelTools()
+			log.Info().
+				Int("tools_count", len(request.Tools)).
+				Msg("Added tools to ProcessChatWithTools request")
+		} else {
+			log.Warn().
+				Bool("actions_enabled", s.config.EnableActions).
+				Bool("tool_executor_available", s.toolExecutor != nil).
+				Msg("No tools added to ProcessChatWithTools request")
 		}
 
 		// Get response
@@ -459,8 +490,14 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 			return nil, fmt.Errorf("AI request failed: %w", err)
 		}
 
+		log.Info().
+			Int("tool_calls_count", len(response.ToolCalls)).
+			Str("response_content", response.Content).
+			Msg("Received AI response")
+
 		// If no tool calls, return the response
 		if len(response.ToolCalls) == 0 {
+			log.Info().Msg("No tool calls in response, returning final answer")
 			return response, nil
 		}
 

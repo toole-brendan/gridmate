@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
+	
+	"github.com/rs/zerolog/log"
 )
 
 // ToolExecutor handles the execution of Excel tools
@@ -118,10 +121,20 @@ func NewToolExecutor(bridge ExcelBridge) *ToolExecutor {
 
 // ExecuteTool executes a tool call and returns the result
 func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolCall ToolCall) (*ToolResult, error) {
+	// Log tool execution start
+	log.Info().
+		Str("tool", toolCall.Name).
+		Str("session", sessionID).
+		Str("tool_id", toolCall.ID).
+		Interface("input", toolCall.Input).
+		Msg("Executing Excel tool")
+
 	result := &ToolResult{
 		Type:      "tool_result",
 		ToolUseID: toolCall.ID,
 	}
+
+	startTime := time.Now()
 
 	switch toolCall.Name {
 	case "read_range":
@@ -218,6 +231,17 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		result.IsError = true
 		result.Content = map[string]string{"error": fmt.Sprintf("Unknown tool: %s", toolCall.Name)}
 	}
+
+	// Log tool execution completion
+	duration := time.Since(startTime)
+	log.Info().
+		Str("tool", toolCall.Name).
+		Str("session", sessionID).
+		Str("tool_id", toolCall.ID).
+		Bool("success", !result.IsError).
+		Dur("duration_ms", duration).
+		Interface("result", result.Content).
+		Msg("Excel tool execution completed")
 
 	return result, nil
 }

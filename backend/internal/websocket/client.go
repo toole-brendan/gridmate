@@ -517,7 +517,9 @@ func (c *Client) handleToolResponse(msg *Message) error {
 		responseErr = fmt.Errorf(resp.Error)
 	}
 	
-	c.hub.HandleToolResponse(c.userID, resp.RequestID, resp.Result, responseErr)
+	// Use the session ID (which is the client ID) for tool response routing
+	// This matches how tool handlers are registered in BridgeImpl
+	c.hub.HandleToolResponse(c.ID, resp.RequestID, resp.Result, responseErr)
 	
 	return nil
 }

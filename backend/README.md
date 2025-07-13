@@ -16,10 +16,9 @@ This is the Go backend service for Gridmate - an AI-powered financial modeling a
    cd backend
    ```
 
-2. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
+2. Set up environment variables:
+   - Create `.env` in the root directory with your API keys (ANTHROPIC_API_KEY, etc.)
+   - Optionally create `backend/.env` for backend-specific overrides
 
 3. Start the development environment:
    ```bash
@@ -109,7 +108,7 @@ make lint  # Run linter
 
 ## Configuration
 
-The application uses environment variables for configuration. See `.env.example` for all available options.
+The application uses environment variables for configuration. The backend scripts (run-dev.sh, run-dev-sqlite.sh) load from the root `.env` file and set appropriate defaults.
 
 Key configuration areas:
 - Database connection

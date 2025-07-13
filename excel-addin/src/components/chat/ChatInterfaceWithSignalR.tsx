@@ -125,11 +125,13 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
 
   const handleToolRequest = async (toolRequest: any) => {
     console.log('🛠️ Handling tool request:', toolRequest)
+    console.log('🛠️ Full tool request data:', JSON.stringify(toolRequest, null, 2))
     setLastToolRequest(`Tool: ${toolRequest.tool}, Request ID: ${toolRequest.request_id}`)
     
     try {
       const excelService = ExcelService.getInstance()
       const { tool, request_id, ...input } = toolRequest
+      console.log('🛠️ Tool input after destructuring:', JSON.stringify(input, null, 2))
       const result = await excelService.executeToolRequest(tool, input)
       
       console.log('✅ Tool execution successful:', result)
@@ -276,18 +278,18 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const DebugInfo = () => (
     <div style={{ 
       background: '#1a1a1a', 
-      padding: '15px', 
-      borderRadius: '8px',
-      marginBottom: '20px',
-      fontSize: '13px',
+      padding: '8px', 
+      borderRadius: '4px',
+      marginBottom: '10px',
+      fontSize: '10px',
       fontFamily: 'monospace',
       color: '#e0e0e0',
       border: '1px solid #333'
     }}>
-      <h4 style={{ margin: '0 0 10px 0', color: '#4ade80', fontWeight: 'bold' }}>Debug Info:</h4>
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '5px 15px', marginBottom: '10px' }}>
+      <h4 style={{ margin: '0 0 5px 0', color: '#4ade80', fontSize: '11px', fontWeight: 'bold' }}>Debug Info:</h4>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 10px', marginBottom: '5px' }}>
         <span style={{ color: '#94a3b8' }}>Session:</span>
-        <span style={{ color: '#fbbf24', wordBreak: 'break-all' }}>{sessionIdRef.current}</span>
+        <span style={{ color: '#fbbf24', wordBreak: 'break-all', fontSize: '9px' }}>{sessionIdRef.current}</span>
         
         <span style={{ color: '#94a3b8' }}>Office API:</span>
         <span>{Office?.context ? '✅ Available' : '❌ Not Available'}</span>
@@ -307,44 +309,48 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         <span style={{ color: isLoading ? '#fbbf24' : '#6b7280' }}>{isLoading ? 'Yes' : 'No'}</span>
       </div>
       
-      <div style={{ 
-        color: lastToolRequest ? '#60a5fa' : '#6b7280',
-        marginTop: '10px',
-        padding: '8px',
-        background: '#262626',
-        borderRadius: '4px',
-        border: '1px solid #404040'
-      }}>
-        <strong>Last Tool Request:</strong> {lastToolRequest || 'None'}
-      </div>
+      {lastToolRequest && (
+        <div style={{ 
+          color: '#60a5fa',
+          marginTop: '5px',
+          padding: '4px',
+          background: '#262626',
+          borderRadius: '2px',
+          border: '1px solid #404040',
+          fontSize: '9px'
+        }}>
+          <strong>Last Tool Request:</strong> {lastToolRequest}
+        </div>
+      )}
       
       {toolError && (
         <div style={{ 
           color: '#f87171', 
-          marginTop: '10px',
-          padding: '8px',
+          marginTop: '5px',
+          padding: '4px',
           background: '#450a0a',
-          borderRadius: '4px',
-          border: '1px solid #dc2626'
+          borderRadius: '2px',
+          border: '1px solid #dc2626',
+          fontSize: '9px'
         }}>
           <strong>Tool Error:</strong> {toolError}
         </div>
       )}
       
       <div style={{ 
-        marginTop: '15px', 
-        padding: '10px', 
+        marginTop: '5px', 
+        padding: '5px', 
         background: '#0a0a0a',
-        borderRadius: '5px',
-        maxHeight: '150px',
+        borderRadius: '2px',
+        maxHeight: '60px',
         overflow: 'auto',
         border: '1px solid #333'
       }}>
-        <h5 style={{ margin: '0 0 8px 0', color: '#4ade80' }}>SignalR Log:</h5>
-        {signalRLog.map((log, i) => (
+        <h5 style={{ margin: '0 0 3px 0', color: '#4ade80', fontSize: '10px' }}>SignalR Log:</h5>
+        {signalRLog.slice(-5).map((log, i) => (
           <div key={i} style={{ 
-            fontSize: '12px', 
-            marginBottom: '3px',
+            fontSize: '9px', 
+            marginBottom: '1px',
             color: log.includes('✅') ? '#4ade80' : 
                    log.includes('❌') ? '#f87171' : 
                    log.includes('🔄') ? '#fbbf24' : 
@@ -356,18 +362,18 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         ))}
       </div>
       
-      <div style={{ marginTop: '15px', display: 'flex', gap: '10px' }}>
+      <div style={{ marginTop: '5px', display: 'flex', gap: '5px' }}>
         <button 
           onClick={testSignalR}
           style={{ 
-            padding: '8px 20px',
+            padding: '3px 10px',
             background: '#2563eb',
             color: 'white',
             border: 'none',
-            borderRadius: '6px',
+            borderRadius: '2px',
             cursor: 'pointer',
             fontWeight: '500',
-            fontSize: '13px',
+            fontSize: '10px',
             transition: 'background 0.2s'
           }}
           onMouseOver={(e) => e.currentTarget.style.background = '#1d4ed8'}
@@ -378,14 +384,14 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         <button 
           onClick={reconnect}
           style={{ 
-            padding: '8px 20px',
+            padding: '3px 10px',
             background: '#ea580c',
             color: 'white',
             border: 'none',
-            borderRadius: '6px',
+            borderRadius: '2px',
             cursor: 'pointer',
             fontWeight: '500',
-            fontSize: '13px',
+            fontSize: '10px',
             transition: 'background 0.2s'
           }}
           onMouseOver={(e) => e.currentTarget.style.background = '#c2410c'}

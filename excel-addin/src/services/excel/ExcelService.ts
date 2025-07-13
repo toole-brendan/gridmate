@@ -291,16 +291,53 @@ export class ExcelService {
   private async toolWriteRange(input: any): Promise<void> {
     const { range, values, preserve_formatting = true } = input
     
+    console.log('📝 toolWriteRange called with:')
+    console.log('  Range:', range)
+    console.log('  Values:', JSON.stringify(values))
+    console.log('  Values type:', typeof values)
+    console.log('  Is array:', Array.isArray(values))
+    if (Array.isArray(values)) {
+      console.log('  Values length:', values.length)
+      console.log('  First row:', values[0])
+      console.log('  First row is array:', Array.isArray(values[0]))
+    }
+    
     return Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const excelRange = worksheet.getRange(range)
-      
-      if (!preserve_formatting) {
-        excelRange.clear(Excel.ClearApplyTo.formats)
+      try {
+        const worksheet = context.workbook.worksheets.getActiveWorksheet()
+        const excelRange = worksheet.getRange(range)
+        
+        // Load range properties to check dimensions
+        excelRange.load(['rowCount', 'columnCount', 'address'])
+        await context.sync()
+        
+        console.log('📐 Range properties:')
+        console.log('  Address:', excelRange.address)
+        console.log('  Rows:', excelRange.rowCount)
+        console.log('  Columns:', excelRange.columnCount)
+        
+        // Validate that values is a 2D array
+        if (!Array.isArray(values) || !Array.isArray(values[0])) {
+          throw new Error('Values must be a 2D array (array of arrays)')
+        }
+        
+        // Check dimensions match
+        if (values.length !== excelRange.rowCount || values[0].length !== excelRange.columnCount) {
+          throw new Error(`Values dimensions (${values.length}x${values[0].length}) don't match range dimensions (${excelRange.rowCount}x${excelRange.columnCount})`)
+        }
+        
+        if (!preserve_formatting) {
+          excelRange.clear(Excel.ClearApplyTo.formats)
+        }
+        
+        excelRange.values = values
+        await context.sync()
+        
+        console.log('✅ toolWriteRange completed successfully')
+      } catch (error) {
+        console.error('❌ toolWriteRange error:', error)
+        throw error
       }
-      
-      excelRange.values = values
-      await context.sync()
     })
   }
 

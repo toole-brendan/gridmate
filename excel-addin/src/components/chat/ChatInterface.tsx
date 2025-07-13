@@ -90,8 +90,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask about your financial model..."
-            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400"
-            rows={1}
+            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400 text-sm"
+            rows={2}
             disabled={isLoading}
           />
           <button

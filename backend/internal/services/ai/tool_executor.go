@@ -31,21 +31,21 @@ type ExcelBridge interface {
 // RangeData represents data read from Excel
 type RangeData struct {
 	Values     [][]interface{}          `json:"values"`
-	Formulas   [][]string               `json:"formulas,omitempty"`
+	Formulas   [][]interface{}          `json:"formulas,omitempty"`
 	Formatting [][]CellFormat           `json:"formatting,omitempty"`
 	Address    string                   `json:"address"`
-	RowCount   int                      `json:"row_count"`
-	ColCount   int                      `json:"col_count"`
+	RowCount   int                      `json:"rowCount"`
+	ColCount   int                      `json:"colCount"`
 }
 
 // DataAnalysis represents analysis results
 type DataAnalysis struct {
-	DataTypes    []string                 `json:"data_types"`
+	DataTypes    []string                 `json:"dataTypes"`
 	Headers      []string                 `json:"headers,omitempty"`
 	Statistics   map[string]Stats         `json:"statistics,omitempty"`
 	Patterns     []string                 `json:"patterns,omitempty"`
-	RowCount     int                      `json:"row_count"`
-	ColCount     int                      `json:"col_count"`
+	RowCount     int                      `json:"rowCount"`
+	ColCount     int                      `json:"colCount"`
 }
 
 // Stats represents basic statistics

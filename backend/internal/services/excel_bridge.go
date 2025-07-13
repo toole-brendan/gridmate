@@ -27,10 +27,14 @@ type ExcelBridge struct {
 	aiService     *ai.Service
 	toolExecutor  *ai.ToolExecutor
 	contextBuilder *excel.ContextBuilder
+	excelBridgeImpl *excel.BridgeImpl // Excel bridge implementation for tool execution
 	
 	// Active sessions
 	sessions      map[string]*ExcelSession
 	sessionMutex  sync.RWMutex
+	
+	// SignalR bridge for SignalR clients
+	signalRBridge interface{} // Will be set by main.go
 }
 
 // ExcelSession represents an active Excel session
@@ -67,6 +71,7 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	
 	// Create Excel bridge implementation for tool executor
 	excelBridgeImpl := excel.NewBridgeImpl(hub)
+	bridge.excelBridgeImpl = excelBridgeImpl
 	
 	// Set client ID resolver
 	excelBridgeImpl.SetClientIDResolver(func(sessionID string) string {
@@ -133,6 +138,40 @@ func (eb *ExcelBridge) SetAIService(aiService *ai.Service) {
 // GetToolExecutor returns the tool executor for transferring to main AI service
 func (eb *ExcelBridge) GetToolExecutor() *ai.ToolExecutor {
 	return eb.toolExecutor
+}
+
+// CreateSignalRSession creates a session for SignalR clients
+func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
+	eb.sessionMutex.Lock()
+	defer eb.sessionMutex.Unlock()
+	
+	if _, exists := eb.sessions[sessionID]; !exists {
+		eb.sessions[sessionID] = &ExcelSession{
+			ID:           sessionID,
+			UserID:       "signalr-user",
+			ClientID:     sessionID, // Use session ID as client ID for SignalR
+			ActiveSheet:  "Sheet1",
+			Context:      make(map[string]interface{}),
+			LastActivity: time.Now(),
+		}
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+		}).Info("Created SignalR session")
+	}
+}
+
+// SetSignalRBridge sets the SignalR bridge for forwarding messages
+func (eb *ExcelBridge) SetSignalRBridge(bridge interface{}) {
+	eb.signalRBridge = bridge
+	// Also set it on the excel bridge implementation
+	if eb.excelBridgeImpl != nil {
+		eb.excelBridgeImpl.SetSignalRBridge(bridge)
+	}
+}
+
+// GetHub returns the WebSocket hub
+func (eb *ExcelBridge) GetHub() *websocket.Hub {
+	return eb.hub
 }
 
 // ProcessChatMessage processes a chat message from a client

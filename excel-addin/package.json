@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@microsoft/office-js": "^1.1.85",
+    "@microsoft/signalr": "^8.0.7",
     "axios": "^1.6.7",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",

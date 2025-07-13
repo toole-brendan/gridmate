@@ -91,8 +91,10 @@ func (cb *ContextBuilder) addSelectedRangeData(ctx context.Context, sessionID st
 				context.CellValues[cellAddr] = data.Values[row][col]
 			}
 			
-			if data.Formulas != nil && row < len(data.Formulas) && col < len(data.Formulas[row]) && data.Formulas[row][col] != "" {
-				context.Formulas[cellAddr] = data.Formulas[row][col]
+			if data.Formulas != nil && row < len(data.Formulas) && col < len(data.Formulas[row]) {
+				if formulaStr, ok := data.Formulas[row][col].(string); ok && formulaStr != "" {
+					context.Formulas[cellAddr] = formulaStr
+				}
 			}
 			
 			cellCount++
@@ -150,8 +152,10 @@ func (cb *ContextBuilder) addSurroundingContext(ctx context.Context, sessionID s
 					}
 				}
 				
-				if data.Formulas != nil && row < len(data.Formulas) && col < len(data.Formulas[row]) && data.Formulas[row][col] != "" {
-					context.Formulas[cellAddr] = data.Formulas[row][col]
+				if data.Formulas != nil && row < len(data.Formulas) && col < len(data.Formulas[row]) {
+					if formulaStr, ok := data.Formulas[row][col].(string); ok && formulaStr != "" {
+						context.Formulas[cellAddr] = formulaStr
+					}
 				}
 			}
 		}
@@ -235,8 +239,10 @@ func (cb *ContextBuilder) addNamedRanges(ctx context.Context, sessionID string, 
 				data, err := cb.bridge.ReadRange(ctx, sessionID, nr.Range, true, false)
 				if err == nil && len(data.Values) > 0 && len(data.Values[0]) > 0 {
 					context.CellValues[nr.Name] = data.Values[0][0]
-					if len(data.Formulas) > 0 && len(data.Formulas[0]) > 0 && data.Formulas[0][0] != "" {
-						context.Formulas[nr.Name] = data.Formulas[0][0]
+					if len(data.Formulas) > 0 && len(data.Formulas[0]) > 0 {
+						if formulaStr, ok := data.Formulas[0][0].(string); ok && formulaStr != "" {
+							context.Formulas[nr.Name] = formulaStr
+						}
 					}
 				}
 			}

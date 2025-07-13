@@ -1,0 +1,6 @@
+@GridmateSignalR_HostAddress = http://localhost:5252
+
+GET {{GridmateSignalR_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

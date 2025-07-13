@@ -95,8 +95,15 @@ func main() {
 		}
 	}
 
+	// Initialize SignalR bridge
+	signalRBridge := handlers.NewSignalRBridge("http://localhost:5000")
+	
+	// Set SignalR bridge in Excel bridge for tool requests
+	excelBridge.SetSignalRBridge(signalRBridge)
+
 	// Initialize handlers
 	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)
+	signalRHandler := handlers.NewSignalRHandler(excelBridge, signalRBridge, logger)
 
 	// Initialize router
 	router := mux.NewRouter()
@@ -114,6 +121,10 @@ func main() {
 	// WebSocket endpoint
 	router.HandleFunc("/ws", wsHandler.HandleWebSocket)
 	router.HandleFunc("/ws/status", wsHandler.GetStatus).Methods("GET")
+
+	// Chat API endpoints for SignalR bridge
+	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
+	router.HandleFunc("/api/tool-response", signalRHandler.HandleSignalRToolResponse).Methods("POST")
 
 	// Register API routes
 	routes.RegisterAPIRoutes(router, repos, jwtManager, excelBridge, docService, logger)

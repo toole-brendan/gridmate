@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ import (
 type BridgeImpl struct {
 	hub *websocket.Hub
 	getClientID func(sessionID string) string
+	signalRBridge interface{}
 }
 
 // NewBridgeImpl creates a new Excel bridge implementation
@@ -28,6 +30,11 @@ func NewBridgeImpl(hub *websocket.Hub) *BridgeImpl {
 // SetClientIDResolver sets a function to resolve session ID to client ID
 func (b *BridgeImpl) SetClientIDResolver(resolver func(sessionID string) string) {
 	b.getClientID = resolver
+}
+
+// SetSignalRBridge sets the SignalR bridge for sending tool requests
+func (b *BridgeImpl) SetSignalRBridge(bridge interface{}) {
+	b.signalRBridge = bridge
 }
 
 // sendToolRequest sends a tool request to the Excel client and waits for response
@@ -106,6 +113,48 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		b.hub.UnregisterToolHandler(sessionID, requestID)
 		b.hub.UnregisterToolHandler(clientID, requestID)
 	}()
+
+	// Check if this is a SignalR session (they have the same sessionID and clientID)
+	if sessionID == clientID && strings.HasPrefix(sessionID, "session_") {
+		// This is a SignalR session, use SignalR bridge to send tool request
+		if b.signalRBridge != nil {
+			log.Info().
+				Str("session_id", sessionID).
+				Str("request_id", requestID).
+				Msg("Sending tool request via SignalR bridge")
+			
+			// Send tool request via SignalR
+			// Cast to the interface with SendToolRequest method
+			type signalRBridge interface {
+				SendToolRequest(sessionID string, toolRequest interface{}) error
+			}
+			
+			if bridge, ok := b.signalRBridge.(signalRBridge); ok {
+				if err := bridge.SendToolRequest(sessionID, request); err != nil {
+					return nil, fmt.Errorf("failed to send tool request via SignalR: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("SignalR bridge does not implement SendToolRequest method")
+			}
+			
+			// Wait for response with timeout
+			select {
+			case response := <-respChan:
+				return response, nil
+			case err := <-errChan:
+				return nil, err
+			case <-time.After(30 * time.Second):
+				return nil, fmt.Errorf("tool request timeout after 30 seconds")
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		} else {
+			log.Warn().
+				Str("session_id", sessionID).
+				Msg("SignalR bridge not initialized")
+			return nil, fmt.Errorf("SignalR bridge not available")
+		}
+	}
 
 	// Send request to client
 	message, err := websocket.NewMessage(websocket.MessageTypeToolRequest, request)

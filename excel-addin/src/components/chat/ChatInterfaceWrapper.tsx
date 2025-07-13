@@ -1,9 +1,9 @@
 import React from 'react'
-import { ChatInterfaceWithBackend } from './ChatInterfaceWithBackend'
+import { ChatInterfaceWithSignalR } from './ChatInterfaceWithSignalR'
 
 export const ChatInterfaceWrapper: React.FC = () => {
   console.log('🎨 ChatInterfaceWrapper rendering')
   
-  // Use the backend-connected version
-  return <ChatInterfaceWithBackend />
+  // Use the SignalR version for reliable bidirectional communication
+  return <ChatInterfaceWithSignalR />
 }

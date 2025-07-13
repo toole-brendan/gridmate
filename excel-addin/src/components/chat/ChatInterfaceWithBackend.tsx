@@ -16,6 +16,9 @@ export const ChatInterfaceWithBackend: React.FC = () => {
   const [currentPreviewId, setCurrentPreviewId] = useState<string | null>(null)
   const wsClient = useRef<WebSocketClient | null>(null)
   const connectionStatusRef = useRef(connectionStatus)
+  const sessionIdRef = useRef<string>(`session_${Date.now()}`) // Persistent session ID
+  const [lastToolRequest, setLastToolRequest] = useState<string>('') // Debug: track tool requests
+  const [toolError, setToolError] = useState<string>('') // Debug: track tool errors
 
   // Debug connection status changes
   useEffect(() => {
@@ -86,6 +89,7 @@ export const ChatInterfaceWithBackend: React.FC = () => {
 
     wsClient.current.on('connect', () => {
       console.log('✅ WebSocket connect event fired')
+      console.log('📝 Session ID for this connection:', sessionIdRef.current)
       // Don't set status here, wait for backend confirmation
     })
 
@@ -171,8 +175,17 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       if (data.type === 'tool_request') {
         console.log('🔧 Tool request received:', data)
         const toolData = data.data || {}
+        setLastToolRequest(`Tool: ${toolData.tool || 'unknown'} at ${new Date().toLocaleTimeString()}`)
         handleToolRequest(toolData)
       }
+    })
+
+    // Also listen for specific tool_request events
+    wsClient.current.on('tool_request', (data: any) => {
+      console.log('🔧🔧 Direct tool_request event received:', data)
+      const toolData = data.data || {}
+      setLastToolRequest(`Direct Tool: ${toolData.tool || 'unknown'} at ${new Date().toLocaleTimeString()}`)
+      handleToolRequest(toolData)
     })
 
     wsClient.current.on('error', (error: any) => {
@@ -200,8 +213,31 @@ export const ChatInterfaceWithBackend: React.FC = () => {
     
     try {
       console.log(`🔧 Executing tool: ${tool}`, input)
+      
+      // Check if Office.js is available
+      console.log('🔍 Office availability check:')
+      console.log('- typeof Office:', typeof Office)
+      console.log('- typeof Excel:', typeof Excel)
+      
+      // Check if we're in Office context
+      if (typeof Office === 'undefined' || typeof Excel === 'undefined') {
+        throw new Error('Office.js or Excel API is not available. Make sure the add-in is running in Excel.')
+      }
+      
       const excelService = ExcelService.getInstance()
+      console.log('📊 ExcelService instance obtained')
+      
+      // Clear previous error
+      setToolError('')
+      
+      // Add status update
+      setLastToolRequest(`Executing ${tool}...`)
+      
       const result = await excelService.executeToolRequest(tool, input)
+      console.log(`📊 Tool execution completed, result:`, result)
+      
+      // Update status
+      setLastToolRequest(`Completed ${tool} at ${new Date().toLocaleTimeString()}`)
       
       // Send successful response
       wsClient.current?.send({
@@ -215,6 +251,11 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       console.log(`✅ Tool ${tool} executed successfully`, result)
     } catch (error) {
       console.error(`❌ Tool ${tool} failed:`, error)
+      console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace')
+      
+      // Update error display
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      setToolError(`${tool} failed: ${errorMsg}`)
       
       // Send error response
       wsClient.current?.send({
@@ -222,7 +263,7 @@ export const ChatInterfaceWithBackend: React.FC = () => {
         data: {
           request_id,
           success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: errorMsg
         }
       })
     }
@@ -279,7 +320,7 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       const chatData = {
         content: messageContent,
         context: excelContext ? { excel: excelContext } : undefined,
-        sessionId: 'session_' + Date.now() // Simple session ID for now
+        sessionId: sessionIdRef.current // Use persistent session ID
       }
       
       const messageToSend = {
@@ -378,6 +419,56 @@ export const ChatInterfaceWithBackend: React.FC = () => {
           State: {connectionStatus} |
           DisplayStatus: {displayStatus} |
           RenderKey: {renderKey}
+        </div>
+        {/* Debug Info Panel */}
+        <div style={{ 
+          fontSize: '10px', 
+          marginTop: '4px', 
+          padding: '4px', 
+          background: 'rgba(0,0,0,0.1)',
+          borderRadius: '4px',
+          textAlign: 'left'
+        }}>
+          <div><strong>Debug Info:</strong></div>
+          <div>Session: {sessionIdRef.current}</div>
+          <div>Office API: {typeof Office !== 'undefined' ? '✅ Available' : '❌ Not Available'}</div>
+          <div>Excel API: {typeof Excel !== 'undefined' ? '✅ Available' : '❌ Not Available'}</div>
+          <div>In Excel: {window.location.pathname.includes('/excel') ? 'Yes' : 'No'}</div>
+          <div>Messages: {messages.length}</div>
+          <div>Loading: {isLoading ? 'Yes' : 'No'}</div>
+          <div style={{ color: '#ff6600', fontWeight: 'bold' }}>
+            Last Tool Request: {lastToolRequest || 'None'}
+          </div>
+          {toolError && (
+            <div style={{ color: '#ff0000', fontWeight: 'bold', marginTop: '4px' }}>
+              Error: {toolError}
+            </div>
+          )}
+          {/* Test Excel API button */}
+          <button 
+            onClick={async () => {
+              try {
+                setToolError('')
+                setLastToolRequest('Testing Excel API...')
+                await Excel.run(async (context) => {
+                  const sheet = context.workbook.worksheets.getActiveWorksheet()
+                  sheet.load('name')
+                  await context.sync()
+                  setLastToolRequest(`Excel API works! Sheet: ${sheet.name}`)
+                })
+              } catch (error) {
+                setToolError(`Excel API test failed: ${error}`)
+              }
+            }}
+            style={{
+              marginTop: '4px',
+              padding: '2px 8px',
+              fontSize: '10px',
+              cursor: 'pointer'
+            }}
+          >
+            Test Excel API
+          </button>
         </div>
       </div>
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

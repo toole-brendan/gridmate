@@ -200,38 +200,57 @@ export class ExcelService {
 
   // Tool execution methods
   async executeToolRequest(tool: string, input: any): Promise<any> {
-    switch (tool) {
-      case 'read_range':
-        return this.toolReadRange(input)
-      case 'write_range':
-        return this.toolWriteRange(input)
-      case 'apply_formula':
-        return this.toolApplyFormula(input)
-      case 'analyze_data':
-        return this.toolAnalyzeData(input)
-      case 'format_range':
-        return this.toolFormatRange(input)
-      case 'create_chart':
-        return this.toolCreateChart(input)
-      case 'validate_model':
-        return this.toolValidateModel(input)
-      case 'get_named_ranges':
-        return this.toolGetNamedRanges(input)
-      case 'create_named_range':
-        return this.toolCreateNamedRange(input)
-      case 'insert_rows_columns':
-        return this.toolInsertRowsColumns(input)
-      default:
-        throw new Error(`Unknown tool: ${tool}`)
+    console.log(`🔧 ExcelService.executeToolRequest called for tool: ${tool}`)
+    
+    // Check if Excel is available
+    if (typeof Excel === 'undefined') {
+      throw new Error('Excel API is not available. The add-in might not be properly loaded in Excel.')
+    }
+    
+    try {
+      switch (tool) {
+        case 'read_range':
+          return this.toolReadRange(input)
+        case 'write_range':
+          return this.toolWriteRange(input)
+        case 'apply_formula':
+          return this.toolApplyFormula(input)
+        case 'analyze_data':
+          return this.toolAnalyzeData(input)
+        case 'format_range':
+          return this.toolFormatRange(input)
+        case 'create_chart':
+          return this.toolCreateChart(input)
+        case 'validate_model':
+          return this.toolValidateModel(input)
+        case 'get_named_ranges':
+          return this.toolGetNamedRanges(input)
+        case 'create_named_range':
+          return this.toolCreateNamedRange(input)
+        case 'insert_rows_columns':
+          return this.toolInsertRowsColumns(input)
+        default:
+          throw new Error(`Unknown tool: ${tool}`)
+      }
+    } catch (error) {
+      console.error(`❌ ExcelService tool execution failed:`, error)
+      throw error
     }
   }
 
   private async toolReadRange(input: any): Promise<RangeData> {
     const { range, include_formulas = true, include_formatting = false } = input
     
+    console.log(`📊 toolReadRange called with range: ${range}`)
+    
     return Excel.run(async (context: any) => {
+      console.log('📊 Inside Excel.run')
+      
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
+      console.log('📊 Got active worksheet')
+      
       const excelRange = worksheet.getRange(range)
+      console.log('📊 Got range object')
       
       const loadProperties = ['values', 'address', 'rowCount', 'columnCount']
       if (include_formulas) {
@@ -241,8 +260,12 @@ export class ExcelService {
         loadProperties.push('format')
       }
       
+      console.log('📊 Loading properties:', loadProperties)
       excelRange.load(loadProperties)
+      
+      console.log('📊 Calling context.sync()...')
       await context.sync()
+      console.log('📊 context.sync() completed')
       
       const result: RangeData = {
         values: excelRange.values,
@@ -260,6 +283,7 @@ export class ExcelService {
         result.formatting = []
       }
       
+      console.log('📊 toolReadRange result:', result)
       return result
     })
   }

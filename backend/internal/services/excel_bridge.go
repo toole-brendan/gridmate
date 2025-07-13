@@ -37,6 +37,7 @@ type ExcelBridge struct {
 type ExcelSession struct {
 	ID            string
 	UserID        string
+	ClientID      string  // WebSocket client ID for routing messages
 	ActiveSheet   string
 	Selection     websocket.SelectionChanged
 	Context       map[string]interface{}
@@ -66,6 +67,16 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	
 	// Create Excel bridge implementation for tool executor
 	excelBridgeImpl := excel.NewBridgeImpl(hub)
+	
+	// Set client ID resolver
+	excelBridgeImpl.SetClientIDResolver(func(sessionID string) string {
+		bridge.sessionMutex.RLock()
+		defer bridge.sessionMutex.RUnlock()
+		if session, ok := bridge.sessions[sessionID]; ok {
+			return session.ClientID
+		}
+		return ""
+	})
 	
 	// Create tool executor
 	bridge.toolExecutor = ai.NewToolExecutor(excelBridgeImpl)
@@ -250,12 +261,16 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 	defer eb.sessionMutex.Unlock()
 	
 	if session, ok := eb.sessions[sessionID]; ok {
+		// Update client ID in case of reconnection
+		session.ClientID = clientID
+		session.LastActivity = time.Now()
 		return session
 	}
 	
 	session := &ExcelSession{
 		ID:           sessionID,
-		UserID:       clientID,  // Store the client ID to enable direct messaging
+		UserID:       clientID,  // TODO: This should be actual user ID when auth is implemented
+		ClientID:     clientID,  // Store the client ID to enable direct messaging
 		Context:      make(map[string]interface{}),
 		LastActivity: time.Now(),
 	}

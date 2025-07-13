@@ -15,6 +15,7 @@ import (
 // BridgeImpl implements the ExcelBridge interface for AI tool execution
 type BridgeImpl struct {
 	hub *websocket.Hub
+	getClientID func(sessionID string) string
 }
 
 // NewBridgeImpl creates a new Excel bridge implementation
@@ -24,25 +25,39 @@ func NewBridgeImpl(hub *websocket.Hub) *BridgeImpl {
 	}
 }
 
+// SetClientIDResolver sets a function to resolve session ID to client ID
+func (b *BridgeImpl) SetClientIDResolver(resolver func(sessionID string) string) {
+	b.getClientID = resolver
+}
+
 // sendToolRequest sends a tool request to the Excel client and waits for response
 func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, request map[string]interface{}) (interface{}, error) {
 	// Generate unique request ID
 	requestID := uuid.New().String()
 	request["request_id"] = requestID
 
+	// Get client ID for routing
+	clientID := sessionID
+	if b.getClientID != nil {
+		clientID = b.getClientID(sessionID)
+		if clientID == "" {
+			return nil, fmt.Errorf("no active client for session %s", sessionID)
+		}
+	}
+
 	// Create response channel
 	respChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 
-	// Register response handler
-	b.hub.RegisterToolHandler(sessionID, requestID, func(response interface{}, err error) {
+	// Register response handler with client ID
+	b.hub.RegisterToolHandler(clientID, requestID, func(response interface{}, err error) {
 		if err != nil {
 			errChan <- err
 		} else {
 			respChan <- response
 		}
 	})
-	defer b.hub.UnregisterToolHandler(sessionID, requestID)
+	defer b.hub.UnregisterToolHandler(clientID, requestID)
 
 	// Send request to client
 	message, err := websocket.NewMessage(websocket.MessageTypeToolRequest, request)
@@ -52,11 +67,12 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 
 	log.Info().
 		Str("session_id", sessionID).
+		Str("client_id", clientID).
 		Str("request_id", requestID).
 		Interface("request", request).
 		Msg("Sending tool request via WebSocket")
 
-	if err := b.hub.SendToSession(sessionID, *message); err != nil {
+	if err := b.hub.SendToSession(clientID, *message); err != nil {
 		return nil, fmt.Errorf("failed to send tool request: %w", err)
 	}
 

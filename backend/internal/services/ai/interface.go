@@ -25,24 +25,26 @@ type AIProvider interface {
 
 // CompletionRequest represents a request for text completion
 type CompletionRequest struct {
-	Messages      []Message `json:"messages"`
-	MaxTokens     int       `json:"max_tokens,omitempty"`
-	Temperature   float32   `json:"temperature,omitempty"`
-	TopP          float32   `json:"top_p,omitempty"`
-	Stream        bool      `json:"stream,omitempty"`
-	Model         string    `json:"model,omitempty"`
-	SystemPrompt  string    `json:"system_prompt,omitempty"`
-	StopSequences []string  `json:"stop_sequences,omitempty"`
+	Messages      []Message    `json:"messages"`
+	MaxTokens     int          `json:"max_tokens,omitempty"`
+	Temperature   float32      `json:"temperature,omitempty"`
+	TopP          float32      `json:"top_p,omitempty"`
+	Stream        bool         `json:"stream,omitempty"`
+	Model         string       `json:"model,omitempty"`
+	SystemPrompt  string       `json:"system_prompt,omitempty"`
+	StopSequences []string     `json:"stop_sequences,omitempty"`
+	Tools         []ExcelTool  `json:"tools,omitempty"`
 }
 
 // CompletionResponse represents a completion response
 type CompletionResponse struct {
-	ID       string    `json:"id"`
-	Content  string    `json:"content"`
-	Model    string    `json:"model"`
-	Usage    Usage     `json:"usage"`
-	Created  time.Time `json:"created"`
-	Actions  []Action  `json:"actions,omitempty"` // Parsed suggested actions
+	ID       string     `json:"id"`
+	Content  string     `json:"content"`
+	Model    string     `json:"model"`
+	Usage    Usage      `json:"usage"`
+	Created  time.Time  `json:"created"`
+	Actions  []Action   `json:"actions,omitempty"` // Parsed suggested actions
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"` // Tool calls requested by the AI
 }
 
 // CompletionChunk represents a streaming chunk
@@ -56,8 +58,10 @@ type CompletionChunk struct {
 
 // Message represents a conversation message
 type Message struct {
-	Role    string `json:"role"`    // "user", "assistant", "system"
-	Content string `json:"content"`
+	Role    string        `json:"role"`    // "user", "assistant", "system"
+	Content string        `json:"content"`
+	ToolCalls   []ToolCall    `json:"tool_calls,omitempty"`   // Tool calls made by assistant
+	ToolResults []ToolResult  `json:"tool_results,omitempty"` // Results from tool execution
 }
 
 // Usage represents token usage statistics

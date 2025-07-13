@@ -14,6 +14,7 @@ import (
 type Service struct {
 	provider      AIProvider
 	promptBuilder *PromptBuilder
+	toolExecutor  *ToolExecutor
 	config        ServiceConfig
 }
 
@@ -52,6 +53,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 	service := &Service{
 		provider:      provider,
 		promptBuilder: NewPromptBuilder(),
+		toolExecutor:  nil, // Will be set later if needed
 		config:        config,
 	}
 
@@ -93,6 +95,12 @@ func (s *Service) ProcessChatMessage(ctx context.Context, userMessage string, co
 		TopP:        s.config.TopP,
 		Model:       s.config.DefaultModel,
 	}
+
+	// Add Excel tools if enabled
+	// TODO: Enable this when tool calling is fully implemented
+	// if s.config.EnableActions && s.toolExecutor != nil {
+	//     request.Tools = GetExcelTools()
+	// }
 
 	// Get response
 	response, err := s.provider.GetCompletion(ctx, request)
@@ -383,4 +391,100 @@ func (s *Service) GetStreamingCompletion(ctx context.Context, request Completion
 // GetProviderName implements the AIProvider interface
 func (s *Service) GetProviderName() string {
 	return s.provider.GetProviderName()
+}
+
+// SetToolExecutor sets the tool executor for the AI service
+func (s *Service) SetToolExecutor(executor *ToolExecutor) {
+	s.toolExecutor = executor
+}
+
+// ProcessToolCalls processes tool calls from an AI response
+func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCalls []ToolCall) ([]ToolResult, error) {
+	if s.toolExecutor == nil {
+		return nil, fmt.Errorf("tool executor not configured")
+	}
+
+	results := make([]ToolResult, 0, len(toolCalls))
+	
+	for _, toolCall := range toolCalls {
+		result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall)
+		if err != nil {
+			log.Error().Err(err).Str("tool", toolCall.Name).Msg("Failed to execute tool")
+			// Add error result
+			results = append(results, *result)
+		} else {
+			results = append(results, *result)
+		}
+	}
+
+	return results, nil
+}
+
+// ProcessChatWithTools processes a chat message and handles tool calls automatically
+func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, userMessage string, context *FinancialContext) (*CompletionResponse, error) {
+	// Initial message processing
+	messages := []Message{{Role: "user", Content: userMessage}}
+	
+	// Add context if provided
+	if context != nil && context.ModelType == "" {
+		context.ModelType = s.promptBuilder.DetectModelType(context)
+	}
+
+	// If we have context, build the full prompt
+	if context != nil {
+		messages = s.promptBuilder.BuildChatPrompt(userMessage, context)
+	}
+
+	// Maximum rounds of tool use
+	maxRounds := 5
+	
+	for round := 0; round < maxRounds; round++ {
+		// Create request
+		request := CompletionRequest{
+			Messages:    messages,
+			MaxTokens:   s.config.MaxTokens,
+			Temperature: s.config.Temperature,
+			TopP:        s.config.TopP,
+			Model:       s.config.DefaultModel,
+		}
+
+		// Add Excel tools if enabled
+		if s.config.EnableActions && s.toolExecutor != nil {
+			request.Tools = GetExcelTools()
+		}
+
+		// Get response
+		response, err := s.provider.GetCompletion(ctx, request)
+		if err != nil {
+			return nil, fmt.Errorf("AI request failed: %w", err)
+		}
+
+		// If no tool calls, return the response
+		if len(response.ToolCalls) == 0 {
+			return response, nil
+		}
+
+		// Process tool calls
+		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to process tool calls")
+		}
+
+		// Add assistant message with tool calls
+		assistantMsg := Message{
+			Role:      "assistant",
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
+		}
+		messages = append(messages, assistantMsg)
+
+		// Add tool results
+		toolResultMsg := Message{
+			Role:        "user",
+			ToolResults: toolResults,
+		}
+		messages = append(messages, toolResultMsg)
+	}
+
+	return nil, fmt.Errorf("exceeded maximum rounds of tool use")
 }

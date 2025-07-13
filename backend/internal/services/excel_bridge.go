@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gridmate/backend/internal/services/ai"
+	"github.com/gridmate/backend/internal/services/excel"
 	"github.com/gridmate/backend/internal/websocket"
 	"github.com/sirupsen/logrus"
 )
@@ -24,6 +25,8 @@ type ExcelBridge struct {
 	
 	// AI service for chat processing
 	aiService     *ai.Service
+	toolExecutor  *ai.ToolExecutor
+	contextBuilder *excel.ContextBuilder
 	
 	// Active sessions
 	sessions      map[string]*ExcelSession
@@ -48,6 +51,8 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	if err != nil {
 		logger.WithError(err).Error("Failed to initialize AI service")
 		aiService = nil // Continue without AI service
+	} else {
+		logger.Info("AI service initialized successfully")
 	}
 
 	bridge := &ExcelBridge{
@@ -58,6 +63,20 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 		aiService:  aiService,
 		sessions:   make(map[string]*ExcelSession),
 	}
+	
+	// Create Excel bridge implementation for tool executor
+	excelBridgeImpl := excel.NewBridgeImpl(hub)
+	
+	// Create tool executor
+	bridge.toolExecutor = ai.NewToolExecutor(excelBridgeImpl)
+	
+	// Set tool executor in AI service
+	if aiService != nil {
+		aiService.SetToolExecutor(bridge.toolExecutor)
+	}
+	
+	// Create context builder
+	bridge.contextBuilder = excel.NewContextBuilder(excelBridgeImpl)
 	
 	// Set the bridge in the hub
 	hub.SetExcelBridge(bridge)
@@ -87,8 +106,29 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 	var actions []websocket.ProposedAction
 	
 	if eb.aiService != nil {
-		// Create financial context for AI
-		financialContext := eb.buildFinancialContext(session, message.Context)
+		eb.logger.Info("AI service is available, processing message")
+		// Build comprehensive context using context builder
+		var financialContext *ai.FinancialContext
+		if eb.contextBuilder != nil && session.Selection.SelectedRange != "" {
+			ctx := context.Background()
+			builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID, session.Selection.SelectedRange)
+			if err != nil {
+				eb.logger.WithError(err).Warn("Failed to build comprehensive context")
+				// Fall back to simple context
+				financialContext = eb.buildFinancialContext(session, message.Context)
+			} else {
+				financialContext = builtContext
+				// Add any additional context from the message
+				for k, v := range message.Context {
+					if str, ok := v.(string); ok {
+						financialContext.DocumentContext = append(financialContext.DocumentContext, fmt.Sprintf("%s: %s", k, str))
+					}
+				}
+			}
+		} else {
+			// Use simple context if no selection or context builder
+			financialContext = eb.buildFinancialContext(session, message.Context)
+		}
 		
 		// Process chat message with AI
 		ctx := context.Background()
@@ -100,6 +140,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 			content = response.Content
 			// Convert AI actions to websocket actions
 			actions = eb.convertAIActions(response.Actions)
+			// TODO: Implement tool calling when ready
 		}
 	} else {
 		// Fallback response when AI service is not available

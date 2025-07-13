@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -202,6 +203,8 @@ func (c *Client) handleMessage(data []byte) error {
 		return c.handleApproveChanges(msg)
 	case MessageTypeRejectChanges:
 		return c.handleRejectChanges(msg)
+	case MessageTypeToolResponse:
+		return c.handleToolResponse(msg)
 	default:
 		return c.sendError("unknown_message_type", "Unknown message type: "+string(msg.Type))
 	}
@@ -236,8 +239,14 @@ func (c *Client) handleAuth(msg *Message) error {
 func (c *Client) handleChatMessage(msg *Message) error {
 	var chatMsg ChatMessage
 	if err := json.Unmarshal(msg.Data, &chatMsg); err != nil {
+		c.logger.WithError(err).Error("Failed to unmarshal chat message")
 		return err
 	}
+	
+	c.logger.WithFields(logrus.Fields{
+		"content": chatMsg.Content,
+		"sessionID": chatMsg.SessionID,
+	}).Info("Received chat message")
 
 	// Process the message through Excel bridge if available
 	if c.hub.excelBridge != nil {
@@ -493,6 +502,24 @@ func (c *Client) handleRejectChanges(msg *Message) error {
 		Title:   "Changes Rejected",
 		Message: "The proposed changes have been rejected and will not be applied.",
 	})
+}
+
+// handleToolResponse handles tool response messages from the client
+func (c *Client) handleToolResponse(msg *Message) error {
+	var resp ToolResponse
+	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		return err
+	}
+
+	// Forward the response to the hub's tool handler
+	var responseErr error
+	if !resp.Success {
+		responseErr = fmt.Errorf(resp.Error)
+	}
+	
+	c.hub.HandleToolResponse(c.userID, resp.RequestID, resp.Result, responseErr)
+	
+	return nil
 }
 
 // generateClientID generates a unique client ID

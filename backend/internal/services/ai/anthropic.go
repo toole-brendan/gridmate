@@ -135,11 +135,64 @@ type anthropicRequest struct {
 	TopP        *float32            `json:"top_p,omitempty"`
 	Stream      bool                `json:"stream,omitempty"`
 	System      string              `json:"system,omitempty"`
+	Tools       []anthropicTool     `json:"tools,omitempty"`
 }
 
 type anthropicMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string                   `json:"role"`
+	Content anthropicMessageContent  `json:"content"`
+}
+
+type anthropicMessageContent interface{}
+
+type anthropicTextContent string
+
+type anthropicToolContent []anthropicContentBlock
+
+// MarshalJSON implements custom JSON marshaling for anthropicMessage
+func (m anthropicMessage) MarshalJSON() ([]byte, error) {
+	type Alias anthropicMessage
+	switch content := m.Content.(type) {
+	case anthropicTextContent:
+		return json.Marshal(&struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}{
+			Role:    m.Role,
+			Content: string(content),
+		})
+	case anthropicToolContent:
+		return json.Marshal(&struct {
+			Role    string                  `json:"role"`
+			Content []anthropicContentBlock `json:"content"`
+		}{
+			Role:    m.Role,
+			Content: []anthropicContentBlock(content),
+		})
+	default:
+		return json.Marshal(&struct {
+			Alias
+		}{
+			Alias: (Alias)(m),
+		})
+	}
+}
+
+type anthropicContentBlock struct {
+	Type     string                 `json:"type"`
+	Text     string                 `json:"text,omitempty"`
+	ID       string                 `json:"id,omitempty"`
+	Name     string                 `json:"name,omitempty"`
+	Input    map[string]interface{} `json:"input,omitempty"`
+	Content  interface{}            `json:"content,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	IsError  bool                   `json:"is_error,omitempty"`
+}
+
+type anthropicTool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"input_schema"`
 }
 
 type anthropicResponse struct {
@@ -154,8 +207,11 @@ type anthropicResponse struct {
 }
 
 type anthropicContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string                 `json:"type"`
+	Text     string                 `json:"text,omitempty"`
+	ID       string                 `json:"id,omitempty"`
+	Name     string                 `json:"name,omitempty"`
+	Input    map[string]interface{} `json:"input,omitempty"`
 }
 
 type anthropicUsage struct {
@@ -205,14 +261,65 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 		anthropicReq.TopP = &request.TopP
 	}
 
+	// Add tools if provided
+	if len(request.Tools) > 0 {
+		anthropicReq.Tools = make([]anthropicTool, 0, len(request.Tools))
+		for _, tool := range request.Tools {
+			anthropicReq.Tools = append(anthropicReq.Tools, anthropicTool{
+				Name:        tool.Name,
+				Description: tool.Description,
+				InputSchema: tool.InputSchema,
+			})
+		}
+	}
+
 	// Convert messages, handling system messages specially
 	for _, msg := range request.Messages {
 		if msg.Role == "system" {
 			anthropicReq.System = msg.Content
+		} else if msg.ToolCalls != nil || msg.ToolResults != nil {
+			// Handle tool-related messages
+			anthropicMsg := anthropicMessage{
+				Role: msg.Role,
+			}
+			
+			var contentBlocks []anthropicContentBlock
+			
+			// Add text content if present
+			if msg.Content != "" {
+				contentBlocks = append(contentBlocks, anthropicContentBlock{
+					Type: "text",
+					Text: msg.Content,
+				})
+			}
+			
+			// Add tool calls
+			for _, toolCall := range msg.ToolCalls {
+				contentBlocks = append(contentBlocks, anthropicContentBlock{
+					Type:  "tool_use",
+					ID:    toolCall.ID,
+					Name:  toolCall.Name,
+					Input: toolCall.Input,
+				})
+			}
+			
+			// Add tool results
+			for _, toolResult := range msg.ToolResults {
+				contentBlocks = append(contentBlocks, anthropicContentBlock{
+					Type:      "tool_result",
+					ToolUseID: toolResult.ToolUseID,
+					Content:   toolResult.Content,
+					IsError:   toolResult.IsError,
+				})
+			}
+			
+			anthropicMsg.Content = anthropicToolContent(contentBlocks)
+			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
 		} else {
+			// Simple text message
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMessage{
 				Role:    msg.Role,
-				Content: msg.Content,
+				Content: anthropicTextContent(msg.Content),
 			})
 		}
 	}
@@ -372,16 +479,27 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 // convertFromAnthropicResponse converts Anthropic response to our generic format
 func (a *AnthropicProvider) convertFromAnthropicResponse(resp *anthropicResponse) *CompletionResponse {
 	var content strings.Builder
+	var toolCalls []ToolCall
+	
 	for _, c := range resp.Content {
-		if c.Type == "text" {
+		switch c.Type {
+		case "text":
 			content.WriteString(c.Text)
+		case "tool_use":
+			toolCalls = append(toolCalls, ToolCall{
+				Type:  "tool_use",
+				ID:    c.ID,
+				Name:  c.Name,
+				Input: c.Input,
+			})
 		}
 	}
 
 	response := &CompletionResponse{
-		ID:      resp.ID,
-		Content: content.String(),
-		Model:   resp.Model,
+		ID:        resp.ID,
+		Content:   content.String(),
+		Model:     resp.Model,
+		ToolCalls: toolCalls,
 		Usage: Usage{
 			PromptTokens:     resp.Usage.InputTokens,
 			CompletionTokens: resp.Usage.OutputTokens,

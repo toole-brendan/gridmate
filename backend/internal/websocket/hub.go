@@ -40,7 +40,14 @@ type Hub struct {
 
 	// Excel bridge service reference
 	excelBridge ExcelBridgeService
+
+	// Tool handlers for request/response pattern
+	toolHandlers map[string]map[string]ToolHandler // sessionID -> requestID -> handler
+	toolMutex    sync.RWMutex
 }
+
+// ToolHandler handles tool responses
+type ToolHandler func(response interface{}, err error)
 
 // ExcelBridgeService interface for the Excel integration
 type ExcelBridgeService interface {
@@ -58,13 +65,14 @@ func NewHub(logger *logrus.Logger) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	return &Hub{
-		clients:    make(map[string]*Client),
-		broadcast:  make(chan *BroadcastMessage, 256),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		logger:     logger,
-		ctx:        ctx,
-		cancel:     cancel,
+		clients:      make(map[string]*Client),
+		broadcast:    make(chan *BroadcastMessage, 256),
+		register:     make(chan *Client),
+		unregister:   make(chan *Client),
+		logger:       logger,
+		ctx:          ctx,
+		cancel:       cancel,
+		toolHandlers: make(map[string]map[string]ToolHandler),
 	}
 }
 
@@ -277,4 +285,47 @@ func (m *Message) MarshalJSON() ([]byte, error) {
 	}{
 		Alias: (*Alias)(m),
 	})
+}
+
+// RegisterToolHandler registers a handler for a tool response
+func (h *Hub) RegisterToolHandler(sessionID, requestID string, handler ToolHandler) {
+	h.toolMutex.Lock()
+	defer h.toolMutex.Unlock()
+
+	if h.toolHandlers[sessionID] == nil {
+		h.toolHandlers[sessionID] = make(map[string]ToolHandler)
+	}
+	h.toolHandlers[sessionID][requestID] = handler
+}
+
+// UnregisterToolHandler removes a tool handler
+func (h *Hub) UnregisterToolHandler(sessionID, requestID string) {
+	h.toolMutex.Lock()
+	defer h.toolMutex.Unlock()
+
+	if handlers, ok := h.toolHandlers[sessionID]; ok {
+		delete(handlers, requestID)
+		if len(handlers) == 0 {
+			delete(h.toolHandlers, sessionID)
+		}
+	}
+}
+
+// SendToSession sends a message to all clients in a session
+func (h *Hub) SendToSession(sessionID string, message Message) error {
+	// For now, we'll use the sessionID as userID
+	// In a real implementation, you'd map sessions to users properly
+	return h.BroadcastToUser(sessionID, message.Type, message.Data)
+}
+
+// HandleToolResponse handles a tool response from a client
+func (h *Hub) HandleToolResponse(sessionID, requestID string, response interface{}, err error) {
+	h.toolMutex.RLock()
+	defer h.toolMutex.RUnlock()
+
+	if handlers, ok := h.toolHandlers[sessionID]; ok {
+		if handler, ok := handlers[requestID]; ok {
+			handler(response, err)
+		}
+	}
 }

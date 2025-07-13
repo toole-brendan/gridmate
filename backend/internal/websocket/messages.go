@@ -21,6 +21,7 @@ const (
 	MessageTypeUnsubscribe      MessageType = "unsubscribe"
 	MessageTypeApproveChanges   MessageType = "approve_changes"
 	MessageTypeRejectChanges    MessageType = "reject_changes"
+	MessageTypeToolResponse     MessageType = "tool_response"
 
 	// Server to client message types
 	MessageTypeAuthSuccess      MessageType = "auth_success"
@@ -32,6 +33,7 @@ const (
 	MessageTypeNotification     MessageType = "notification"
 	MessageTypeChangePreview    MessageType = "change_preview"
 	MessageTypeApplyChanges     MessageType = "apply_changes"
+	MessageTypeToolRequest      MessageType = "tool_request"
 )
 
 // Message is the base structure for all WebSocket messages
@@ -225,4 +227,19 @@ func NewMessage(msgType MessageType, data interface{}) (*Message, error) {
 func generateMessageID() string {
 	// In production, use a proper UUID generator
 	return time.Now().Format("20060102150405.999999999")
+}
+
+// ToolRequest represents a request to execute a tool on the client
+type ToolRequest struct {
+	RequestID string                 `json:"request_id"`
+	Tool      string                 `json:"tool"`
+	Input     map[string]interface{} `json:"input"`
+}
+
+// ToolResponse represents the response from a tool execution
+type ToolResponse struct {
+	RequestID string      `json:"request_id"`
+	Success   bool        `json:"success"`
+	Result    interface{} `json:"result,omitempty"`
+	Error     string      `json:"error,omitempty"`
 }

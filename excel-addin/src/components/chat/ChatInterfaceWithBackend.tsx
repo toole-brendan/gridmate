@@ -3,6 +3,7 @@ import { ChatInterface } from './ChatInterface'
 import { ChatMessage } from '@types/chat'
 import { WebSocketClient } from '@services/websocket/WebSocketClient'
 import { ActionPreview } from '@components/actions/ActionPreview'
+import { ExcelService } from '@services/excel/ExcelService'
 
 export const ChatInterfaceWithBackend: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -165,6 +166,13 @@ export const ChatInterfaceWithBackend: React.FC = () => {
           setCurrentPreviewId(previewData.id)
         }
       }
+      
+      // Handle tool requests from backend
+      if (data.type === 'tool_request') {
+        console.log('🔧 Tool request received:', data)
+        const toolData = data.data || {}
+        handleToolRequest(toolData)
+      }
     })
 
     wsClient.current.on('error', (error: any) => {
@@ -186,6 +194,39 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       }
     }
   }, [])
+
+  const handleToolRequest = async (toolData: any) => {
+    const { request_id, tool, ...input } = toolData
+    
+    try {
+      console.log(`🔧 Executing tool: ${tool}`, input)
+      const excelService = ExcelService.getInstance()
+      const result = await excelService.executeToolRequest(tool, input)
+      
+      // Send successful response
+      wsClient.current?.send({
+        type: 'tool_response',
+        data: {
+          request_id,
+          success: true,
+          result
+        }
+      })
+      console.log(`✅ Tool ${tool} executed successfully`, result)
+    } catch (error) {
+      console.error(`❌ Tool ${tool} failed:`, error)
+      
+      // Send error response
+      wsClient.current?.send({
+        type: 'tool_response',
+        data: {
+          request_id,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      })
+    }
+  }
 
   const handleSendMessage = async () => {
     console.log('🚀 handleSendMessage called', { 

@@ -23,3 +23,6 @@ Thumbs.db
 
 # Test coverage
 coverage/
+
+# Office Add-in dev settings
+.office-addin-dev-settings.json

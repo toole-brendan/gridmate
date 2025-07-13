@@ -11,7 +11,19 @@
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback content while React loads -->
+      <div style="padding: 20px; font-family: Arial, sans-serif;">
+        <h2>⏳ Loading Gridmate...</h2>
+        <p>If this message persists, check the browser console for errors.</p>
+        <div style="margin-top: 20px; padding: 10px; background: #f0f0f0; border: 1px solid #ddd; font-size: 12px;">
+          <p><strong>Debug Info:</strong></p>
+          <p>1. Check if dev server is running (npm run dev)</p>
+          <p>2. Check browser console (F12) for errors</p>
+          <p>3. Ensure Excel add-in is properly sideloaded</p>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/app.tsx"></script>
   </body>
 </html>

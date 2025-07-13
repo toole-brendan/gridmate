@@ -9,15 +9,27 @@ The core Gridmate product - an AI-powered financial modeling assistant that inte
 npm install
 ```
 
-2. Start the development server:
+2. Install certificates (first time only):
 ```bash
-npm run dev
+npm run certificates
 ```
 
-3. Sideload the add-in in Excel:
+3. Start development and sideload the add-in:
 ```bash
 npm run sideload
 ```
+
+This will:
+- Start the development server on https://localhost:3000
+- Open Excel
+- Automatically sideload the add-in
+
+### Alternative Sideloading Options
+
+- **Desktop Excel only**: `npm run start:desktop`
+- **Web Excel only**: `npm run start:web`
+- **Stop and uninstall**: `npm run stop`
+- **Validate manifest**: `npm run validate`
 
 ## Development
 
@@ -75,3 +87,26 @@ We use Zustand for managing:
 - WebSocket uses WSS (secure) protocol
 - No external API calls from the add-in
 - Token-based authentication
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Certificate errors when sideloading**
+   - Run `npm run certificates` and accept the certificate prompts
+   - On Windows, you may need to run as administrator
+   - On Mac, you may need to manually trust the certificate in Keychain Access
+
+2. **"Add-in Error" when loading**
+   - Ensure the dev server is running (`npm run dev`)
+   - Check that the manifest URLs match your dev server (https://localhost:3000)
+   - Clear Office cache: File → Options → Trust Center → Trust Center Settings → Trusted Add-in Catalogs → Clear
+
+3. **Changes not appearing**
+   - Hard refresh the add-in: Right-click in the taskpane → Reload
+   - For manifest changes, run `npm run stop` then `npm run sideload` again
+
+4. **Sideloading fails**
+   - Ensure Excel is fully closed before running sideload commands
+   - Check that you're using a supported version of Office (Office 2016 or later)
+   - For Office on the web, manually upload the manifest via Insert → Add-ins → Upload My Add-in

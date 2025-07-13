@@ -54,9 +54,11 @@ export default defineConfig({
     },
     proxy: {
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: 'http://localhost:8080',
         ws: true,
-        changeOrigin: true
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/ws/, '/ws')
       }
     }
   },

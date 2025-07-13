@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,9 @@ const (
 
 	// Maximum message size allowed from peer
 	maxMessageSize = 512 * 1024 // 512KB
+	
+	// Buffer size for reading
+	readBufferSize = 8192
 )
 
 var upgrader = websocket.Upgrader{
@@ -116,6 +120,13 @@ func (c *Client) readPump() {
 				}
 				return
 			}
+			
+			// Log every raw message received
+			c.logger.WithFields(logrus.Fields{
+				"client_id": c.ID,
+				"raw_length": len(message),
+				"timestamp": time.Now().Format("15:04:05.000"),
+			}).Info("RAW MESSAGE RECEIVED FROM CLIENT")
 
 			// Parse and handle the message
 			if err := c.handleMessage(message); err != nil {
@@ -146,8 +157,26 @@ func (c *Client) writePump() {
 				return
 			}
 
+			// Log outgoing messages
+			c.logger.WithFields(logrus.Fields{
+				"client_id": c.ID,
+				"message_preview": string(message[:minInt(200, len(message))]),
+				"message_length": len(message),
+				"timestamp": time.Now().Format("15:04:05.000"),
+			}).Debug("Sending message to client")
+			
+			// Check if this is a tool_request
+			if strings.Contains(string(message), "tool_request") {
+				c.logger.WithFields(logrus.Fields{
+					"client_id": c.ID,
+					"full_message": string(message),
+					"timestamp": time.Now().Format("15:04:05.000"),
+				}).Info("TOOL_REQUEST being sent to client")
+			}
+
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
+				c.logger.WithError(err).Error("Failed to get writer")
 				return
 			}
 			w.Write(message)
@@ -160,8 +189,14 @@ func (c *Client) writePump() {
 			}
 
 			if err := w.Close(); err != nil {
+				c.logger.WithError(err).Error("Failed to close writer")
 				return
 			}
+			
+			c.logger.WithFields(logrus.Fields{
+				"client_id": c.ID,
+				"timestamp": time.Now().Format("15:04:05.000"),
+			}).Debug("Message sent successfully")
 
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
@@ -174,9 +209,48 @@ func (c *Client) writePump() {
 
 // handleMessage processes incoming messages
 func (c *Client) handleMessage(data []byte) error {
+	// Log raw message for debugging
+	c.logger.WithFields(logrus.Fields{
+		"client_id": c.ID,
+		"raw_data_length": len(data),
+		"raw_data_preview": string(data[:minInt(100, len(data))]),
+	}).Debug("Received WebSocket message")
+	
+	// Add more detailed logging for tool_response messages
+	dataStr := string(data)
+	if strings.Contains(dataStr, "tool_response") {
+		c.logger.WithFields(logrus.Fields{
+			"client_id": c.ID,
+			"full_raw_data": dataStr,
+			"timestamp": time.Now().Format("15:04:05.000"),
+		}).Info("TOOL_RESPONSE detected in raw message")
+	}
+	
 	msg, err := ParseMessage(data)
 	if err != nil {
+		c.logger.WithFields(logrus.Fields{
+			"client_id": c.ID,
+			"error": err,
+			"raw_data": string(data),
+		}).Error("Failed to parse WebSocket message")
 		return err
+	}
+	
+	c.logger.WithFields(logrus.Fields{
+		"client_id": c.ID,
+		"message_type": msg.Type,
+		"message_id": msg.ID,
+		"timestamp": time.Now().Format("15:04:05.000"),
+	}).Debug("Parsed WebSocket message")
+	
+	// Special logging for tool_response
+	if msg.Type == MessageTypeToolResponse {
+		c.logger.WithFields(logrus.Fields{
+			"client_id": c.ID,
+			"message_id": msg.ID,
+			"data_preview": string(msg.Data[:minInt(200, len(msg.Data))]),
+			"timestamp": time.Now().Format("15:04:05.000"),
+		}).Info("TOOL_RESPONSE message parsed successfully")
 	}
 
 	// Check authentication for protected message types
@@ -508,18 +582,44 @@ func (c *Client) handleRejectChanges(msg *Message) error {
 func (c *Client) handleToolResponse(msg *Message) error {
 	var resp ToolResponse
 	if err := json.Unmarshal(msg.Data, &resp); err != nil {
+		c.logger.WithFields(logrus.Fields{
+			"client_id": c.ID,
+			"error":     err,
+		}).Error("Failed to unmarshal tool response")
 		return err
 	}
+
+	c.logger.WithFields(logrus.Fields{
+		"client_id":  c.ID,
+		"request_id": resp.RequestID,
+		"success":    resp.Success,
+		"error":      resp.Error,
+	}).Info("Received tool response from client")
 
 	// Forward the response to the hub's tool handler
 	var responseErr error
 	if !resp.Success {
 		responseErr = fmt.Errorf(resp.Error)
+		c.logger.WithFields(logrus.Fields{
+			"client_id":  c.ID,
+			"request_id": resp.RequestID,
+			"error":      resp.Error,
+		}).Warn("Tool response contains error")
 	}
 	
 	// Use the session ID (which is the client ID) for tool response routing
 	// This matches how tool handlers are registered in BridgeImpl
+	c.logger.WithFields(logrus.Fields{
+		"client_id":  c.ID,
+		"request_id": resp.RequestID,
+	}).Info("Forwarding tool response to hub handler")
+		
 	c.hub.HandleToolResponse(c.ID, resp.RequestID, resp.Result, responseErr)
+	
+	c.logger.WithFields(logrus.Fields{
+		"client_id":  c.ID,
+		"request_id": resp.RequestID,
+	}).Debug("Tool response forwarded to hub successfully")
 	
 	return nil
 }
@@ -528,4 +628,12 @@ func (c *Client) handleToolResponse(msg *Message) error {
 func generateClientID() string {
 	// In production, use UUID
 	return "client_" + time.Now().Format("20060102150405.999999999")
+}
+
+// minInt returns the minimum of two integers
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

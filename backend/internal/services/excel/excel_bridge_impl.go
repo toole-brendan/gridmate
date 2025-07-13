@@ -38,26 +38,74 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 
 	// Get client ID for routing
 	clientID := sessionID
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("initial_client_id", clientID).
+		Bool("has_client_id_resolver", b.getClientID != nil).
+		Msg("Starting client ID resolution")
+		
 	if b.getClientID != nil {
-		clientID = b.getClientID(sessionID)
-		if clientID == "" {
+		resolvedClientID := b.getClientID(sessionID)
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("resolved_client_id", resolvedClientID).
+			Msg("Client ID resolved via resolver function")
+			
+		if resolvedClientID == "" {
+			log.Error().
+				Str("session_id", sessionID).
+				Msg("Client ID resolver returned empty string")
 			return nil, fmt.Errorf("no active client for session %s", sessionID)
 		}
+		clientID = resolvedClientID
 	}
+	
+	log.Info().
+		Str("session_id", sessionID).
+		Str("final_client_id", clientID).
+		Str("request_id", requestID).
+		Bool("session_equals_client", sessionID == clientID).
+		Msg("Final client ID resolution for tool request")
 
 	// Create response channel
 	respChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 
-	// Register response handler with client ID
-	b.hub.RegisterToolHandler(clientID, requestID, func(response interface{}, err error) {
+	// Register response handler with BOTH sessionID and clientID for resilience
+	log.Info().
+		Str("session_id", sessionID).
+		Str("client_id", clientID).
+		Str("request_id", requestID).
+		Msg("Registering tool handler for response")
+		
+	handler := func(response interface{}, err error) {
+		log.Info().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Bool("has_error", err != nil).
+			Msg("Tool handler received response")
+			
 		if err != nil {
 			errChan <- err
 		} else {
 			respChan <- response
 		}
-	})
-	defer b.hub.UnregisterToolHandler(clientID, requestID)
+	}
+	
+	// Register with both sessionID and clientID to handle reconnections
+	b.hub.RegisterToolHandler(sessionID, requestID, handler)
+	b.hub.RegisterToolHandler(clientID, requestID, handler)
+	
+	defer func() {
+		log.Debug().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Msg("Unregistering tool handler")
+		b.hub.UnregisterToolHandler(sessionID, requestID)
+		b.hub.UnregisterToolHandler(clientID, requestID)
+	}()
 
 	// Send request to client
 	message, err := websocket.NewMessage(websocket.MessageTypeToolRequest, request)
@@ -77,14 +125,41 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 	}
 
 	// Wait for response with timeout
+	log.Debug().
+		Str("session_id", sessionID).
+		Str("client_id", clientID).
+		Str("request_id", requestID).
+		Msg("Waiting for tool response...")
+		
 	select {
 	case response := <-respChan:
+		log.Info().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Msg("Tool request completed successfully")
 		return response, nil
 	case err := <-errChan:
+		log.Error().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Err(err).
+			Msg("Tool request failed with error")
 		return nil, err
 	case <-ctx.Done():
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Msg("Tool request cancelled by context")
 		return nil, ctx.Err()
-	case <-time.After(30 * time.Second):
+	case <-time.After(120 * time.Second):
+		log.Error().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Msg("Tool request timed out after 120 seconds")
 		return nil, fmt.Errorf("tool request timeout")
 	}
 }

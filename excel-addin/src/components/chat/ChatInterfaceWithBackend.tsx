@@ -5,6 +5,10 @@ import { WebSocketClient } from '@services/websocket/WebSocketClient'
 import { ActionPreview } from '@components/actions/ActionPreview'
 import { ExcelService } from '@services/excel/ExcelService'
 
+// Global WebSocket client instance to prevent multiple connections
+let globalWsClient: WebSocketClient | null = null
+let globalSessionId: string = `session_${Date.now()}`
+
 export const ChatInterfaceWithBackend: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -14,11 +18,19 @@ export const ChatInterfaceWithBackend: React.FC = () => {
   const [, forceUpdate] = React.useReducer(x => x + 1, 0)
   const [pendingActions, setPendingActions] = useState<any[]>([])
   const [currentPreviewId, setCurrentPreviewId] = useState<string | null>(null)
-  const wsClient = useRef<WebSocketClient | null>(null)
+  const wsClient = useRef<WebSocketClient | null>(globalWsClient)
   const connectionStatusRef = useRef(connectionStatus)
-  const sessionIdRef = useRef<string>(`session_${Date.now()}`) // Persistent session ID
+  const sessionIdRef = useRef<string>(globalSessionId) // Use global session ID
   const [lastToolRequest, setLastToolRequest] = useState<string>('') // Debug: track tool requests
   const [toolError, setToolError] = useState<string>('') // Debug: track tool errors
+  const [wsResponseStatus, setWsResponseStatus] = useState<string>('') // Debug: track WebSocket response sending
+  const [wsMessageLog, setWsMessageLog] = useState<string[]>([]) // Debug: log all WebSocket activity
+  
+  // Helper to add to message log
+  const addToWsLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString()
+    setWsMessageLog(prev => [...prev.slice(-10), `[${timestamp}] ${message}`]) // Keep last 10 messages
+  }
 
   // Debug connection status changes
   useEffect(() => {
@@ -59,8 +71,17 @@ export const ChatInterfaceWithBackend: React.FC = () => {
   }, [connectionStatus])
 
   useEffect(() => {
+    // Check if global client exists
+    if (globalWsClient && globalWsClient.isConnected()) {
+      console.log('⚠️ Using existing global WebSocket client')
+      wsClient.current = globalWsClient
+      setConnectionStatus('connected')
+      return
+    }
+    
     // Only initialize once
-    if (wsClient.current) {
+    if (wsClient.current || globalWsClient) {
+      console.log('⚠️ WebSocket client already exists, skipping initialization')
       return
     }
     
@@ -70,21 +91,40 @@ export const ChatInterfaceWithBackend: React.FC = () => {
 
     // Initialize WebSocket connection
     console.log('🔌 Initializing WebSocket connection...')
-    // Use relative URL that will be proxied through Vite
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+    console.log('🆔 Component session ID:', sessionIdRef.current)
+    
+    // Use Vite proxy for HTTPS → WSS conversion
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`
+    
+    console.log('🔗 Using Vite proxy for WebSocket')
     console.log('🔗 WebSocket URL:', wsUrl)
-    wsClient.current = new WebSocketClient(wsUrl)
+    console.log('🔗 Window location:', {
+      protocol: window.location.protocol,
+      host: window.location.host,
+      pathname: window.location.pathname
+    })
+    
+    addToWsLog(`🔗 Using Vite proxy at ${wsUrl}`)
+    
+    // Create new WebSocket client and store globally
+    const newClient = new WebSocketClient(wsUrl)
+    wsClient.current = newClient
+    globalWsClient = newClient
 
     // Listen for connection events
     wsClient.current.on('connected', () => {
       console.log('✅ WebSocket connected event fired')
+      addToWsLog('✅ WebSocket connected')
       // Send auth message with dummy token in the format backend expects
-      wsClient.current.send({
+      const authMsg = {
         id: Date.now().toString(),
         type: 'auth',
         timestamp: new Date().toISOString(),
         data: { token: 'dev-token-123' }
-      })
+      }
+      wsClient.current.send(authMsg)
+      addToWsLog(`→ Sent auth message`)
     })
 
     wsClient.current.on('connect', () => {
@@ -95,11 +135,17 @@ export const ChatInterfaceWithBackend: React.FC = () => {
 
     wsClient.current.on('disconnected', () => {
       console.log('❌ WebSocket disconnected')
+      addToWsLog('❌ WebSocket disconnected')
       setConnectionStatus('disconnected')
     })
 
     wsClient.current.on('message', (data: any) => {
       console.log('📨 Received message:', data)
+      console.log('📨 Message timestamp:', new Date().toISOString())
+      console.log('📨 Message type:', data.type)
+      console.log('📨 Session ID:', sessionIdRef.current)
+      
+      addToWsLog(`← Received ${data.type}`)
       
       // Handle connection notification
       if (data.type === 'notification' && data.data?.title === 'Connected') {
@@ -176,6 +222,7 @@ export const ChatInterfaceWithBackend: React.FC = () => {
         console.log('🔧 Tool request received:', data)
         const toolData = data.data || {}
         setLastToolRequest(`Tool: ${toolData.tool || 'unknown'} at ${new Date().toLocaleTimeString()}`)
+        addToWsLog(`🔧 Tool request: ${toolData.tool} (${toolData.request_id})`)
         handleToolRequest(toolData)
       }
     })
@@ -195,16 +242,15 @@ export const ChatInterfaceWithBackend: React.FC = () => {
         type: error?.type,
         target: error?.target?.url
       })
+      addToWsLog(`❌ WebSocket error: ${error?.message || 'Unknown error'}`)
       setIsLoading(false)
     })
 
     wsClient.current.connect()
 
     return () => {
-      if (wsClient.current) {
-        wsClient.current.disconnect()
-        wsClient.current = null
-      }
+      // Don't disconnect the global client on component unmount
+      console.log('Component unmounting, keeping WebSocket connection alive')
     }
   }, [])
 
@@ -236,19 +282,74 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       const result = await excelService.executeToolRequest(tool, input)
       console.log(`📊 Tool execution completed, result:`, result)
       
-      // Update status
-      setLastToolRequest(`Completed ${tool} at ${new Date().toLocaleTimeString()}`)
+      // Update status with result preview
+      const resultPreview = JSON.stringify(result).substring(0, 50)
+      setLastToolRequest(`Completed ${tool} at ${new Date().toLocaleTimeString()} - Result: ${resultPreview}...`)
       
       // Send successful response
-      wsClient.current?.send({
+      const responseData = {
         type: 'tool_response',
         data: {
           request_id,
           success: true,
           result
         }
-      })
+      }
+      
+      setLastToolRequest(`Sending response for ${tool} at ${new Date().toLocaleTimeString()}`)
+      setWsResponseStatus(`Sending success response for ${request_id}`)
+      
+      // Check if WebSocket client exists and is connected
+      if (wsClient.current) {
+        console.log(`📤 WebSocket client exists, sending tool response for ${request_id}`)
+        setWsResponseStatus(`WebSocket exists, checking connection...`)
+        
+        const isConnected = wsClient.current.isConnected()
+        setWsResponseStatus(`Connected: ${isConnected}, sending response...`)
+        
+        if (isConnected) {
+          try {
+            // Create a proper WebSocket message structure
+            const wsMessage = {
+              id: Date.now().toString(),
+              type: 'tool_response',
+              timestamp: new Date().toISOString(),
+              data: {
+                request_id,
+                success: true,
+                result
+              }
+            }
+            
+            // Log the exact message being sent
+            console.log(`📤 TOOL RESPONSE MESSAGE:`, JSON.stringify(wsMessage, null, 2))
+            console.log(`📤 Message structure check:`)
+            console.log(`   - id: ${wsMessage.id}`)
+            console.log(`   - type: ${wsMessage.type}`)
+            console.log(`   - timestamp: ${wsMessage.timestamp}`)
+            console.log(`   - data.request_id: ${wsMessage.data.request_id}`)
+            setWsResponseStatus(`Calling ws.send() for ${request_id}...`)
+            
+            wsClient.current.send(wsMessage)
+            
+            setWsResponseStatus(`✅ Sent success response for ${request_id} at ${new Date().toLocaleTimeString()}`)
+            addToWsLog(`→ Sent tool_response for ${request_id}`)
+          } catch (sendError) {
+            setWsResponseStatus(`❌ Send failed: ${sendError}`)
+            console.error(`❌ WebSocket send error:`, sendError)
+          }
+        } else {
+          setWsResponseStatus(`❌ WebSocket not connected when sending response`)
+        }
+      } else {
+        console.error(`❌ WebSocket client is null when trying to send tool response for ${request_id}`)
+        setWsResponseStatus(`❌ Failed: WebSocket client is null for ${request_id}`)
+      }
+      
+      setLastToolRequest(`Response sent for ${tool} at ${new Date().toLocaleTimeString()}`)
+      
       console.log(`✅ Tool ${tool} executed successfully`, result)
+      console.log(`📤 Sent WebSocket response:`, responseData)
     } catch (error) {
       console.error(`❌ Tool ${tool} failed:`, error)
       console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace')
@@ -258,14 +359,24 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       setToolError(`${tool} failed: ${errorMsg}`)
       
       // Send error response
-      wsClient.current?.send({
+      const errorWsMessage = {
+        id: Date.now().toString(),
         type: 'tool_response',
+        timestamp: new Date().toISOString(),
         data: {
           request_id,
           success: false,
           error: errorMsg
         }
-      })
+      }
+      
+      setLastToolRequest(`Sending error response for ${tool} at ${new Date().toLocaleTimeString()}`)
+      setWsResponseStatus(`Sending error response for ${request_id}`)
+      wsClient.current?.send(errorWsMessage)
+      setWsResponseStatus(`❌ Sent error response for ${request_id} at ${new Date().toLocaleTimeString()}`)
+      setLastToolRequest(`Error response sent for ${tool} at ${new Date().toLocaleTimeString()}`)
+      
+      console.log(`📤 Sent WebSocket error response:`, errorWsMessage)
     }
   }
 
@@ -331,6 +442,7 @@ export const ChatInterfaceWithBackend: React.FC = () => {
       }
       console.log('📮 Sending message to backend:', messageToSend)
       wsClient.current.send(messageToSend)
+      addToWsLog(`→ Sent chat_message`)
     } catch (error) {
       console.error('Error sending message:', error)
       setIsLoading(false)
@@ -439,11 +551,39 @@ export const ChatInterfaceWithBackend: React.FC = () => {
           <div style={{ color: '#ff6600', fontWeight: 'bold' }}>
             Last Tool Request: {lastToolRequest || 'None'}
           </div>
+          <div style={{ color: '#0066cc', fontWeight: 'bold', marginTop: '4px' }}>
+            WebSocket Response: {wsResponseStatus || 'None'}
+          </div>
           {toolError && (
             <div style={{ color: '#ff0000', fontWeight: 'bold', marginTop: '4px' }}>
               Error: {toolError}
             </div>
           )}
+          {/* WebSocket Message Log */}
+          <div style={{ 
+            marginTop: '8px', 
+            padding: '4px', 
+            background: 'rgba(0,0,0,0.2)',
+            borderRadius: '4px',
+            maxHeight: '100px',
+            overflow: 'auto',
+            fontSize: '9px',
+            fontFamily: 'monospace'
+          }}>
+            <div><strong>WebSocket Log:</strong></div>
+            {wsMessageLog.length === 0 ? (
+              <div style={{ color: '#888' }}>No messages yet...</div>
+            ) : (
+              wsMessageLog.map((msg, i) => (
+                <div key={i} style={{ 
+                  color: msg.includes('→') ? '#4CAF50' : msg.includes('←') ? '#2196F3' : '#FFF',
+                  whiteSpace: 'pre-wrap'
+                }}>
+                  {msg}
+                </div>
+              ))
+            )}
+          </div>
           {/* Test Excel API button */}
           <button 
             onClick={async () => {
@@ -468,6 +608,70 @@ export const ChatInterfaceWithBackend: React.FC = () => {
             }}
           >
             Test Excel API
+          </button>
+          <button 
+            onClick={() => {
+              try {
+                if (wsClient.current) {
+                  const testMessage = {
+                    type: 'tool_response',
+                    data: {
+                      request_id: 'test-' + Date.now(),
+                      success: true,
+                      result: { test: 'WebSocket test message' }
+                    }
+                  }
+                  setWsResponseStatus(`Sending test WebSocket message...`)
+                  wsClient.current.send(testMessage)
+                  setWsResponseStatus(`✅ Test message sent at ${new Date().toLocaleTimeString()}`)
+                } else {
+                  setWsResponseStatus(`❌ WebSocket client not available`)
+                }
+              } catch (error) {
+                setWsResponseStatus(`❌ Test failed: ${error}`)
+              }
+            }}
+            style={{
+              marginTop: '4px',
+              padding: '2px 8px',
+              fontSize: '10px',
+              cursor: 'pointer',
+              backgroundColor: '#0066cc',
+              color: 'white',
+              border: 'none'
+            }}
+          >
+            Test WebSocket Send
+          </button>
+          <button 
+            onClick={() => {
+              try {
+                addToWsLog('🔄 Attempting manual reconnect...')
+                if (wsClient.current) {
+                  wsClient.current.disconnect()
+                }
+                setTimeout(() => {
+                  if (wsClient.current) {
+                    wsClient.current.connect()
+                    addToWsLog('🔄 Reconnection initiated')
+                  }
+                }, 500)
+              } catch (error) {
+                addToWsLog(`❌ Reconnect failed: ${error}`)
+              }
+            }}
+            style={{
+              marginTop: '4px',
+              marginLeft: '4px',
+              padding: '2px 8px',
+              fontSize: '10px',
+              cursor: 'pointer',
+              backgroundColor: '#ff6600',
+              color: 'white',
+              border: 'none'
+            }}
+          >
+            Reconnect
           </button>
         </div>
       </div>

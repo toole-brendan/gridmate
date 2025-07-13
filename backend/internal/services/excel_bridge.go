@@ -72,9 +72,33 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	excelBridgeImpl.SetClientIDResolver(func(sessionID string) string {
 		bridge.sessionMutex.RLock()
 		defer bridge.sessionMutex.RUnlock()
+		
+		logger.WithFields(logrus.Fields{
+			"session_id":    sessionID,
+			"total_sessions": len(bridge.sessions),
+		}).Debug("Client ID resolver called")
+		
+		// Log all available sessions for debugging
+		for sessID, sess := range bridge.sessions {
+			logger.WithFields(logrus.Fields{
+				"available_session_id": sessID,
+				"client_id":           sess.ClientID,
+				"user_id":             sess.UserID,
+			}).Debug("Available session in resolver")
+		}
+		
 		if session, ok := bridge.sessions[sessionID]; ok {
+			logger.WithFields(logrus.Fields{
+				"session_id": sessionID,
+				"client_id":  session.ClientID,
+				"user_id":    session.UserID,
+			}).Info("Client ID resolver found session")
 			return session.ClientID
 		}
+		
+		logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+		}).Warn("Client ID resolver: session not found")
 		return ""
 	})
 	

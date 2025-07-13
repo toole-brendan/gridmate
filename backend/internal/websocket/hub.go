@@ -3,7 +3,9 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -323,22 +325,165 @@ func (h *Hub) SendToSession(sessionID string, message Message) error {
 	
 	// Log all connected clients for debugging
 	h.mutex.RLock()
+	clientExists := false
 	for clientID := range h.clients {
 		logrus.WithField("client_id", clientID).Debug("Connected client")
+		if clientID == sessionID {
+			clientExists = true
+		}
 	}
 	h.mutex.RUnlock()
 	
-	return h.SendToClient(sessionID, message.Type, message.Data)
+	if !clientExists {
+		logrus.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"active_clients": h.GetActiveClients(),
+		}).Error("Client not found for session")
+	}
+	
+	result := h.SendToClient(sessionID, message.Type, message.Data)
+	if result != nil {
+		logrus.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"error": result,
+		}).Error("Failed to send message to client")
+	} else {
+		logrus.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"message_type": string(message.Type),
+		}).Debug("Message sent successfully")
+	}
+	
+	return result
 }
 
 // HandleToolResponse handles a tool response from a client
 func (h *Hub) HandleToolResponse(sessionID, requestID string, response interface{}, err error) {
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"request_id": requestID,
+		"has_error":  err != nil,
+		"timestamp":  time.Now().Format("15:04:05.000"),
+	}).Info("HandleToolResponse called - RESPONSE RECEIVED")
+
 	h.toolMutex.RLock()
 	defer h.toolMutex.RUnlock()
 
+	// Log all registered session handlers for debugging
+	h.logger.WithFields(logrus.Fields{
+		"session_id":          sessionID,
+		"total_sessions":      len(h.toolHandlers),
+		"registered_sessions": h.getRegisteredSessions(),
+	}).Debug("Current tool handler state")
+
 	if handlers, ok := h.toolHandlers[sessionID]; ok {
+		h.logger.WithFields(logrus.Fields{
+			"session_id":           sessionID,
+			"handlers_for_session": len(handlers),
+			"registered_requests":  h.getRegisteredRequests(sessionID),
+		}).Info("Found handlers for session")
+		
 		if handler, ok := handlers[requestID]; ok {
+			h.logger.WithFields(logrus.Fields{
+				"session_id": sessionID,
+				"request_id": requestID,
+			}).Info("Found handler for request - calling handler")
+			
 			handler(response, err)
+			
+			h.logger.WithFields(logrus.Fields{
+				"session_id": sessionID,
+				"request_id": requestID,
+			}).Debug("Handler called successfully")
+			return // Successfully handled
+		} else {
+			h.logger.WithFields(logrus.Fields{
+				"session_id":          sessionID,
+				"request_id":          requestID,
+				"registered_requests": h.getRegisteredRequests(sessionID),
+			}).Warn("No handler found for request ID in session")
 		}
+	} else {
+		h.logger.WithFields(logrus.Fields{
+			"session_id":          sessionID,
+			"request_id":          requestID,
+			"registered_sessions": h.getRegisteredSessions(),
+		}).Warn("No handlers found for session ID - trying alternative lookup strategies")
+		
+		// Strategy 1: Search all sessions for this requestID
+		for altSessionID, handlers := range h.toolHandlers {
+			if handler, ok := handlers[requestID]; ok {
+				h.logger.WithFields(logrus.Fields{
+					"original_session_id":    sessionID,
+					"alternative_session_id": altSessionID,
+					"request_id":             requestID,
+				}).Warn("Found handler using alternative session lookup - calling handler")
+				
+				handler(response, err)
+				
+				h.logger.WithFields(logrus.Fields{
+					"original_session_id":    sessionID,
+					"alternative_session_id": altSessionID,
+					"request_id":             requestID,
+				}).Info("Handler called successfully via alternative lookup")
+				return // Successfully handled
+			}
+		}
+		
+		// Strategy 2: If sessionID looks like a client ID, try to find by session pattern
+		// For client IDs like "client_20250713094715.214998", try to find corresponding session
+		if strings.HasPrefix(sessionID, "client_") {
+			h.logger.WithFields(logrus.Fields{
+				"session_id": sessionID,
+				"request_id": requestID,
+			}).Debug("Client ID detected, searching for matching session patterns")
+			
+			// Look for any tool handlers registered (should be from dual registration)
+			for altSessionID, handlers := range h.toolHandlers {
+				if handler, ok := handlers[requestID]; ok {
+					h.logger.WithFields(logrus.Fields{
+						"original_session_id":    sessionID,
+						"alternative_session_id": altSessionID,
+						"request_id":             requestID,
+					}).Warn("Found handler via session pattern matching - calling handler")
+					
+					handler(response, err)
+					
+					h.logger.WithFields(logrus.Fields{
+						"original_session_id":    sessionID,
+						"alternative_session_id": altSessionID,
+						"request_id":             requestID,
+					}).Info("Handler called successfully via session pattern matching")
+					return // Successfully handled
+				}
+			}
+		}
+		
+		h.logger.WithFields(logrus.Fields{
+			"session_id":          sessionID,
+			"request_id":          requestID,
+			"registered_sessions": h.getRegisteredSessions(),
+		}).Error("No handler found for request ID in any session using any strategy")
 	}
+}
+
+// Helper function to get registered session IDs for logging
+func (h *Hub) getRegisteredSessions() []string {
+	sessions := make([]string, 0, len(h.toolHandlers))
+	for sessionID := range h.toolHandlers {
+		sessions = append(sessions, sessionID)
+	}
+	return sessions
+}
+
+// Helper function to get registered request IDs for a session
+func (h *Hub) getRegisteredRequests(sessionID string) []string {
+	if handlers, ok := h.toolHandlers[sessionID]; ok {
+		requests := make([]string, 0, len(handlers))
+		for requestID := range handlers {
+			requests = append(requests, requestID)
+		}
+		return requests
+	}
+	return []string{}
 }

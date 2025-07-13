@@ -120,7 +120,7 @@ func main() {
 
 	// Configure CORS
 	corsOptions := cors.New(cors.Options{
-		AllowedOrigins:   getEnvAsSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "ws://localhost:3000"}),
+		AllowedOrigins:   getEnvAsSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "https://localhost:3000", "ws://localhost:3000", "wss://localhost:3000"}),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With", "Upgrade", "Connection"},
 		ExposedHeaders:   []string{"Content-Length", "Content-Type"},

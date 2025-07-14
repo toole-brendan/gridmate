@@ -471,6 +471,132 @@ func (r *QueuedOperationRegistry) GetOperationStatus(operationID string) (Operat
 	return op.Status, nil
 }
 
+// generateInverseOperation creates an inverse operation that undoes the given operation
+func (r *QueuedOperationRegistry) generateInverseOperation(op *QueuedOperation) (*QueuedOperation, error) {
+	inverseOp := &QueuedOperation{
+		ID:        uuid.New().String(),
+		SessionID: op.SessionID,
+		Priority:  100, // High priority for undo operations
+		CreatedAt: time.Now(),
+		Status:    StatusQueued,
+	}
+
+	// Generate inverse based on operation type
+	switch op.Type {
+	case "write_range":
+		// For write_range, we need to restore the previous values
+		// Store the previous state in the inverse operation
+		inverseOp.Type = "write_range"
+
+		// Copy the input but add a flag to indicate this is an undo
+		inverseInput := make(map[string]interface{})
+		for k, v := range op.Input {
+			inverseInput[k] = v
+		}
+
+		// Add metadata to indicate this is an undo operation
+		inverseInput["_is_undo"] = true
+		inverseInput["_original_op_id"] = op.ID
+
+		// The actual previous values should be stored when the operation completes
+		if op.Result != nil {
+			if resultMap, ok := op.Result.(map[string]interface{}); ok {
+				if prevValues, exists := resultMap["previous_values"]; exists {
+					inverseInput["values"] = prevValues
+				}
+			}
+		}
+
+		inverseOp.Input = inverseInput
+		inverseOp.Context = fmt.Sprintf("Undo write to %v", op.Input["range"])
+		inverseOp.Preview = fmt.Sprintf("Restore previous values to %v", op.Input["range"])
+
+	case "apply_formula":
+		// For formulas, restore the previous formula or clear it
+		inverseOp.Type = "apply_formula"
+
+		inverseInput := make(map[string]interface{})
+		inverseInput["range"] = op.Input["range"]
+		inverseInput["_is_undo"] = true
+		inverseInput["_original_op_id"] = op.ID
+
+		// Check if there was a previous formula
+		if op.Result != nil {
+			if resultMap, ok := op.Result.(map[string]interface{}); ok {
+				if prevFormula, exists := resultMap["previous_formula"]; exists {
+					inverseInput["formula"] = prevFormula
+				} else {
+					// If no previous formula, clear the cell
+					inverseInput["formula"] = ""
+				}
+			}
+		}
+
+		inverseOp.Input = inverseInput
+		inverseOp.Context = fmt.Sprintf("Undo formula in %v", op.Input["range"])
+		inverseOp.Preview = fmt.Sprintf("Restore previous formula to %v", op.Input["range"])
+
+	case "format_range":
+		// For formatting, restore previous format
+		inverseOp.Type = "format_range"
+
+		inverseInput := make(map[string]interface{})
+		inverseInput["range"] = op.Input["range"]
+		inverseInput["_is_undo"] = true
+		inverseInput["_original_op_id"] = op.ID
+
+		// Restore previous format from result
+		if op.Result != nil {
+			if resultMap, ok := op.Result.(map[string]interface{}); ok {
+				if prevFormat, exists := resultMap["previous_format"]; exists {
+					inverseInput["format"] = prevFormat
+				}
+			}
+		}
+
+		inverseOp.Input = inverseInput
+		inverseOp.Context = fmt.Sprintf("Undo formatting in %v", op.Input["range"])
+		inverseOp.Preview = fmt.Sprintf("Restore previous format to %v", op.Input["range"])
+
+	case "insert_rows_columns":
+		// For insert, the inverse is delete
+		inverseOp.Type = "delete_rows_columns"
+
+		inverseInput := make(map[string]interface{})
+		inverseInput["position"] = op.Input["position"]
+		inverseInput["count"] = op.Input["count"]
+		inverseInput["type"] = op.Input["type"] // rows or columns
+		inverseInput["_is_undo"] = true
+		inverseInput["_original_op_id"] = op.ID
+
+		inverseOp.Input = inverseInput
+		inverseOp.Context = fmt.Sprintf("Undo insert %v %v", op.Input["count"], op.Input["type"])
+		inverseOp.Preview = fmt.Sprintf("Delete %v %v at %v", op.Input["count"], op.Input["type"], op.Input["position"])
+
+	case "create_named_range":
+		// For create named range, the inverse is delete
+		inverseOp.Type = "delete_named_range"
+
+		inverseInput := make(map[string]interface{})
+		inverseInput["name"] = op.Input["name"]
+		inverseInput["_is_undo"] = true
+		inverseInput["_original_op_id"] = op.ID
+
+		inverseOp.Input = inverseInput
+		inverseOp.Context = fmt.Sprintf("Undo create named range '%v'", op.Input["name"])
+		inverseOp.Preview = fmt.Sprintf("Delete named range '%v'", op.Input["name"])
+
+	default:
+		// For unknown operations, create a generic undo
+		inverseOp.Type = "undo_" + op.Type
+		inverseOp.Input = op.Input
+		inverseOp.Context = fmt.Sprintf("Undo: %s", op.Context)
+		inverseOp.Preview = fmt.Sprintf("Undo %s operation", op.Type)
+	}
+
+	return inverseOp, nil
+}
+
 // UndoLastOperation undoes the last completed operation (Cursor-style undo)
 func (r *QueuedOperationRegistry) UndoLastOperation() (*QueuedOperation, error) {
 	r.mu.Lock()
@@ -492,18 +618,21 @@ func (r *QueuedOperationRegistry) UndoLastOperation() (*QueuedOperation, error) 
 		return nil, fmt.Errorf("operation %s not found", lastOpID)
 	}
 
-	// Create inverse operation
-	undoOp := &QueuedOperation{
-		ID:        uuid.New().String(),
-		SessionID: op.SessionID,
-		Type:      "undo_" + op.Type,
-		Input:     op.Input,
-		Context:   fmt.Sprintf("Undo: %s", op.Context),
-		Priority:  100, // High priority for undo operations
-		CreatedAt: time.Now(),
+	// Generate proper inverse operation
+	undoOp, err := r.generateInverseOperation(op)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate inverse operation: %w", err)
 	}
 
+	// Store the undo operation
 	r.operations[undoOp.ID] = undoOp
+
+	log.Info().
+		Str("original_op_id", lastOpID).
+		Str("undo_op_id", undoOp.ID).
+		Str("operation_type", op.Type).
+		Str("undo_type", undoOp.Type).
+		Msg("Generated inverse operation for undo")
 
 	return undoOp, nil
 }

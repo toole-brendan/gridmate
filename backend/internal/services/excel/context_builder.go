@@ -33,9 +33,9 @@ type CellChangeInfo struct {
 // NewContextBuilder creates a new context builder
 func NewContextBuilder(bridge ai.ExcelBridge) *ContextBuilder {
 	return &ContextBuilder{
-		bridge:    bridge,
-		maxCells:  1000, // Default max cells to prevent context overflow
-		maxRanges: 10,   // Default max ranges to analyze
+		bridge:            bridge,
+		maxCells:          1000, // Default max cells to prevent context overflow
+		maxRanges:         10,   // Default max ranges to analyze
 		cellChangeTracker: make(map[string]*CellChangeInfo),
 	}
 }
@@ -96,6 +96,9 @@ func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID s
 	// 6. Auto-detect model type
 	context.ModelType = cb.detectModelType(context)
 
+	// 7. Add pending operations - the context builder doesn't have direct access to the registry
+	// This will be populated by the AI service when it calls RefreshContext
+
 	return context, nil
 }
 
@@ -112,17 +115,17 @@ func (cb *ContextBuilder) addSelectedRangeData(ctx context.Context, sessionID st
 	for row := 0; row < data.RowCount && cellCount < cb.maxCells; row++ {
 		for col := 0; col < data.ColCount && cellCount < cb.maxCells; col++ {
 			cellAddr := getCellAddress(rangeInfo.StartRow+row, rangeInfo.StartCol+col)
-			
+
 			if row < len(data.Values) && col < len(data.Values[row]) {
 				context.CellValues[cellAddr] = data.Values[row][col]
 			}
-			
+
 			if data.Formulas != nil && row < len(data.Formulas) && col < len(data.Formulas[row]) {
 				if formulaStr, ok := data.Formulas[row][col].(string); ok && formulaStr != "" {
 					context.Formulas[cellAddr] = formulaStr
 				}
 			}
-			
+
 			cellCount++
 		}
 	}
@@ -140,8 +143,8 @@ func (cb *ContextBuilder) addSurroundingContext(ctx context.Context, sessionID s
 		rows      int
 		cols      int
 	}{
-		{"headers_above", -5, 0, 5, rangeInfo.ColCount},       // 5 rows above
-		{"labels_left", 0, -3, rangeInfo.RowCount, 3},        // 3 columns to left
+		{"headers_above", -5, 0, 5, rangeInfo.ColCount},                 // 5 rows above
+		{"labels_left", 0, -3, rangeInfo.RowCount, 3},                   // 3 columns to left
 		{"context_below", rangeInfo.RowCount, 0, 3, rangeInfo.ColCount}, // 3 rows below
 		{"context_right", 0, rangeInfo.ColCount, rangeInfo.RowCount, 2}, // 2 columns to right
 	}
@@ -149,7 +152,7 @@ func (cb *ContextBuilder) addSurroundingContext(ctx context.Context, sessionID s
 	for _, zone := range zones {
 		startRow := rangeInfo.StartRow + zone.rowOffset
 		startCol := rangeInfo.StartCol + zone.colOffset
-		
+
 		// Skip if out of bounds
 		if startRow < 1 || startCol < 1 {
 			continue
@@ -157,9 +160,9 @@ func (cb *ContextBuilder) addSurroundingContext(ctx context.Context, sessionID s
 
 		endRow := startRow + zone.rows - 1
 		endCol := startCol + zone.cols - 1
-		
+
 		zoneRange := fmt.Sprintf("%s:%s", getCellAddress(startRow, startCol), getCellAddress(endRow, endCol))
-		
+
 		// Read zone data
 		data, err := cb.bridge.ReadRange(ctx, sessionID, zoneRange, true, false)
 		if err != nil {
@@ -170,14 +173,14 @@ func (cb *ContextBuilder) addSurroundingContext(ctx context.Context, sessionID s
 		for row := 0; row < data.RowCount; row++ {
 			for col := 0; col < data.ColCount; col++ {
 				cellAddr := getCellAddress(startRow+row, startCol+col)
-				
+
 				if row < len(data.Values) && col < len(data.Values[row]) && data.Values[row][col] != nil {
 					// Only add non-empty cells
 					if str, ok := data.Values[row][col].(string); !ok || str != "" {
 						context.CellValues[cellAddr] = data.Values[row][col]
 					}
 				}
-				
+
 				if data.Formulas != nil && row < len(data.Formulas) && col < len(data.Formulas[row]) {
 					if formulaStr, ok := data.Formulas[row][col].(string); ok && formulaStr != "" {
 						context.Formulas[cellAddr] = formulaStr
@@ -195,10 +198,10 @@ func (cb *ContextBuilder) detectStructure(ctx context.Context, sessionID string,
 	// Try to detect column headers (typically in row above selection)
 	headerRow := rangeInfo.StartRow - 1
 	if headerRow >= 1 {
-		headerRange := fmt.Sprintf("%s:%s", 
+		headerRange := fmt.Sprintf("%s:%s",
 			getCellAddress(headerRow, rangeInfo.StartCol),
 			getCellAddress(headerRow, rangeInfo.EndCol))
-		
+
 		data, err := cb.bridge.ReadRange(ctx, sessionID, headerRange, false, false)
 		if err == nil && len(data.Values) > 0 {
 			headers := []string{}
@@ -209,10 +212,10 @@ func (cb *ContextBuilder) detectStructure(ctx context.Context, sessionID string,
 					}
 				}
 			}
-			
+
 			if len(headers) > 0 {
 				// Add headers to document context
-				context.DocumentContext = append(context.DocumentContext, 
+				context.DocumentContext = append(context.DocumentContext,
 					fmt.Sprintf("Column headers: %s", strings.Join(headers, ", ")))
 			}
 		}
@@ -224,7 +227,7 @@ func (cb *ContextBuilder) detectStructure(ctx context.Context, sessionID string,
 		labelRange := fmt.Sprintf("%s:%s",
 			getCellAddress(rangeInfo.StartRow, labelCol),
 			getCellAddress(rangeInfo.EndRow, labelCol))
-		
+
 		data, err := cb.bridge.ReadRange(ctx, sessionID, labelRange, false, false)
 		if err == nil && len(data.Values) > 0 {
 			labels := []string{}
@@ -235,7 +238,7 @@ func (cb *ContextBuilder) detectStructure(ctx context.Context, sessionID string,
 					}
 				}
 			}
-			
+
 			if len(labels) > 0 {
 				// Add labels to document context
 				context.DocumentContext = append(context.DocumentContext,
@@ -259,7 +262,7 @@ func (cb *ContextBuilder) addNamedRanges(ctx context.Context, sessionID string, 
 		rangeInfo := []string{}
 		for _, nr := range namedRanges {
 			rangeInfo = append(rangeInfo, fmt.Sprintf("%s (%s)", nr.Name, nr.Range))
-			
+
 			// If the named range is small, include its value
 			if isSingleCell(nr.Range) {
 				data, err := cb.bridge.ReadRange(ctx, sessionID, nr.Range, true, false)
@@ -273,7 +276,7 @@ func (cb *ContextBuilder) addNamedRanges(ctx context.Context, sessionID string, 
 				}
 			}
 		}
-		
+
 		context.DocumentContext = append(context.DocumentContext,
 			fmt.Sprintf("Named ranges: %s", strings.Join(rangeInfo, ", ")))
 	}
@@ -284,22 +287,22 @@ func (cb *ContextBuilder) addNamedRanges(ctx context.Context, sessionID string, 
 // analyzeFormulas analyzes formulas to understand dependencies
 func (cb *ContextBuilder) analyzeFormulas(context *ai.FinancialContext) error {
 	formulaPatterns := map[string]string{
-		"SUM":       "Summation",
-		"AVERAGE":   "Average calculation",
-		"IF":        "Conditional logic",
-		"VLOOKUP":   "Vertical lookup",
-		"INDEX":     "Index/Match lookup",
-		"NPV":       "Net Present Value",
-		"IRR":       "Internal Rate of Return",
-		"PMT":       "Payment calculation",
-		"PV":        "Present Value",
-		"FV":        "Future Value",
-		"XNPV":      "Net Present Value (irregular)",
-		"XIRR":      "Internal Rate of Return (irregular)",
+		"SUM":     "Summation",
+		"AVERAGE": "Average calculation",
+		"IF":      "Conditional logic",
+		"VLOOKUP": "Vertical lookup",
+		"INDEX":   "Index/Match lookup",
+		"NPV":     "Net Present Value",
+		"IRR":     "Internal Rate of Return",
+		"PMT":     "Payment calculation",
+		"PV":      "Present Value",
+		"FV":      "Future Value",
+		"XNPV":    "Net Present Value (irregular)",
+		"XIRR":    "Internal Rate of Return (irregular)",
 	}
 
 	functionCounts := make(map[string]int)
-	
+
 	// Analyze formulas
 	for cell, formula := range context.Formulas {
 		// Count function usage
@@ -308,7 +311,7 @@ func (cb *ContextBuilder) analyzeFormulas(context *ai.FinancialContext) error {
 				functionCounts[pattern]++
 			}
 		}
-		
+
 		// Extract cell references
 		refs := extractCellReferences(formula)
 		for _, ref := range refs {
@@ -337,17 +340,17 @@ func (cb *ContextBuilder) analyzeFormulas(context *ai.FinancialContext) error {
 func (cb *ContextBuilder) detectModelType(context *ai.FinancialContext) string {
 	// Keywords for different model types
 	modelKeywords := map[string][]string{
-		"DCF": {"discount", "dcf", "wacc", "terminal value", "free cash flow", "fcf", "npv", "present value"},
-		"LBO": {"lbo", "leveraged", "debt schedule", "irr", "moic", "exit multiple", "sponsor", "management"},
-		"M&A": {"merger", "acquisition", "synerg", "accretion", "dilution", "eps", "consideration", "premium"},
-		"Comps": {"comparable", "comps", "trading", "multiple", "ev/ebitda", "p/e", "peer", "median"},
+		"DCF":                 {"discount", "dcf", "wacc", "terminal value", "free cash flow", "fcf", "npv", "present value"},
+		"LBO":                 {"lbo", "leveraged", "debt schedule", "irr", "moic", "exit multiple", "sponsor", "management"},
+		"M&A":                 {"merger", "acquisition", "synerg", "accretion", "dilution", "eps", "consideration", "premium"},
+		"Comps":               {"comparable", "comps", "trading", "multiple", "ev/ebitda", "p/e", "peer", "median"},
 		"Financial Statement": {"income statement", "balance sheet", "cash flow", "revenue", "ebitda", "net income"},
-		"Budget": {"budget", "forecast", "variance", "actual", "plan", "ytd", "month", "quarter"},
-		"Valuation": {"valuation", "value", "worth", "appraisal", "fair value", "market value"},
+		"Budget":              {"budget", "forecast", "variance", "actual", "plan", "ytd", "month", "quarter"},
+		"Valuation":           {"valuation", "value", "worth", "appraisal", "fair value", "market value"},
 	}
 
 	scores := make(map[string]int)
-	
+
 	// Check cell values and formulas
 	allText := strings.Builder{}
 	for _, val := range context.CellValues {
@@ -355,14 +358,14 @@ func (cb *ContextBuilder) detectModelType(context *ai.FinancialContext) string {
 			allText.WriteString(strings.ToLower(str) + " ")
 		}
 	}
-	
+
 	// Check document context
 	for _, ctx := range context.DocumentContext {
 		allText.WriteString(strings.ToLower(ctx) + " ")
 	}
-	
+
 	textLower := allText.String()
-	
+
 	// Score each model type
 	for modelType, keywords := range modelKeywords {
 		for _, keyword := range keywords {
@@ -371,36 +374,36 @@ func (cb *ContextBuilder) detectModelType(context *ai.FinancialContext) string {
 			}
 		}
 	}
-	
+
 	// Find highest scoring model type
 	maxScore := 0
 	detectedType := "General"
-	
+
 	for modelType, score := range scores {
 		if score > maxScore {
 			maxScore = score
 			detectedType = modelType
 		}
 	}
-	
+
 	// Require minimum score to be confident
 	if maxScore < 2 {
 		return "General"
 	}
-	
+
 	return detectedType
 }
 
 // RangeInfo contains parsed range information
 type RangeInfo struct {
-	Address   string
-	Sheet     string
-	StartRow  int
-	StartCol  int
-	EndRow    int
-	EndCol    int
-	RowCount  int
-	ColCount  int
+	Address  string
+	Sheet    string
+	StartRow int
+	StartCol int
+	EndRow   int
+	EndCol   int
+	RowCount int
+	ColCount int
 }
 
 // parseRange parses an Excel range address
@@ -463,7 +466,7 @@ func parseCellAddress(addr string) (row, col int, err error) {
 	// Regular expression to match cell address
 	re := regexp.MustCompile(`^([A-Z]+)(\d+)$`)
 	matches := re.FindStringSubmatch(strings.ToUpper(addr))
-	
+
 	if len(matches) != 3 {
 		return 0, 0, fmt.Errorf("invalid cell address: %s", addr)
 	}
@@ -503,15 +506,15 @@ func isSingleCell(rangeAddr string) bool {
 // extractCellReferences extracts cell references from a formula
 func extractCellReferences(formula string) []string {
 	refs := []string{}
-	
+
 	// Simple regex for cell references (doesn't handle all cases)
 	re := regexp.MustCompile(`[A-Z]+[0-9]+`)
 	matches := re.FindAllString(formula, -1)
-	
+
 	for _, match := range matches {
 		refs = append(refs, match)
 	}
-	
+
 	return refs
 }
 
@@ -658,13 +661,13 @@ func (cb *ContextBuilder) identifyPeriods(ctx context.Context, sessionID string,
 func (cb *ContextBuilder) detectModelSections(ctx context.Context, sessionID string, rangeInfo *RangeInfo, structure *ai.ModelStructure) error {
 	// Look for section headers in surrounding areas
 	sectionKeywords := map[string][]string{
-		"assumptions": {"assumption", "input", "driver", "growth", "margin", "rate"},
+		"assumptions":  {"assumption", "input", "driver", "growth", "margin", "rate"},
 		"calculations": {"calculation", "computed", "derived", "formula"},
-		"outputs": {"output", "result", "total", "subtotal", "summary"},
-		"revenue": {"revenue", "sales", "income", "turnover"},
-		"expenses": {"expense", "cost", "opex", "capex", "operating"},
-		"cash_flow": {"cash flow", "fcf", "free cash", "operating cash"},
-		"valuation": {"valuation", "dcf", "npv", "irr", "wacc", "terminal"},
+		"outputs":      {"output", "result", "total", "subtotal", "summary"},
+		"revenue":      {"revenue", "sales", "income", "turnover"},
+		"expenses":     {"expense", "cost", "opex", "capex", "operating"},
+		"cash_flow":    {"cash flow", "fcf", "free cash", "operating cash"},
+		"valuation":    {"valuation", "dcf", "npv", "irr", "wacc", "terminal"},
 	}
 
 	// Expand search area to look for section headers
@@ -692,7 +695,7 @@ func (cb *ContextBuilder) detectModelSections(ctx context.Context, sessionID str
 			}
 
 			text := strings.ToLower(fmt.Sprintf("%v", value))
-			
+
 			for sectionName, keywords := range sectionKeywords {
 				for _, keyword := range keywords {
 					if strings.Contains(text, keyword) {
@@ -744,13 +747,13 @@ func (cb *ContextBuilder) buildDependencyGraph(context *ai.FinancialContext, str
 		refs := extractCellReferences(formula)
 		if len(refs) > 0 {
 			relationship := cb.determineRelationship(formula)
-			
+
 			dependency := ai.CellDependency{
 				FromCell:     cellAddr,
 				ToCells:      refs,
 				Relationship: relationship,
 			}
-			
+
 			structure.Dependencies = append(structure.Dependencies, dependency)
 		}
 	}
@@ -777,9 +780,9 @@ func (cb *ContextBuilder) identifyKeyCells(context *ai.FinancialContext, structu
 		if value == nil {
 			continue
 		}
-		
+
 		text := strings.ToLower(fmt.Sprintf("%v", value))
-		
+
 		for keyName, terms := range keyTerms {
 			for _, term := range terms {
 				if strings.Contains(text, term) {
@@ -836,28 +839,28 @@ func (cb *ContextBuilder) isHistoricalYear(header string) bool {
 
 func (cb *ContextBuilder) isHistoricalPeriod(header string) bool {
 	// Default heuristic - could be enhanced with actual date comparison
-	return !strings.Contains(strings.ToLower(header), "forecast") && 
-		   !strings.Contains(strings.ToLower(header), "proj")
+	return !strings.Contains(strings.ToLower(header), "forecast") &&
+		!strings.Contains(strings.ToLower(header), "proj")
 }
 
 func (cb *ContextBuilder) isSimpleCalculation(formula string) bool {
 	// Simple arithmetic operations
 	simpleOps := []string{"+", "-", "*", "/"}
 	complexFuncs := []string{"SUM", "AVERAGE", "NPV", "IRR", "IF", "VLOOKUP"}
-	
+
 	upper := strings.ToUpper(formula)
 	for _, fn := range complexFuncs {
 		if strings.Contains(upper, fn+"(") {
 			return false
 		}
 	}
-	
+
 	for _, op := range simpleOps {
 		if strings.Contains(formula, op) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -865,13 +868,13 @@ func (cb *ContextBuilder) isComplexCalculation(formula string) bool {
 	// Complex functions that typically represent outputs
 	complexFuncs := []string{"SUM", "NPV", "IRR", "XNPV", "XIRR", "SUMPRODUCT", "SUMIF"}
 	upper := strings.ToUpper(formula)
-	
+
 	for _, fn := range complexFuncs {
 		if strings.Contains(upper, fn+"(") {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -889,7 +892,7 @@ func (cb *ContextBuilder) isNumericValue(value interface{}) bool {
 
 func (cb *ContextBuilder) determineRelationship(formula string) string {
 	upper := strings.ToUpper(formula)
-	
+
 	if strings.Contains(upper, "SUM(") {
 		return "sum"
 	}
@@ -908,15 +911,15 @@ func (cb *ContextBuilder) findAdjacentDataCell(labelCell string, context *ai.Fin
 	if err != nil {
 		return ""
 	}
-	
+
 	// Check adjacent cells for data (right, then down)
 	candidates := []string{
-		getCellAddress(row, col+1),     // Right
-		getCellAddress(row, col+2),     // Further right
-		getCellAddress(row+1, col),     // Down
-		getCellAddress(row+1, col+1),   // Diagonal
+		getCellAddress(row, col+1),   // Right
+		getCellAddress(row, col+2),   // Further right
+		getCellAddress(row+1, col),   // Down
+		getCellAddress(row+1, col+1), // Diagonal
 	}
-	
+
 	for _, candidate := range candidates {
 		if value, exists := context.CellValues[candidate]; exists {
 			if cb.isNumericValue(value) {
@@ -924,7 +927,7 @@ func (cb *ContextBuilder) findAdjacentDataCell(labelCell string, context *ai.Fin
 			}
 		}
 	}
-	
+
 	return ""
 }
 
@@ -932,11 +935,11 @@ func (cb *ContextBuilder) estimateSectionRange(expandedInfo *RangeInfo, headerRo
 	// Estimate section boundaries based on header position
 	startRow := expandedInfo.StartRow + headerRow
 	startCol := expandedInfo.StartCol + headerCol
-	
+
 	// Simple heuristic: section extends 10 rows down and 5 columns right
 	endRow := startRow + 10
 	endCol := startCol + 5
-	
+
 	return ai.CellRange{
 		StartCell: getCellAddress(startRow, startCol),
 		EndCell:   getCellAddress(endRow, endCol),
@@ -955,7 +958,7 @@ func (cb *ContextBuilder) findFirstDataCell(rangeInfo *RangeInfo, structure *ai.
 		row := rangeInfo.StartRow
 		return getCellAddress(row, col)
 	}
-	
+
 	// Default to the start of the selected range
 	return getCellAddress(rangeInfo.StartRow, rangeInfo.StartCol)
 }
@@ -1020,7 +1023,7 @@ func (cb *ContextBuilder) TrackCellChanges(newContext, oldContext *ai.FinancialC
 	// Check for value changes
 	for cellAddr, newValue := range newContext.CellValues {
 		oldValue, existed := oldContext.CellValues[cellAddr]
-		
+
 		if !existed || !valuesEqual(oldValue, newValue) {
 			change := ai.CellChange{
 				Address:   cellAddr,
@@ -1049,7 +1052,7 @@ func (cb *ContextBuilder) TrackCellChanges(newContext, oldContext *ai.FinancialC
 	// Check for formula changes
 	for cellAddr, newFormula := range newContext.Formulas {
 		oldFormula, existed := oldContext.Formulas[cellAddr]
-		
+
 		if !existed || oldFormula != newFormula {
 			change := ai.CellChange{
 				Address:   cellAddr,
@@ -1118,7 +1121,7 @@ func (cb *ContextBuilder) updateCellInContext(ctx context.Context, sessionID str
 
 func (cb *ContextBuilder) trackCellChanges(newContext, oldContext *ai.FinancialContext) {
 	changes := cb.TrackCellChanges(newContext, oldContext)
-	
+
 	// Keep only recent changes (last 10)
 	newContext.RecentChanges = append(changes, oldContext.RecentChanges...)
 	if len(newContext.RecentChanges) > 10 {
@@ -1131,7 +1134,7 @@ func (cb *ContextBuilder) hasSignificantChanges(changes []ai.CellChange) bool {
 	// - More than 5 cells changed
 	// - Any formula structure changed
 	// - Key financial cells changed
-	
+
 	if len(changes) > 5 {
 		return true
 	}
@@ -1142,7 +1145,7 @@ func (cb *ContextBuilder) hasSignificantChanges(changes []ai.CellChange) bool {
 		}
 		// Check if it's a key financial cell (could be enhanced)
 		if strings.Contains(strings.ToLower(fmt.Sprintf("%v", change.OldValue)), "total") ||
-		   strings.Contains(strings.ToLower(fmt.Sprintf("%v", change.NewValue)), "total") {
+			strings.Contains(strings.ToLower(fmt.Sprintf("%v", change.NewValue)), "total") {
 			return true
 		}
 	}
@@ -1162,6 +1165,6 @@ func valuesEqual(a, b interface{}) bool {
 	// Convert to strings for comparison
 	aStr := fmt.Sprintf("%v", a)
 	bStr := fmt.Sprintf("%v", b)
-	
+
 	return aStr == bStr
 }

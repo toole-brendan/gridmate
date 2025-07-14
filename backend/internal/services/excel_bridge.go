@@ -284,6 +284,17 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			financialContext = eb.buildFinancialContext(session, message.Context)
 		}
 
+		// Add pending operations to the financial context
+		if eb.queuedOpsRegistry != nil {
+			ctx := context.Background()
+			financialContext.PendingOperations = eb.queuedOpsRegistry.GetOperationSummary(ctx, session.ID)
+
+			eb.logger.WithFields(logrus.Fields{
+				"session_id":      session.ID,
+				"has_pending_ops": financialContext.PendingOperations != nil,
+			}).Debug("Added pending operations to initial context")
+		}
+
 		// Get chat history for this session
 		history := eb.chatHistory.GetHistory(session.ID)
 

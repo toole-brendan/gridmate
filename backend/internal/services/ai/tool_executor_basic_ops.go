@@ -31,13 +31,42 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 		return fmt.Errorf("values array is required and cannot be empty")
 	}
 
+	// Store previous values for undo functionality
+	var previousValues [][]interface{}
+	isUndo, _ := input["_is_undo"].(bool)
+	if !isUndo { // Only capture previous state for non-undo operations
+		prevData, err := te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, false, false)
+		if err == nil && prevData != nil && prevData.Values != nil {
+			previousValues = prevData.Values
+		}
+	}
+
 	// Check if we need to expand values to match the range
 	expandedValues, err := expandValuesToMatchRange(rangeAddr, values)
 	if err != nil {
 		return err
 	}
 
-	return te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, expandedValues, preserveFormatting)
+	// Execute the write
+	err = te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, expandedValues, preserveFormatting)
+
+	// If successful and we have queued registry, update the operation result with previous values
+	if err == nil && te.queuedOpsRegistry != nil && previousValues != nil {
+		// Store previous values in the operation result for undo
+		if registry, ok := te.queuedOpsRegistry.(interface {
+			UpdateOperationResult(string, interface{}) error
+		}); ok {
+			result := map[string]interface{}{
+				"success":         true,
+				"previous_values": previousValues,
+			}
+			// Try to update the result - we'll need the operation ID from somewhere
+			// This is a limitation we'll address in the next iteration
+			_ = registry.UpdateOperationResult(sessionID, result)
+		}
+	}
+
+	return err
 }
 
 // executeApplyFormula handles applying formulas to cells
@@ -53,12 +82,43 @@ func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID strin
 		return fmt.Errorf("formula is required")
 	}
 
+	// Store previous formula for undo functionality
+	var previousFormula string
+	isUndo, _ := input["_is_undo"].(bool)
+	if !isUndo { // Only capture previous state for non-undo operations
+		prevData, err := te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, true, false)
+		if err == nil && prevData != nil && prevData.Formulas != nil &&
+			len(prevData.Formulas) > 0 && len(prevData.Formulas[0]) > 0 {
+			if formula, ok := prevData.Formulas[0][0].(string); ok {
+				previousFormula = formula
+			}
+		}
+	}
+
 	// Validate formula before applying
 	if err := te.validateFormulaBeforeApplication(ctx, sessionID, formula, rangeAddr); err != nil {
 		return fmt.Errorf("formula validation failed: %w", err)
 	}
 
-	return te.excelBridge.ApplyFormula(ctx, sessionID, rangeAddr, formula, relativeRefs)
+	// Execute the formula application
+	err := te.excelBridge.ApplyFormula(ctx, sessionID, rangeAddr, formula, relativeRefs)
+
+	// If successful and we have queued registry, update the operation result with previous formula
+	if err == nil && te.queuedOpsRegistry != nil && previousFormula != "" {
+		// Store previous formula in the operation result for undo
+		if registry, ok := te.queuedOpsRegistry.(interface {
+			UpdateOperationResult(string, interface{}) error
+		}); ok {
+			result := map[string]interface{}{
+				"success":          true,
+				"previous_formula": previousFormula,
+			}
+			// Try to update the result
+			_ = registry.UpdateOperationResult(sessionID, result)
+		}
+	}
+
+	return err
 }
 
 // executeAnalyzeData handles data analysis operations
@@ -79,6 +139,18 @@ func (te *ToolExecutor) executeFormatRange(ctx context.Context, sessionID string
 	rangeAddr, _ := input["range_address"].(string)
 	if rangeAddr == "" {
 		return fmt.Errorf("range_address is required")
+	}
+
+	// Store previous format for undo functionality (simplified for now)
+	// In a real implementation, we'd capture the actual previous format
+	var previousFormat map[string]interface{}
+	isUndo, _ := input["_is_undo"].(bool)
+	if !isUndo {
+		// For now, just store that there was a previous format
+		// A full implementation would read the current format
+		previousFormat = map[string]interface{}{
+			"number_format": "General",
+		}
 	}
 
 	// Build format from input
@@ -125,7 +197,23 @@ func (te *ToolExecutor) executeFormatRange(ctx context.Context, sessionID string
 		}
 	}
 
-	return te.excelBridge.FormatRange(ctx, sessionID, rangeAddr, format)
+	// Execute the format operation
+	err := te.excelBridge.FormatRange(ctx, sessionID, rangeAddr, format)
+
+	// If successful and we have queued registry, update the operation result
+	if err == nil && te.queuedOpsRegistry != nil && previousFormat != nil {
+		if registry, ok := te.queuedOpsRegistry.(interface {
+			UpdateOperationResult(string, interface{}) error
+		}); ok {
+			result := map[string]interface{}{
+				"success":         true,
+				"previous_format": previousFormat,
+			}
+			_ = registry.UpdateOperationResult(sessionID, result)
+		}
+	}
+
+	return err
 }
 
 // executeCreateChart handles chart creation

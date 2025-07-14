@@ -3,30 +3,49 @@
 ## Overview
 This guide details the frontend implementation for Cursor-inspired UI features in the Excel add-in, focusing on the "Approve All in Order" functionality and intelligent operation management.
 
+## Task List
+### UI Enhancements
+- [ ] Update PendingActionsPanel with dependency visualization
+- [ ] Add "Approve All in Order" functionality
+- [ ] Implement operation preview UI
+- [ ] Add undo/redo buttons
+- [ ] Display operation counts and status summary
+- [ ] Show batch completion progress
+
 ## 1. Enhanced Pending Actions Panel
 
 ### File: `excel-addin/src/components/chat/PendingActionsPanel.tsx`
 
 ```tsx
 import React, { useState, useMemo } from 'react';
-import { PendingAction, OperationDependency } from '../../types/operations';
+import { PendingAction, OperationSummary } from '../../types/operations';
 
 interface EnhancedPendingActionsPanelProps {
   actions: PendingAction[];
+  summary: OperationSummary; // From backend GetOperationSummary
   onApprove: (actionId: string) => void;
   onReject: (actionId: string) => void;
   onApproveAll: () => void;
   onApproveAllInOrder: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
   dependencies: Record<string, string[]>;
+  hasUndo: boolean;
+  hasRedo: boolean;
 }
 
 export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelProps> = ({
   actions,
+  summary,
   onApprove,
   onReject,
   onApproveAll,
   onApproveAllInOrder,
+  onUndo,
+  onRedo,
   dependencies,
+  hasUndo,
+  hasRedo,
 }) => {
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
 
@@ -50,44 +69,104 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
 
   // Check if action can be approved based on dependencies
   const canApprove = (actionId: string): boolean => {
-    const deps = dependencies[actionId] || [];
-    return deps.every(depId => {
-      const depAction = actions.find(a => a.id === depId);
-      return !depAction || depAction.status === 'completed';
-    });
+    const action = actions.find(a => a.id === actionId);
+    return action?.canApprove || false; // Use backend's canApprove flag
   };
 
   // Get visual indicator for action status
   const getStatusIcon = (action: PendingAction): string => {
     if (!canApprove(action.id)) return '⏸️'; // Waiting for dependencies
     if (action.batchId) return '🔗'; // Part of batch
-    if (action.priority > 50) return '⚡'; // High priority
+    if (action.priority && action.priority > 50) return '⚡'; // High priority
     return '✅'; // Ready to approve
+  };
+
+  // Get operation type display name
+  const getOperationTypeDisplay = (type: string): string => {
+    const typeMap: Record<string, string> = {
+      'write_range': 'Write Data',
+      'apply_formula': 'Apply Formula',
+      'format_range': 'Format Cells',
+      'create_chart': 'Create Chart',
+      'insert_rows_columns': 'Insert Rows/Columns',
+      'create_named_range': 'Create Named Range',
+      'undo_write_range': 'Undo Write',
+      'undo_apply_formula': 'Undo Formula',
+      'undo_format_range': 'Undo Format',
+    };
+    return typeMap[type] || type;
   };
 
   return (
     <div className="pending-actions-panel p-4 bg-gray-50 rounded-lg">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">Pending Operations</h3>
+        <h3 className="text-lg font-semibold">
+          Pending Operations 
+          {summary.total > 0 && (
+            <span className="text-sm font-normal text-gray-600 ml-2">
+              ({summary.counts.queued} queued, {summary.counts.completed} completed)
+            </span>
+          )}
+        </h3>
         <div className="flex gap-2">
+          {/* Undo/Redo buttons */}
+          <button
+            onClick={onUndo}
+            className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 
+                     disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+            disabled={!hasUndo}
+            title="Undo last operation"
+          >
+            ↶
+          </button>
+          <button
+            onClick={onRedo}
+            className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 
+                     disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+            disabled={!hasRedo}
+            title="Redo last undone operation"
+          >
+            ↷
+          </button>
+          <div className="w-px bg-gray-300" />
           <button
             onClick={onApproveAllInOrder}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 
-                     flex items-center gap-2 text-sm font-medium"
-            disabled={actions.length === 0}
+                     flex items-center gap-2 text-sm font-medium
+                     disabled:bg-gray-400 disabled:cursor-not-allowed"
+            disabled={actions.length === 0 || summary.has_blocked}
           >
             <span>✓</span> Approve All in Order
           </button>
           <button
             onClick={onApproveAll}
             className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 
-                     text-sm"
-            disabled={actions.length === 0}
+                     text-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+            disabled={actions.length === 0 || summary.has_blocked}
           >
             Approve All
           </button>
         </div>
       </div>
+
+      {/* Warning if operations are blocked */}
+      {summary.has_blocked && (
+        <div className="mb-3 p-2 bg-orange-100 border border-orange-300 rounded text-sm text-orange-800">
+          ⚠️ Some operations are blocked by dependencies. They will execute once their dependencies complete.
+        </div>
+      )}
+
+      {/* Batch summary if available */}
+      {summary.batches && summary.batches.length > 0 && (
+        <div className="mb-3 text-sm text-gray-600">
+          {summary.batches.map(batch => (
+            <div key={batch.id}>
+              Batch: {batch.ready_count}/{batch.size} ready
+              {batch.can_approve_all && ' ✓'}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Batched Operations */}
       {Array.from(organizedActions.batches.entries()).map(([batchId, batchActions]) => (
@@ -101,6 +180,7 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
           onReject={onReject}
           canApprove={canApprove}
           getStatusIcon={getStatusIcon}
+          getOperationTypeDisplay={getOperationTypeDisplay}
         />
       ))}
 
@@ -111,6 +191,7 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
           action={action}
           canApprove={canApprove(action.id)}
           statusIcon={getStatusIcon(action)}
+          operationTypeDisplay={getOperationTypeDisplay(action.type)}
           onApprove={() => onApprove(action.id)}
           onReject={() => onReject(action.id)}
         />
@@ -132,9 +213,10 @@ const OperationCard: React.FC<{
   action: PendingAction;
   canApprove: boolean;
   statusIcon: string;
+  operationTypeDisplay: string;
   onApprove: () => void;
   onReject: () => void;
-}> = ({ action, canApprove, statusIcon, onApprove, onReject }) => {
+}> = ({ action, canApprove, statusIcon, operationTypeDisplay, onApprove, onReject }) => {
   const [showPreview, setShowPreview] = useState(false);
 
   return (
@@ -144,21 +226,21 @@ const OperationCard: React.FC<{
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">{statusIcon}</span>
-            <span className="font-medium text-sm">{action.type}</span>
+            <span className="font-medium text-sm">{operationTypeDisplay}</span>
             {action.context && (
               <span className="text-xs text-gray-500">• {action.context}</span>
             )}
           </div>
           
-          <p className="text-sm text-gray-700">{action.description}</p>
+          <p className="text-sm text-gray-700">{action.description || action.preview}</p>
           
           {/* Preview Toggle */}
-          {action.preview && (
+          {action.preview && action.preview !== action.description && (
             <button
               onClick={() => setShowPreview(!showPreview)}
               className="text-xs text-blue-600 hover:underline mt-1"
             >
-              {showPreview ? 'Hide' : 'Show'} Preview
+              {showPreview ? 'Hide' : 'Show'} Details
             </button>
           )}
           
@@ -166,6 +248,15 @@ const OperationCard: React.FC<{
           {showPreview && action.preview && (
             <div className="mt-2 p-2 bg-gray-50 rounded text-xs font-mono">
               {action.preview}
+            </div>
+          )}
+
+          {/* Show input details for debugging */}
+          {showPreview && action.input && (
+            <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+              <strong>Range:</strong> {action.input.range || action.input.range_address}<br/>
+              {action.input.formula && <><strong>Formula:</strong> {action.input.formula}<br/></>}
+              {action.input.values && <><strong>Values:</strong> {JSON.stringify(action.input.values)}<br/></>}
             </div>
           )}
         </div>
@@ -193,9 +284,16 @@ const OperationCard: React.FC<{
       </div>
 
       {/* Dependency Info */}
-      {!canApprove && (
+      {!canApprove && action.dependencies && action.dependencies.length > 0 && (
         <div className="mt-2 text-xs text-orange-600">
-          ⚠️ Waiting for dependent operations to complete
+          ⚠️ Waiting for {action.dependencies.length} dependent operation{action.dependencies.length > 1 ? 's' : ''} to complete
+        </div>
+      )}
+
+      {/* Error display if operation failed */}
+      {action.error && (
+        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+          <strong>Error:</strong> {action.error}
         </div>
       )}
     </div>
@@ -208,77 +306,81 @@ const OperationCard: React.FC<{
 ### File: `excel-addin/src/hooks/useOperationQueue.ts`
 
 ```typescript
-import { useState, useCallback } from 'react';
-import { PendingAction } from '../types/operations';
+import { useState, useCallback, useEffect } from 'react';
+import { PendingAction, OperationSummary } from '../types/operations';
 
-export const useOperationQueue = () => {
+export const useOperationQueue = (sessionId: string) => {
   const [queue, setQueue] = useState<PendingAction[]>([]);
+  const [summary, setSummary] = useState<OperationSummary | null>(null);
   const [dependencies, setDependencies] = useState<Record<string, string[]>>({});
   const [processing, setProcessing] = useState(false);
+  const [undoStack, setUndoStack] = useState<string[]>([]);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
 
-  // Topological sort to determine execution order
-  const getExecutionOrder = useCallback((actions: PendingAction[]): string[] => {
-    const inDegree: Record<string, number> = {};
-    const adjList: Record<string, string[]> = {};
-    const actionMap = new Map(actions.map(a => [a.id, a]));
+  // Update from backend operation summary
+  const updateFromBackendSummary = useCallback((backendSummary: any) => {
+    const pendingOps: PendingAction[] = backendSummary.pending?.map((op: any) => ({
+      id: op.id,
+      type: op.type,
+      description: op.preview || op.description,
+      preview: op.preview,
+      input: op.input || {},
+      status: op.status === 'queued' ? 'pending' : op.status,
+      canApprove: op.can_approve,
+      dependencies: op.dependencies || [],
+      batchId: op.batch_id,
+      priority: op.priority,
+      context: op.context,
+      createdAt: new Date().toISOString(),
+    })) || [];
 
-    // Initialize graph
-    actions.forEach(action => {
-      inDegree[action.id] = 0;
-      adjList[action.id] = [];
+    setQueue(pendingOps);
+    setSummary({
+      counts: backendSummary.counts || {},
+      pending: pendingOps,
+      total: backendSummary.total || pendingOps.length,
+      has_blocked: backendSummary.has_blocked || false,
+      batches: backendSummary.batches || [],
     });
 
-    // Build graph
-    Object.entries(dependencies).forEach(([actionId, deps]) => {
-      if (actionMap.has(actionId)) {
-        deps.forEach(depId => {
-          if (actionMap.has(depId)) {
-            adjList[depId].push(actionId);
-            inDegree[actionId]++;
-          }
-        });
+    // Build dependencies map
+    const depMap: Record<string, string[]> = {};
+    pendingOps.forEach(op => {
+      if (op.dependencies && op.dependencies.length > 0) {
+        depMap[op.id] = op.dependencies;
       }
     });
+    setDependencies(depMap);
+  }, []);
 
-    // Kahn's algorithm for topological sort
-    const queue: string[] = [];
-    const result: string[] = [];
-
-    // Find all nodes with no incoming edges
-    Object.entries(inDegree).forEach(([id, degree]) => {
-      if (degree === 0) queue.push(id);
+  // Get execution order based on dependencies and can_approve flags
+  const getExecutionOrder = useCallback((actions: PendingAction[]): string[] => {
+    // Simply filter and sort by those that can be approved
+    const approvable = actions.filter(a => a.canApprove);
+    
+    // Sort by priority (higher first) and batch grouping
+    approvable.sort((a, b) => {
+      // Group by batch first
+      if (a.batchId && b.batchId && a.batchId === b.batchId) {
+        // Within same batch, use original order
+        return 0;
+      }
+      // Then by priority
+      return (b.priority || 0) - (a.priority || 0);
     });
 
-    while (queue.length > 0) {
-      // Sort by priority within same level
-      queue.sort((a, b) => {
-        const actionA = actionMap.get(a)!;
-        const actionB = actionMap.get(b)!;
-        return (actionB.priority || 0) - (actionA.priority || 0);
-      });
+    return approvable.map(a => a.id);
+  }, []);
 
-      const current = queue.shift()!;
-      result.push(current);
-
-      // Update neighbors
-      adjList[current].forEach(neighbor => {
-        inDegree[neighbor]--;
-        if (inDegree[neighbor] === 0) {
-          queue.push(neighbor);
-        }
-      });
-    }
-
-    return result;
-  }, [dependencies]);
-
-  // Approve all operations in dependency order
+  // Approve all operations in order
   const approveAllInOrder = useCallback(async (
     actions: PendingAction[],
     onApprove: (id: string) => Promise<void>
   ) => {
     setProcessing(true);
     const order = getExecutionOrder(actions);
+    
+    console.log('Approving operations in order:', order);
     
     for (const actionId of order) {
       try {
@@ -287,8 +389,7 @@ export const useOperationQueue = () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         console.error(`Failed to approve action ${actionId}:`, error);
-        // Stop on first error
-        break;
+        // Continue with next operations even if one fails
       }
     }
     
@@ -297,10 +398,14 @@ export const useOperationQueue = () => {
 
   return {
     queue,
+    summary,
     dependencies,
     processing,
+    undoStack,
+    redoStack,
     approveAllInOrder,
     getExecutionOrder,
+    updateFromBackendSummary,
   };
 };
 ```
@@ -333,13 +438,25 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
         deps.forEach(depId => {
           const depAction = actionMap.get(depId);
           if (depAction) {
-            lines.push(`${depAction.type} → ${action.type}`);
+            lines.push(`${getShortType(depAction.type)} → ${getShortType(action.type)}`);
           }
         });
       }
     });
 
     return lines;
+  };
+
+  const getShortType = (type: string): string => {
+    const shortTypes: Record<string, string> = {
+      'write_range': 'Write',
+      'apply_formula': 'Formula',
+      'format_range': 'Format',
+      'create_chart': 'Chart',
+      'insert_rows_columns': 'Insert',
+      'create_named_range': 'Named Range',
+    };
+    return shortTypes[type] || type;
   };
 
   return (
@@ -350,6 +467,9 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
           <div key={i}>{line}</div>
         ))}
       </div>
+      {dependencies && Object.keys(dependencies).length === 0 && (
+        <div className="text-gray-500">No dependencies - operations can run in parallel</div>
+      )}
     </div>
   );
 };
@@ -367,23 +487,52 @@ import { EnhancedPendingActionsPanel } from './EnhancedPendingActionsPanel';
 import { useOperationQueue } from '../../hooks/useOperationQueue';
 
 // Inside component
-const { approveAllInOrder, dependencies } = useOperationQueue();
+const { 
+  queue,
+  summary,
+  approveAllInOrder, 
+  dependencies,
+  undoStack,
+  redoStack,
+  updateFromBackendSummary 
+} = useOperationQueue(sessionId);
+
+// Update pending actions when receiving from backend
+useEffect(() => {
+  signalRClient.on('pendingOperations', (operationSummary: any) => {
+    updateFromBackendSummary(operationSummary);
+  });
+}, [signalRClient, updateFromBackendSummary]);
 
 // Handle approve all in order
 const handleApproveAllInOrder = async () => {
-  await approveAllInOrder(pendingActions, async (actionId) => {
+  await approveAllInOrder(queue, async (actionId) => {
     await handleActionApproval(actionId);
   });
 };
 
+// Handle undo/redo
+const handleUndo = async () => {
+  await signalRClient.send('undoLastOperation', { sessionId });
+};
+
+const handleRedo = async () => {
+  await signalRClient.send('redoLastOperation', { sessionId });
+};
+
 // Replace existing PendingActionsPanel with:
 <EnhancedPendingActionsPanel
-  actions={pendingActions}
+  actions={queue}
+  summary={summary || { counts: {}, pending: [], total: 0, has_blocked: false, batches: [] }}
   onApprove={handleActionApproval}
   onReject={handleActionRejection}
   onApproveAll={handleApproveAll}
   onApproveAllInOrder={handleApproveAllInOrder}
+  onUndo={handleUndo}
+  onRedo={handleRedo}
   dependencies={dependencies}
+  hasUndo={undoStack.length > 0}
+  hasRedo={redoStack.length > 0}
 />
 ```
 
@@ -397,26 +546,53 @@ export interface PendingAction {
   type: string;
   description: string;
   input: Record<string, any>;
-  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'failed';
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'failed' | 'cancelled';
   createdAt: string;
+  completedAt?: string;
   batchId?: string;
   dependencies?: string[];
   priority?: number;
   preview?: string;
   context?: string;
+  canApprove?: boolean; // From backend's CanExecute check
+  error?: string; // Error message if failed
+  result?: any; // Result of completed operation
 }
 
 export interface OperationBatch {
   id: string;
-  name: string;
-  operations: PendingAction[];
-  canMerge: boolean;
+  size: number;
+  ready_count: number;
+  can_approve_all: boolean;
+}
+
+export interface OperationSummary {
+  counts: {
+    queued?: number;
+    in_progress?: number;
+    completed?: number;
+    failed?: number;
+    cancelled?: number;
+  };
+  pending: PendingAction[];
+  total: number;
+  has_blocked: boolean;
+  batches?: OperationBatch[];
 }
 
 export interface OperationDependency {
   from: string;
   to: string;
   type: 'requires' | 'blocks' | 'related';
+}
+
+// Backend operation status enum
+export enum OperationStatus {
+  Queued = 'queued',
+  InProgress = 'in_progress',
+  Completed = 'completed',
+  Failed = 'failed',
+  Cancelled = 'cancelled',
 }
 ```
 
@@ -447,6 +623,7 @@ export interface OperationDependency {
 .batch-group {
   position: relative;
   padding-left: 12px;
+  margin-bottom: 8px;
 }
 
 .batch-group::before {
@@ -466,6 +643,25 @@ export interface OperationDependency {
 .status-error { color: #ef4444; }
 .status-batch { color: #3b82f6; }
 
+/* Undo/Redo buttons */
+button[title*="Undo"], button[title*="Redo"] {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-weight: bold;
+}
+
+/* Operation type badges */
+.operation-type-badge {
+  font-size: 0.7rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-weight: 500;
+}
+
+.operation-type-write { background: #dbeafe; color: #1e40af; }
+.operation-type-formula { background: #d1fae5; color: #065f46; }
+.operation-type-format { background: #fef3c7; color: #92400e; }
+.operation-type-undo { background: #e0e7ff; color: #4338ca; }
+
 /* Smooth animations */
 @keyframes slideIn {
   from {
@@ -481,6 +677,21 @@ export interface OperationDependency {
 .operation-card {
   animation: slideIn 0.3s ease;
 }
+
+/* Progress indicator for batch operations */
+.batch-progress {
+  height: 3px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.batch-progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.3s ease;
+}
 ```
 
 ## Implementation Benefits
@@ -491,6 +702,8 @@ export interface OperationDependency {
 4. **One-Click Approval**: "Approve All in Order" handles complex sequences
 5. **Preview Capability**: Users can see what will happen before approving
 6. **Responsive Feedback**: Smooth animations and status updates
+7. **Undo/Redo Support**: Easy reversal of operations
+8. **Backend Alignment**: Properly uses backend's operation summary and status flags
 
 ## Testing Checklist
 
@@ -498,5 +711,8 @@ export interface OperationDependency {
 - [ ] Verify batch grouping works correctly
 - [ ] Ensure "Approve All in Order" respects dependencies
 - [ ] Test error handling when operations fail
-- [ ] Verify UI updates in real-time
+- [ ] Verify UI updates in real-time from backend summary
 - [ ] Test with 50+ pending operations for performance 
+- [ ] Verify undo/redo functionality works
+- [ ] Test operation status transitions (queued → in_progress → completed)
+- [ ] Ensure proper handling of cancelled operations due to failed dependencies 

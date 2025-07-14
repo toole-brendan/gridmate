@@ -83,43 +83,105 @@ func (pb *PromptBuilder) BuildAnalysisPrompt(context *FinancialContext, analysis
 }
 
 // buildContextPrompt builds the context section of the prompt
+// Optimized to minimize tokens for empty or sparse spreadsheets
 func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
+	// For empty spreadsheets, provide minimal context
+	if context.ModelType == "Empty" {
+		return fmt.Sprintf("Workbook: %s\nWorksheet: %s\nThe spreadsheet is currently empty.", 
+			context.WorkbookName, context.WorksheetName)
+	}
+	
 	var parts []string
 
-	// Workbook and worksheet info
+	// Basic info - combine to save tokens
+	basicInfo := []string{}
 	if context.WorkbookName != "" {
-		parts = append(parts, fmt.Sprintf("Workbook: %s", context.WorkbookName))
+		basicInfo = append(basicInfo, fmt.Sprintf("Workbook: %s", context.WorkbookName))
 	}
 	if context.WorksheetName != "" {
-		parts = append(parts, fmt.Sprintf("Worksheet: %s", context.WorksheetName))
+		basicInfo = append(basicInfo, fmt.Sprintf("Worksheet: %s", context.WorksheetName))
+	}
+	if len(basicInfo) > 0 {
+		parts = append(parts, strings.Join(basicInfo, ", "))
 	}
 
-	// Model type
-	if context.ModelType != "" {
+	// Model type - only if meaningful
+	if context.ModelType != "" && context.ModelType != "General" {
 		parts = append(parts, fmt.Sprintf("Model Type: %s", context.ModelType))
 	}
 
-	// Selected range
-	if context.SelectedRange != "" {
+	// Selected range - only if it contains data
+	if context.SelectedRange != "" && len(context.CellValues) > 0 {
 		parts = append(parts, fmt.Sprintf("Selected Range: %s", context.SelectedRange))
 	}
 
-	// Cell values and formulas
+	// Cell values and formulas - optimize for size
 	if len(context.CellValues) > 0 || len(context.Formulas) > 0 {
-		parts = append(parts, pb.buildCellDataSection(context))
+		dataSection := pb.buildOptimizedCellDataSection(context)
+		if dataSection != "" {
+			parts = append(parts, dataSection)
+		}
 	}
 
-	// Recent changes
-	if len(context.RecentChanges) > 0 {
+	// Recent changes - only if relevant and limited
+	if len(context.RecentChanges) > 0 && len(context.RecentChanges) <= 5 {
 		parts = append(parts, pb.buildRecentChangesSection(context.RecentChanges))
 	}
 
-	// Document context
-	if len(context.DocumentContext) > 0 {
+	// Document context - only if not redundant
+	if len(context.DocumentContext) > 0 && len(context.DocumentContext) <= 3 {
 		parts = append(parts, pb.buildDocumentContextSection(context.DocumentContext))
 	}
 
-	return strings.Join(parts, "\n\n")
+	return strings.Join(parts, "\n")
+}
+
+// buildOptimizedCellDataSection builds a compact cell data section
+// Only includes the most relevant data to minimize token usage
+func (pb *PromptBuilder) buildOptimizedCellDataSection(context *FinancialContext) string {
+	var parts []string
+	totalCells := len(context.CellValues) + len(context.Formulas)
+	
+	// If we have very few cells, include all
+	if totalCells <= 20 {
+		return pb.buildCellDataSection(context)
+	}
+	
+	// For larger contexts, summarize and show only key cells
+	if len(context.CellValues) > 20 {
+		parts = append(parts, fmt.Sprintf("Cell Data: %d cells with values", len(context.CellValues)))
+		// Show first 10 cells as sample
+		count := 0
+		for addr, value := range context.CellValues {
+			if count >= 10 {
+				parts = append(parts, "  ... (more cells omitted)")
+				break
+			}
+			parts = append(parts, fmt.Sprintf("  %s: %v", addr, value))
+			count++
+		}
+	}
+	
+	if len(context.Formulas) > 10 {
+		parts = append(parts, fmt.Sprintf("\nFormulas: %d formulas present", len(context.Formulas)))
+		// Show first 5 formulas as sample
+		count := 0
+		for addr, formula := range context.Formulas {
+			if count >= 5 {
+				parts = append(parts, "  ... (more formulas omitted)")
+				break
+			}
+			parts = append(parts, fmt.Sprintf("  %s: %s", addr, formula))
+			count++
+		}
+	} else if len(context.Formulas) > 0 {
+		parts = append(parts, "\nFormulas:")
+		for addr, formula := range context.Formulas {
+			parts = append(parts, fmt.Sprintf("  %s: %s", addr, formula))
+		}
+	}
+	
+	return strings.Join(parts, "\n")
 }
 
 // buildCellDataSection builds the cell data section

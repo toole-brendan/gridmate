@@ -547,6 +547,7 @@ func generateActionID() string {
 }
 
 // buildFinancialContext converts session context to AI financial context
+// Optimized to only include relevant data, similar to how Cursor indexes codebases
 func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalContext map[string]interface{}) *ai.FinancialContext {
 	context := &ai.FinancialContext{
 		CellValues:      make(map[string]interface{}),
@@ -554,6 +555,9 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		RecentChanges:   make([]ai.CellChange, 0),
 		DocumentContext: make([]string, 0),
 	}
+	
+	// Track if we have any actual data
+	hasData := false
 
 	// Extract workbook and worksheet names
 	if workbook, ok := additionalContext["workbook"].(string); ok {
@@ -594,22 +598,32 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		if values, ok := selectedData["values"].([]interface{}); ok {
 			// Convert 2D array to cell map
 			if address, ok := selectedData["address"].(string); ok {
-				eb.processCellData(context, values, address)
+				// Only process if we have actual data
+				if hasNonEmptyValues(values) {
+					eb.processCellData(context, values, address)
+					hasData = true
+				}
 			}
 		}
 		if formulas, ok := selectedData["formulas"].([]interface{}); ok {
 			// Process formulas similarly
 			if address, ok := selectedData["address"].(string); ok {
-				eb.processFormulaData(context, formulas, address)
+				if hasNonEmptyValues(formulas) {
+					eb.processFormulaData(context, formulas, address)
+					hasData = true
+				}
 			}
 		}
 	}
 	
-	// Extract nearby data if available
+	// Extract nearby data if available - but only if it contains actual data
 	if nearbyData, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
 		if values, ok := nearbyData["values"].([]interface{}); ok {
 			if address, ok := nearbyData["address"].(string); ok {
-				eb.processCellData(context, values, address)
+				if hasNonEmptyValues(values) {
+					eb.processCellData(context, values, address)
+					hasData = true
+				}
 			}
 		}
 	}
@@ -617,10 +631,22 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 	// Add cached data
 	eb.addCachedDataToFinancialContext(context, session)
 
-	// Detect model type based on content
-	if context.ModelType == "" {
+	// Only add model type detection if we have actual data
+	if hasData && context.ModelType == "" {
 		context.ModelType = eb.detectModelType(context)
+	} else if !hasData {
+		// For empty spreadsheets, indicate this clearly
+		context.ModelType = "Empty"
+		context.DocumentContext = append(context.DocumentContext, "Spreadsheet is empty")
 	}
+	
+	// Log context size for debugging
+	eb.logger.WithFields(logrus.Fields{
+		"has_data":     hasData,
+		"cell_count":   len(context.CellValues),
+		"formula_count": len(context.Formulas),
+		"model_type":   context.ModelType,
+	}).Debug("Built financial context")
 
 	return context
 }
@@ -754,18 +780,24 @@ func generateBackupID() string {
 // processCellData processes cell values from Excel and adds them to the context
 func (eb *ExcelBridge) processCellData(context *ai.FinancialContext, values []interface{}, baseAddress string) {
 	// Parse the base address to get starting row and column
-	// baseAddress format: "Sheet1!A1:C10" or "A1:C10"
+	// baseAddress format: "Sheet1!A1:C10" or "A1:C10" or "Sheet1!A1" or "A1"
 	parts := strings.Split(baseAddress, "!")
 	rangeStr := parts[len(parts)-1]
 	
-	// Parse range (simplified - assumes format like "A1:C10")
+	// Parse range - handle both single cells and ranges
+	var startCell string
 	rangeParts := strings.Split(rangeStr, ":")
-	if len(rangeParts) != 2 {
+	if len(rangeParts) == 1 {
+		// Single cell
+		startCell = rangeParts[0]
+	} else if len(rangeParts) == 2 {
+		// Range
+		startCell = rangeParts[0]
+	} else {
 		eb.logger.WithField("address", baseAddress).Warn("Invalid range format")
 		return
 	}
 	
-	startCell := rangeParts[0]
 	startCol, startRow := eb.parseCell(startCell)
 	
 	// Process the 2D array of values
@@ -787,13 +819,20 @@ func (eb *ExcelBridge) processFormulaData(context *ai.FinancialContext, formulas
 	parts := strings.Split(baseAddress, "!")
 	rangeStr := parts[len(parts)-1]
 	
+	// Parse range - handle both single cells and ranges
+	var startCell string
 	rangeParts := strings.Split(rangeStr, ":")
-	if len(rangeParts) != 2 {
+	if len(rangeParts) == 1 {
+		// Single cell
+		startCell = rangeParts[0]
+	} else if len(rangeParts) == 2 {
+		// Range
+		startCell = rangeParts[0]
+	} else {
 		eb.logger.WithField("address", baseAddress).Warn("Invalid range format for formulas")
 		return
 	}
 	
-	startCell := rangeParts[0]
 	startCol, startRow := eb.parseCell(startCell)
 	
 	// Process the 2D array of formulas
@@ -807,6 +846,30 @@ func (eb *ExcelBridge) processFormulaData(context *ai.FinancialContext, formulas
 			}
 		}
 	}
+}
+
+// hasNonEmptyValues checks if a 2D array has any non-empty values
+// This helps avoid sending empty data to the AI
+func hasNonEmptyValues(values []interface{}) bool {
+	for _, rowData := range values {
+		if rowArray, ok := rowData.([]interface{}); ok {
+			for _, cellValue := range rowArray {
+				// Check if cell has actual content
+				if cellValue != nil && cellValue != "" {
+					// Also check for formulas (they start with =)
+					if str, ok := cellValue.(string); ok {
+						if str != "" {
+							return true
+						}
+					} else {
+						// Non-string values (numbers, booleans) are considered data
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 // parseCell parses a cell reference like "A1" into column and row indices

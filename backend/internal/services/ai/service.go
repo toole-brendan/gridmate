@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -432,6 +433,109 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 	return results, nil
 }
 
+// selectRelevantTools intelligently selects which tools to include based on the user's message
+// This reduces token usage by only including tools that are likely to be needed
+func (s *Service) selectRelevantTools(userMessage string, context *FinancialContext) []ExcelTool {
+	allTools := GetExcelTools()
+	
+	// Convert message to lowercase for easier matching
+	msgLower := strings.ToLower(userMessage)
+	
+	// Keywords that indicate read-only operations
+	readOnlyKeywords := []string{"what", "show", "tell", "explain", "analyze", "check", "find", "look", "see", "view", "get"}
+	
+	// Keywords that indicate write operations
+	writeKeywords := []string{"create", "make", "build", "add", "write", "insert", "generate", "set", "update", "change", "modify"}
+	
+	// Keywords for specific model types
+	modelKeywords := []string{"dcf", "lbo", "model", "valuation", "forecast", "projection"}
+	
+	// Check if this is a read-only request
+	isReadOnly := false
+	for _, keyword := range readOnlyKeywords {
+		if strings.Contains(msgLower, keyword) {
+			isReadOnly = true
+			break
+		}
+	}
+	
+	// Check if this is a write request
+	isWriteRequest := false
+	for _, keyword := range writeKeywords {
+		if strings.Contains(msgLower, keyword) {
+			isWriteRequest = true
+			break
+		}
+	}
+	
+	// Check if this is a model creation request
+	isModelRequest := false
+	for _, keyword := range modelKeywords {
+		if strings.Contains(msgLower, keyword) {
+			isModelRequest = true
+			break
+		}
+	}
+	
+	// Build tool list based on request type
+	var selectedTools []ExcelTool
+	
+	// If the spreadsheet is empty and user wants to create something, include write tools
+	if context != nil && len(context.CellValues) == 0 && (isWriteRequest || isModelRequest) {
+		// For empty spreadsheet, include only essential tools for creation
+		for _, tool := range allTools {
+			switch tool.Name {
+			case "write_range", "apply_formula", "format_range":
+				selectedTools = append(selectedTools, tool)
+			}
+		}
+	} else if isReadOnly && !isWriteRequest {
+		// Read-only request - include only read tools
+		for _, tool := range allTools {
+			switch tool.Name {
+			case "read_range", "analyze_data", "get_named_ranges", "validate_model":
+				selectedTools = append(selectedTools, tool)
+			}
+		}
+	} else if isModelRequest {
+		// Model creation - include most tools except chart creation
+		for _, tool := range allTools {
+			if tool.Name != "create_chart" {
+				selectedTools = append(selectedTools, tool)
+			}
+		}
+	} else {
+		// General request - include basic read/write tools
+		for _, tool := range allTools {
+			switch tool.Name {
+			case "read_range", "write_range", "apply_formula", "analyze_data":
+				selectedTools = append(selectedTools, tool)
+			}
+		}
+	}
+	
+	// If no tools were selected, include a minimal set
+	if len(selectedTools) == 0 {
+		for _, tool := range allTools {
+			switch tool.Name {
+			case "read_range", "write_range":
+				selectedTools = append(selectedTools, tool)
+			}
+		}
+	}
+	
+	log.Info().
+		Str("message", userMessage).
+		Int("selected_tools", len(selectedTools)).
+		Int("total_tools", len(allTools)).
+		Bool("is_read_only", isReadOnly).
+		Bool("is_write_request", isWriteRequest).
+		Bool("is_model_request", isModelRequest).
+		Msg("Selected relevant tools based on user message")
+	
+	return selectedTools
+}
+
 // ProcessChatWithTools processes a chat message and handles tool calls automatically
 func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, userMessage string, context *FinancialContext) (*CompletionResponse, error) {
 	log.Info().
@@ -578,11 +682,18 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Stream:      false, // Don't stream when using tools
 		}
 
-		// Add tools if available
+		// Add tools if available - but be smart about it
 		if s.config.EnableActions && s.toolExecutor != nil {
-			request.Tools = GetExcelTools()
+			// For first round, analyze the request to determine what tools are needed
+			if round == 0 {
+				request.Tools = s.selectRelevantTools(userMessage, context)
+			} else {
+				// For subsequent rounds, include all tools since we're in execution mode
+				request.Tools = GetExcelTools()
+			}
 			log.Info().
 				Int("tools_count", len(request.Tools)).
+				Int("round", round).
 				Msg("Added tools to ProcessChatWithToolsAndHistory request")
 		}
 

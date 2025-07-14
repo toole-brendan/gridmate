@@ -264,8 +264,8 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 		
 		// Process chat message with AI and history
 		ctx := context.Background()
-		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory))
-		response, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory)
+		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
+		response, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
 		if err != nil {
 			eb.logger.WithError(err).Error("AI processing failed")
 			content = "I encountered an error processing your request. Please try again."

@@ -645,12 +645,13 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 }
 
 // ProcessChatWithToolsAndHistory processes a chat message with history and handles tool calls automatically
-func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID string, userMessage string, context *FinancialContext, chatHistory []Message) (*CompletionResponse, error) {
+func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID string, userMessage string, context *FinancialContext, chatHistory []Message, autonomyMode string) (*CompletionResponse, error) {
 	log.Info().
 		Str("session_id", sessionID).
 		Str("user_message", userMessage).
 		Bool("has_context", context != nil).
 		Int("history_length", len(chatHistory)).
+		Str("autonomy_mode", autonomyMode).
 		Msg("Starting ProcessChatWithToolsAndHistory")
 
 	// Build messages array with history
@@ -696,8 +697,9 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Stream:      false, // Don't stream when using tools
 		}
 
-		// Add tools if available - but be smart about it
-		if s.config.EnableActions && s.toolExecutor != nil {
+		// Add tools if available - but be smart about it and respect autonomy mode
+		if s.config.EnableActions && s.toolExecutor != nil && autonomyMode != "ask" {
+			// In "ask" mode, don't provide any tools to the AI
 			// For first round, analyze the request to determine what tools are needed
 			if round == 0 {
 				request.Tools = s.selectRelevantTools(userMessage, context)
@@ -708,7 +710,12 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			log.Info().
 				Int("tools_count", len(request.Tools)).
 				Int("round", round).
+				Str("autonomy_mode", autonomyMode).
 				Msg("Added tools to ProcessChatWithToolsAndHistory request")
+		} else if autonomyMode == "ask" {
+			log.Info().
+				Str("autonomy_mode", autonomyMode).
+				Msg("Skipping tools in Ask mode - read-only access")
 		}
 
 		// Get response

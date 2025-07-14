@@ -69,13 +69,14 @@ namespace GridmateSignalR.Hubs
         }
 
         // Send chat message to backend
-        public async Task SendChatMessage(string sessionId, string content, object excelContext = null)
+        public async Task SendChatMessage(string sessionId, string content, object excelContext = null, string autonomyMode = "agent-default")
         {
             _logger.LogInformation($"Chat message from session {sessionId}: {content}");
             if (excelContext != null)
             {
                 _logger.LogInformation($"Excel context provided: {System.Text.Json.JsonSerializer.Serialize(excelContext)}");
             }
+            _logger.LogInformation($"Autonomy mode: {autonomyMode}");
             
             try
             {
@@ -86,6 +87,7 @@ namespace GridmateSignalR.Hubs
                     sessionId,
                     content,
                     excelContext,
+                    autonomyMode,
                     timestamp = DateTime.UtcNow
                 });
 

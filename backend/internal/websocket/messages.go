@@ -51,9 +51,10 @@ type AuthMessage struct {
 
 // ChatMessage represents a chat message from the user
 type ChatMessage struct {
-	Content   string                 `json:"content"`
-	Context   map[string]interface{} `json:"context,omitempty"`
-	SessionID string                 `json:"sessionId"`
+	Content      string                 `json:"content"`
+	Context      map[string]interface{} `json:"context,omitempty"`
+	SessionID    string                 `json:"sessionId"`
+	AutonomyMode string                 `json:"autonomyMode,omitempty"`
 }
 
 // ChatResponse represents the AI's response to a chat message

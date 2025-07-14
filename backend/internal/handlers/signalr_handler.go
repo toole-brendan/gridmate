@@ -36,6 +36,7 @@ type SignalRChatRequest struct {
 	SessionID    string                 `json:"sessionId"`
 	Content      string                 `json:"content"`
 	ExcelContext map[string]interface{} `json:"excelContext"`
+	AutonomyMode string                 `json:"autonomyMode"`
 	Timestamp    time.Time              `json:"timestamp"`
 }
 
@@ -64,6 +65,7 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		"content":        req.Content,
 		"has_context":    req.ExcelContext != nil,
 		"excel_context":  req.ExcelContext,
+		"autonomy_mode":  req.AutonomyMode,
 	}).Info("Received chat message from SignalR")
 
 	// Process the chat message
@@ -81,9 +83,10 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		}
 		
 		chatMsg := websocket.ChatMessage{
-			Content:   req.Content,
-			SessionID: req.SessionID,
-			Context:   excelContext,
+			Content:      req.Content,
+			SessionID:    req.SessionID,
+			Context:      excelContext,
+			AutonomyMode: req.AutonomyMode,
 		}
 
 		// Process through Excel bridge

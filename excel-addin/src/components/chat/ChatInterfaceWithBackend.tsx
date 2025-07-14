@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { ChatInterface } from './ChatInterface'
-import { ChatMessage } from '@types/chat'
-import { WebSocketClient } from '@services/websocket/WebSocketClient'
-import { ActionPreview } from '@components/actions/ActionPreview'
-import { ExcelService } from '@services/excel/ExcelService'
+import { ChatMessage } from '../../types/chat'
+import { WebSocketClient } from '../../services/websocket/WebSocketClient'
+import { ActionPreview } from '../actions/ActionPreview'
+import { ExcelService } from '../../services/excel/ExcelService'
 
 // Global WebSocket client instance to prevent multiple connections
 let globalWsClient: WebSocketClient | null = null
@@ -525,155 +525,6 @@ export const ChatInterfaceWithBackend: React.FC = () => {
         {displayStatus === 'connected' ? '✅ Connected to backend' : 
          displayStatus === 'connecting' ? '🔄 Connecting to backend...' : 
          '❌ Disconnected from backend'}
-        <div style={{ fontSize: '10px', marginTop: '4px' }}>
-          WebSocket: {wsClient.current ? 'Created' : 'Not created'} | 
-          Ready: {isActuallyConnected ? 'Yes' : 'No'} |
-          State: {connectionStatus} |
-          DisplayStatus: {displayStatus} |
-          RenderKey: {renderKey}
-        </div>
-        {/* Debug Info Panel */}
-        <div style={{ 
-          fontSize: '10px', 
-          marginTop: '4px', 
-          padding: '4px', 
-          background: 'rgba(0,0,0,0.1)',
-          borderRadius: '4px',
-          textAlign: 'left'
-        }}>
-          <div><strong>Debug Info:</strong></div>
-          <div>Session: {sessionIdRef.current}</div>
-          <div>Office API: {typeof Office !== 'undefined' ? '✅ Available' : '❌ Not Available'}</div>
-          <div>Excel API: {typeof Excel !== 'undefined' ? '✅ Available' : '❌ Not Available'}</div>
-          <div>In Excel: {window.location.pathname.includes('/excel') ? 'Yes' : 'No'}</div>
-          <div>Messages: {messages.length}</div>
-          <div>Loading: {isLoading ? 'Yes' : 'No'}</div>
-          <div style={{ color: '#ff6600', fontWeight: 'bold' }}>
-            Last Tool Request: {lastToolRequest || 'None'}
-          </div>
-          <div style={{ color: '#0066cc', fontWeight: 'bold', marginTop: '4px' }}>
-            WebSocket Response: {wsResponseStatus || 'None'}
-          </div>
-          {toolError && (
-            <div style={{ color: '#ff0000', fontWeight: 'bold', marginTop: '4px' }}>
-              Error: {toolError}
-            </div>
-          )}
-          {/* WebSocket Message Log */}
-          <div style={{ 
-            marginTop: '8px', 
-            padding: '4px', 
-            background: 'rgba(0,0,0,0.2)',
-            borderRadius: '4px',
-            maxHeight: '100px',
-            overflow: 'auto',
-            fontSize: '9px',
-            fontFamily: 'monospace'
-          }}>
-            <div><strong>WebSocket Log:</strong></div>
-            {wsMessageLog.length === 0 ? (
-              <div style={{ color: '#888' }}>No messages yet...</div>
-            ) : (
-              wsMessageLog.map((msg, i) => (
-                <div key={i} style={{ 
-                  color: msg.includes('→') ? '#4CAF50' : msg.includes('←') ? '#2196F3' : '#FFF',
-                  whiteSpace: 'pre-wrap'
-                }}>
-                  {msg}
-                </div>
-              ))
-            )}
-          </div>
-          {/* Test Excel API button */}
-          <button 
-            onClick={async () => {
-              try {
-                setToolError('')
-                setLastToolRequest('Testing Excel API...')
-                await Excel.run(async (context) => {
-                  const sheet = context.workbook.worksheets.getActiveWorksheet()
-                  sheet.load('name')
-                  await context.sync()
-                  setLastToolRequest(`Excel API works! Sheet: ${sheet.name}`)
-                })
-              } catch (error) {
-                setToolError(`Excel API test failed: ${error}`)
-              }
-            }}
-            style={{
-              marginTop: '4px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              cursor: 'pointer'
-            }}
-          >
-            Test Excel API
-          </button>
-          <button 
-            onClick={() => {
-              try {
-                if (wsClient.current) {
-                  const testMessage = {
-                    type: 'tool_response',
-                    data: {
-                      request_id: 'test-' + Date.now(),
-                      success: true,
-                      result: { test: 'WebSocket test message' }
-                    }
-                  }
-                  setWsResponseStatus(`Sending test WebSocket message...`)
-                  wsClient.current.send(testMessage)
-                  setWsResponseStatus(`✅ Test message sent at ${new Date().toLocaleTimeString()}`)
-                } else {
-                  setWsResponseStatus(`❌ WebSocket client not available`)
-                }
-              } catch (error) {
-                setWsResponseStatus(`❌ Test failed: ${error}`)
-              }
-            }}
-            style={{
-              marginTop: '4px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              cursor: 'pointer',
-              backgroundColor: '#0066cc',
-              color: 'white',
-              border: 'none'
-            }}
-          >
-            Test WebSocket Send
-          </button>
-          <button 
-            onClick={() => {
-              try {
-                addToWsLog('🔄 Attempting manual reconnect...')
-                if (wsClient.current) {
-                  wsClient.current.disconnect()
-                }
-                setTimeout(() => {
-                  if (wsClient.current) {
-                    wsClient.current.connect()
-                    addToWsLog('🔄 Reconnection initiated')
-                  }
-                }, 500)
-              } catch (error) {
-                addToWsLog(`❌ Reconnect failed: ${error}`)
-              }
-            }}
-            style={{
-              marginTop: '4px',
-              marginLeft: '4px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              cursor: 'pointer',
-              backgroundColor: '#ff6600',
-              color: 'white',
-              border: 'none'
-            }}
-          >
-            Reconnect
-          </button>
-        </div>
       </div>
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {pendingActions.length > 0 && (

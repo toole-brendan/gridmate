@@ -1,5 +1,5 @@
 import React from 'react'
-import { ChatMessage } from '@types/chat'
+import { ChatMessage } from '../../types/chat'
 import { Send, Loader2 } from 'lucide-react'
 
 interface ChatInterfaceProps {
@@ -8,6 +8,7 @@ interface ChatInterfaceProps {
   setInput: (value: string) => void
   handleSendMessage: () => void
   isLoading: boolean
+  autonomySelector?: React.ReactNode
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -15,7 +16,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   input,
   setInput,
   handleSendMessage,
-  isLoading
+  isLoading,
+  autonomySelector
 }) => {
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
 
@@ -83,32 +85,45 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       {/* Input Container */}
-      <div className="border-t p-4">
-        <div className="flex gap-2">
+      <div className="border-t border-gray-200 p-4">
+        <div className="space-y-2">
+          {/* Textarea */}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask about your financial model..."
-            className="flex-1 px-3 py-2 border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400 text-sm select-text"
+            className="w-full px-4 py-3 border border-gray-600 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white placeholder-gray-400 text-sm select-text"
             style={{ userSelect: 'text', WebkitUserSelect: 'text' }}
             rows={2}
             disabled={isLoading}
           />
-          <button
-            onClick={() => {
-              console.log('🔘 Send button clicked')
-              handleSendMessage()
-            }}
-            disabled={!input.trim() || isLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
+          {/* Controls Row */}
+          <div className="flex items-center justify-between">
+            {/* Autonomy Selector */}
+            {autonomySelector && (
+              <div className="flex-shrink-0">
+                {autonomySelector}
+              </div>
             )}
-          </button>
+            {!autonomySelector && <div />}
+            {/* Send Button */}
+            <button
+              onClick={() => {
+                console.log('🔘 Send button clicked')
+                handleSendMessage()
+              }}
+              disabled={!input.trim() || isLoading}
+              className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Send message"
+            >
+              {isLoading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Send className="w-3 h-3" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

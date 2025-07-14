@@ -21,6 +21,7 @@
     "certificates": "office-addin-dev-certs install"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@microsoft/office-js": "^1.1.85",
     "@microsoft/signalr": "^8.0.7",
     "axios": "^1.6.7",

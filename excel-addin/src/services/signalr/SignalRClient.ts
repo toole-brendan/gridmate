@@ -172,9 +172,10 @@ export class SignalRClient extends EventEmitter {
             console.error('No session ID available')
             return
           }
-          // Include Excel context if available
+          // Include Excel context and autonomy mode
           const excelContext = message.data.excelContext || null
-          await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content, excelContext)
+          const autonomyMode = message.data.autonomyMode || 'agent-default'
+          await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content, excelContext, autonomyMode)
           break
           
         case 'tool_response':

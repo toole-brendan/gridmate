@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { ChatInterface } from './ChatInterface'
-import { ChatMessage } from '@types/chat'
-import { SignalRClient } from '@services/signalr/SignalRClient'
-import { ActionPreview } from '@components/actions/ActionPreview'
-import { ExcelService } from '@services/excel/ExcelService'
+import { ChatMessage } from '../../types/chat'
+import { SignalRClient } from '../../services/signalr/SignalRClient'
+import { ActionPreview, PendingAction, BatchActionPreview } from './ActionPreview'
+import { ExcelService } from '../../services/excel/ExcelService'
+import { AutonomyModeSelector, AutonomyMode } from './AutonomyModeSelector'
+import { CompactAutonomySelector } from './CompactAutonomySelector'
+import { checkToolSafety, AuditLogger } from '../../utils/safetyChecks'
 
 // Global SignalR client instance to prevent multiple connections
 let globalSignalRClient: SignalRClient | null = null
@@ -14,7 +17,7 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
-  const [pendingActions, setPendingActions] = useState<any[]>([])
+  const [pendingActions, setPendingActions] = useState<PendingAction[]>([])
   const [currentPreviewId, setCurrentPreviewId] = useState<string | null>(null)
   const signalRClient = useRef<SignalRClient | null>(globalSignalRClient)
   const sessionIdRef = useRef<string>(globalSessionId)
@@ -22,11 +25,43 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const [toolError, setToolError] = useState<string>('')
   const [signalRLog, setSignalRLog] = useState<string[]>([])
   
+  // Autonomy mode state - load from localStorage
+  const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => {
+    const saved = localStorage.getItem('gridmate-autonomy-mode')
+    return (saved as AutonomyMode) || 'agent-default'
+  })
+  const [isProcessingAction, setIsProcessingAction] = useState(false)
+  const [toolRequestQueue, setToolRequestQueue] = useState<Map<string, any>>(new Map())
+  
   // Helper to add to message log
   const addToLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
     setSignalRLog(prev => [...prev.slice(-10), `[${timestamp}] ${message}`])
   }
+  
+  // Handle autonomy mode changes
+  const handleAutonomyModeChange = (mode: AutonomyMode) => {
+    setAutonomyMode(mode)
+    localStorage.setItem('gridmate-autonomy-mode', mode)
+    addToLog(`Autonomy mode changed to: ${mode}`)
+  }
+  
+  // Keyboard shortcut for mode switching
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+. or Ctrl+. to cycle through modes
+      if ((e.metaKey || e.ctrlKey) && e.key === '.') {
+        e.preventDefault()
+        const modes: AutonomyMode[] = ['ask', 'agent-default', 'agent-yolo']
+        const currentIndex = modes.indexOf(autonomyMode)
+        const nextIndex = (currentIndex + 1) % modes.length
+        handleAutonomyModeChange(modes[nextIndex])
+      }
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [autonomyMode])
 
   useEffect(() => {
     // Check if global client exists
@@ -175,15 +210,102 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const handleToolRequest = async (toolRequest: any) => {
     console.log('🛠️ Handling tool request:', toolRequest)
     console.log('🛠️ Full tool request data:', JSON.stringify(toolRequest, null, 2))
+    console.log('🎯 Current autonomy mode:', autonomyMode)
     setLastToolRequest(`Tool: ${toolRequest.tool}, Request ID: ${toolRequest.request_id}`)
+    
+    // Check autonomy mode
+    if (autonomyMode === 'ask') {
+      // In Ask mode, we don't execute tools - just inform the user
+      console.log('📚 Ask mode - not executing tool, informing user')
+      
+      const infoMessage: ChatMessage = {
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: `I would like to ${getToolDescription(toolRequest.tool)} with the following parameters:\n\n${formatToolParameters(toolRequest)}`,
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, infoMessage])
+      
+      // Send rejection response to backend
+      await signalRClient.current?.send({
+        type: 'tool_response',
+        data: {
+          request_id: toolRequest.request_id,
+          result: null,
+          error: 'Tool execution not allowed in Ask mode'
+        }
+      })
+      
+      addToLog(`→ Rejected tool in Ask mode: ${toolRequest.request_id}`)
+      return
+    }
+    
+    if (autonomyMode === 'agent-default') {
+      // In Agent Default mode, queue for approval
+      console.log('🔔 Agent Default mode - queueing for approval')
+      
+      const pendingAction: PendingAction = {
+        id: toolRequest.request_id,
+        toolName: toolRequest.tool,
+        parameters: toolRequest,
+        description: getToolDescription(toolRequest.tool),
+        timestamp: new Date()
+      }
+      
+      // Store the full tool request for later execution
+      toolRequestQueue.set(toolRequest.request_id, toolRequest)
+      setPendingActions(prev => [...prev, pendingAction])
+      
+      addToLog(`⏳ Queued tool for approval: ${toolRequest.request_id}`)
+      return
+    }
+    
+    // Agent YOLO mode - execute immediately
+    console.log('🚀 Agent YOLO mode - executing immediately')
+    await executeToolRequest(toolRequest)
+  }
+  
+  const executeToolRequest = async (toolRequest: any) => {
+    const { tool, request_id, ...input } = toolRequest
+    
+    // Perform safety check
+    const safetyCheck = checkToolSafety(tool, input)
+    
+    // In YOLO mode, check if operation is high risk
+    if (autonomyMode === 'agent-yolo' && safetyCheck.riskLevel === 'high') {
+      console.warn('⚠️ High-risk operation detected in YOLO mode:', safetyCheck.reason)
+      
+      // Still queue for approval even in YOLO mode for high-risk operations
+      const pendingAction: PendingAction = {
+        id: request_id,
+        toolName: tool,
+        parameters: toolRequest,
+        description: `⚠️ HIGH RISK: ${getToolDescription(tool)} - ${safetyCheck.reason}`,
+        timestamp: new Date()
+      }
+      
+      toolRequestQueue.set(request_id, toolRequest)
+      setPendingActions(prev => [...prev, pendingAction])
+      addToLog(`⚠️ High-risk operation queued for approval: ${request_id}`)
+      return
+    }
     
     try {
       const excelService = ExcelService.getInstance()
-      const { tool, request_id, ...input } = toolRequest
       console.log('🛠️ Tool input after destructuring:', JSON.stringify(input, null, 2))
       const result = await excelService.executeToolRequest(tool, input)
       
       console.log('✅ Tool execution successful:', result)
+      
+      // Log successful execution
+      AuditLogger.logToolExecution({
+        timestamp: new Date(),
+        toolName: tool,
+        parameters: input,
+        autonomyMode: autonomyMode,
+        result: 'success',
+        sessionId: sessionIdRef.current
+      })
       
       // Send response back via SignalR
       await signalRClient.current?.send({
@@ -201,6 +323,17 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       console.error('❌ Tool execution failed:', error)
       setToolError(error.message)
       
+      // Log failed execution
+      AuditLogger.logToolExecution({
+        timestamp: new Date(),
+        toolName: tool,
+        parameters: input,
+        autonomyMode: autonomyMode,
+        result: 'failure',
+        error: error.message,
+        sessionId: sessionIdRef.current
+      })
+      
       // Send error response
       await signalRClient.current?.send({
         type: 'tool_response',
@@ -211,6 +344,24 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         }
       })
     }
+  }
+  
+  const getToolDescription = (toolName: string): string => {
+    const descriptions: { [key: string]: string } = {
+      'read_range': 'read data from spreadsheet',
+      'write_range': 'write data to spreadsheet',
+      'apply_formula': 'apply formula to cells',
+      'smart_format_cells': 'format cells',
+      'analyze_model_structure': 'analyze spreadsheet structure',
+      'build_financial_formula': 'build financial formula',
+      'create_audit_trail': 'create audit documentation'
+    }
+    return descriptions[toolName] || toolName
+  }
+  
+  const formatToolParameters = (toolRequest: any): string => {
+    const { tool, request_id, ...params } = toolRequest
+    return JSON.stringify(params, null, 2)
   }
 
   const handleAIResponse = (response: any) => {
@@ -286,7 +437,8 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         data: {
           content: messageContent,
           sessionID: sessionIdRef.current,
-          excelContext: excelContext
+          excelContext: excelContext,
+          autonomyMode: autonomyMode
         }
       })
       
@@ -314,17 +466,88 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const handleActionApprove = async (actionId: string) => {
     console.log('Approve action:', actionId)
     const action = pendingActions.find(a => a.id === actionId)
-    if (action) {
-      // Apply the action
+    const toolRequest = toolRequestQueue.get(actionId)
+    
+    if (action && toolRequest) {
+      setIsProcessingAction(true)
+      
+      // Execute the approved tool request
+      await executeToolRequest(toolRequest)
+      
+      // Remove from pending actions and queue
       setPendingActions(pendingActions.filter(a => a.id !== actionId))
-      setCurrentPreviewId(null)
+      toolRequestQueue.delete(actionId)
+      setIsProcessingAction(false)
     }
   }
 
-  const handleActionReject = (actionId: string) => {
+  const handleActionReject = async (actionId: string) => {
     console.log('Reject action:', actionId)
+    const toolRequest = toolRequestQueue.get(actionId)
+    
+    if (toolRequest) {
+      const { tool, request_id, ...input } = toolRequest
+      
+      // Log rejection
+      AuditLogger.logToolExecution({
+        timestamp: new Date(),
+        toolName: tool,
+        parameters: input,
+        autonomyMode: autonomyMode,
+        result: 'rejected',
+        sessionId: sessionIdRef.current
+      })
+      
+      // Send rejection response to backend
+      await signalRClient.current?.send({
+        type: 'tool_response',
+        data: {
+          request_id: toolRequest.request_id,
+          result: null,
+          error: 'Tool execution rejected by user'
+        }
+      })
+      
+      addToLog(`→ Rejected tool by user: ${toolRequest.request_id}`)
+    }
+    
+    // Remove from pending actions and queue
     setPendingActions(pendingActions.filter(a => a.id !== actionId))
-    setCurrentPreviewId(null)
+    toolRequestQueue.delete(actionId)
+  }
+  
+  const handleApproveAll = async () => {
+    setIsProcessingAction(true)
+    
+    for (const action of pendingActions) {
+      const toolRequest = toolRequestQueue.get(action.id)
+      if (toolRequest) {
+        await executeToolRequest(toolRequest)
+        toolRequestQueue.delete(action.id)
+      }
+    }
+    
+    setPendingActions([])
+    setIsProcessingAction(false)
+  }
+  
+  const handleRejectAll = async () => {
+    for (const action of pendingActions) {
+      const toolRequest = toolRequestQueue.get(action.id)
+      if (toolRequest) {
+        await signalRClient.current?.send({
+          type: 'tool_response',
+          data: {
+            request_id: toolRequest.request_id,
+            result: null,
+            error: 'Tool execution rejected by user'
+          }
+        })
+        toolRequestQueue.delete(action.id)
+      }
+    }
+    
+    setPendingActions([])
   }
 
   const testSignalR = async () => {
@@ -355,151 +578,31 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     }
   }
 
-  // Debug info component
-  const DebugInfo = () => (
-    <div style={{ 
-      background: '#1a1a1a', 
-      padding: '8px', 
-      borderRadius: '4px',
-      marginBottom: '10px',
-      fontSize: '10px',
-      fontFamily: 'monospace',
-      color: '#e0e0e0',
-      border: '1px solid #333'
-    }}>
-      <h4 style={{ margin: '0 0 5px 0', color: '#4ade80', fontSize: '11px', fontWeight: 'bold' }}>Debug Info:</h4>
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 10px', marginBottom: '5px' }}>
-        <span style={{ color: '#94a3b8' }}>Session:</span>
-        <span style={{ color: '#fbbf24', wordBreak: 'break-all', fontSize: '9px' }}>{sessionIdRef.current}</span>
-        
-        <span style={{ color: '#94a3b8' }}>Office API:</span>
-        <span>{Office?.context ? '✅ Available' : '❌ Not Available'}</span>
-        
-        <span style={{ color: '#94a3b8' }}>Excel API:</span>
-        <span>{Office?.context?.requirements?.isSetSupported('ExcelApi', '1.1') ? '✅ Available' : '❌ Not Available'}</span>
-        
-        <span style={{ color: '#94a3b8' }}>In Excel:</span>
-        <span style={{ color: window.location.pathname.includes('/excel') ? '#4ade80' : '#f87171' }}>
-          {window.location.pathname.includes('/excel') ? 'Yes' : 'No'}
-        </span>
-        
-        <span style={{ color: '#94a3b8' }}>Messages:</span>
-        <span style={{ color: '#60a5fa' }}>{messages.length}</span>
-        
-        <span style={{ color: '#94a3b8' }}>Loading:</span>
-        <span style={{ color: isLoading ? '#fbbf24' : '#6b7280' }}>{isLoading ? 'Yes' : 'No'}</span>
-      </div>
-      
-      {lastToolRequest && (
-        <div style={{ 
-          color: '#60a5fa',
-          marginTop: '5px',
-          padding: '4px',
-          background: '#262626',
-          borderRadius: '2px',
-          border: '1px solid #404040',
-          fontSize: '9px'
-        }}>
-          <strong>Last Tool Request:</strong> {lastToolRequest}
-        </div>
-      )}
-      
-      {toolError && (
-        <div style={{ 
-          color: '#f87171', 
-          marginTop: '5px',
-          padding: '4px',
-          background: '#450a0a',
-          borderRadius: '2px',
-          border: '1px solid #dc2626',
-          fontSize: '9px'
-        }}>
-          <strong>Tool Error:</strong> {toolError}
-        </div>
-      )}
-      
-      <div style={{ 
-        marginTop: '5px', 
-        padding: '5px', 
-        background: '#0a0a0a',
-        borderRadius: '2px',
-        maxHeight: '60px',
-        overflow: 'auto',
-        border: '1px solid #333'
-      }}>
-        <h5 style={{ margin: '0 0 3px 0', color: '#4ade80', fontSize: '10px' }}>SignalR Log:</h5>
-        {signalRLog.slice(-5).map((log, i) => (
-          <div key={i} style={{ 
-            fontSize: '9px', 
-            marginBottom: '1px',
-            color: log.includes('✅') ? '#4ade80' : 
-                   log.includes('❌') ? '#f87171' : 
-                   log.includes('🔄') ? '#fbbf24' : 
-                   log.includes('→') ? '#60a5fa' : 
-                   log.includes('←') ? '#a78bfa' : '#e0e0e0'
-          }}>
-            {log}
-          </div>
-        ))}
-      </div>
-      
-      <div style={{ marginTop: '5px', display: 'flex', gap: '5px' }}>
-        <button 
-          onClick={testSignalR}
-          style={{ 
-            padding: '3px 10px',
-            background: '#2563eb',
-            color: 'white',
-            border: 'none',
-            borderRadius: '2px',
-            cursor: 'pointer',
-            fontWeight: '500',
-            fontSize: '10px',
-            transition: 'background 0.2s'
-          }}
-          onMouseOver={(e) => e.currentTarget.style.background = '#1d4ed8'}
-          onMouseOut={(e) => e.currentTarget.style.background = '#2563eb'}
-        >
-          Test SignalR Send
-        </button>
-        <button 
-          onClick={reconnect}
-          style={{ 
-            padding: '3px 10px',
-            background: '#ea580c',
-            color: 'white',
-            border: 'none',
-            borderRadius: '2px',
-            cursor: 'pointer',
-            fontWeight: '500',
-            fontSize: '10px',
-            transition: 'background 0.2s'
-          }}
-          onMouseOver={(e) => e.currentTarget.style.background = '#c2410c'}
-          onMouseOut={(e) => e.currentTarget.style.background = '#ea580c'}
-        >
-          Reconnect
-        </button>
-      </div>
-    </div>
-  )
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ flexShrink: 0 }}>
-        <DebugInfo />
-      </div>
-      
-      {currentPreviewId && (
-        <div style={{ flexShrink: 0 }}>
-          <ActionPreview
-            action={pendingActions.find(a => a.id === currentPreviewId)}
-            onApprove={handleActionApprove}
-            onReject={handleActionReject}
+      {/* Pending Actions */}
+      {pendingActions.length > 0 && (
+        <div style={{ 
+          padding: '12px 16px', 
+          backgroundColor: '#f9fafb',
+          borderBottom: '1px solid #e5e7eb',
+          flexShrink: 0,
+          maxHeight: '200px',
+          overflowY: 'auto'
+        }}>
+          <BatchActionPreview
+            actions={pendingActions}
+            onApproveAll={handleApproveAll}
+            onRejectAll={handleRejectAll}
+            onApproveOne={handleActionApprove}
+            onRejectOne={handleActionReject}
+            isProcessing={isProcessingAction}
           />
         </div>
       )}
       
+      {/* Main Chat Interface */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <ChatInterface
           messages={messages}
@@ -507,8 +610,66 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
           setInput={setInput}
           handleSendMessage={handleSendMessage}
           isLoading={isLoading}
+          autonomySelector={
+            <CompactAutonomySelector
+              currentMode={autonomyMode}
+              onModeChange={handleAutonomyModeChange}
+            />
+          }
         />
       </div>
+      
+      {/* Debug Info (collapsed by default) */}
+      <details style={{ 
+        borderTop: '1px solid #e5e7eb', 
+        backgroundColor: '#2d2d2d',
+        fontSize: '11px',
+        padding: '8px 12px',
+        color: '#e5e7eb'
+      }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 'medium', color: '#e5e7eb' }}>
+          Debug Info
+        </summary>
+        <div style={{ marginTop: '8px', fontFamily: 'monospace' }}>
+          <div>Session: {sessionIdRef.current}</div>
+          <div>Mode: {autonomyMode}</div>
+          <div>Pending: {pendingActions.length}</div>
+          {lastToolRequest && <div>Last Tool: {lastToolRequest}</div>}
+          {toolError && <div style={{ color: '#ef4444' }}>Error: {toolError}</div>}
+          
+          <details style={{ marginTop: '8px' }}>
+            <summary style={{ cursor: 'pointer' }}>Audit Log (last 10)</summary>
+            <div style={{ 
+              marginTop: '4px', 
+              maxHeight: '150px', 
+              overflowY: 'auto',
+              fontSize: '10px',
+              lineHeight: '1.4'
+            }}>
+              {AuditLogger.getRecentLogs(10).reverse().map((log, index) => (
+                <div key={index} style={{ 
+                  marginBottom: '4px',
+                  padding: '2px 4px',
+                  backgroundColor: log.result === 'failure' ? '#fee2e2' : 
+                                   log.result === 'rejected' ? '#fef3c7' : '#d1fae5',
+                  borderRadius: '2px'
+                }}>
+                  <div>
+                    {new Date(log.timestamp).toLocaleTimeString()} - 
+                    <strong> {log.toolName}</strong> - 
+                    {log.result} 
+                    {log.autonomyMode && ` (${log.autonomyMode})`}
+                  </div>
+                  {log.error && <div style={{ color: '#ef4444' }}>Error: {log.error}</div>}
+                </div>
+              ))}
+              {AuditLogger.getRecentLogs(10).length === 0 && (
+                <div style={{ color: '#6b7280' }}>No tool executions logged</div>
+              )}
+            </div>
+          </details>
+        </div>
+      </details>
     </div>
   )
 }

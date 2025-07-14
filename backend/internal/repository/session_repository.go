@@ -100,13 +100,18 @@ func (r *sessionRepository) DeleteByUserID(ctx context.Context, userID uuid.UUID
 	return nil
 }
 
-func (r *sessionRepository) CleanupExpired(ctx context.Context) error {
+func (r *sessionRepository) CleanupExpired(ctx context.Context) (int64, error) {
 	query := `DELETE FROM sessions WHERE expires_at < $1`
 	
-	_, err := r.db.ExecContext(ctx, query, time.Now())
+	result, err := r.db.ExecContext(ctx, query, time.Now())
 	if err != nil {
-		return fmt.Errorf("failed to cleanup expired sessions: %w", err)
+		return 0, fmt.Errorf("failed to cleanup expired sessions: %w", err)
 	}
 
-	return nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	return rowsAffected, nil
 }

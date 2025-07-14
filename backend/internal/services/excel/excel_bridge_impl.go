@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/websocket"
@@ -18,12 +19,14 @@ type BridgeImpl struct {
 	hub *websocket.Hub
 	getClientID func(sessionID string) string
 	signalRBridge interface{}
+	logger zerolog.Logger
 }
 
 // NewBridgeImpl creates a new Excel bridge implementation
 func NewBridgeImpl(hub *websocket.Hub) *BridgeImpl {
 	return &BridgeImpl{
 		hub: hub,
+		logger: log.With().Str("component", "excel_bridge").Logger(),
 	}
 }
 
@@ -97,17 +100,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		if err != nil {
 			errChan <- err
 		} else {
-			// Check if the response indicates the tool is queued
-			if respMap, ok := response.(map[string]interface{}); ok {
-				if status, ok := respMap["status"].(string); ok && status == "queued" {
-					log.Info().
-						Str("session_id", sessionID).
-						Str("request_id", requestID).
-						Msg("Tool is queued for user approval, continuing to wait")
-					// Don't send to channels, keep waiting for the actual execution result
-					return
-				}
-			}
+			// Always send the response to the channel
 			respChan <- response
 		}
 	}
@@ -116,15 +109,26 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 	b.hub.RegisterToolHandler(sessionID, requestID, handler)
 	b.hub.RegisterToolHandler(clientID, requestID, handler)
 	
-	defer func() {
+	// Create a cleanup function that will only be called when we get a final response
+	cleanup := func() {
 		log.Debug().
 			Str("session_id", sessionID).
 			Str("client_id", clientID).
 			Str("request_id", requestID).
-			Msg("Unregistering tool handler")
+			Msg("Unregistering tool handler after final response")
 		b.hub.UnregisterToolHandler(sessionID, requestID)
 		b.hub.UnregisterToolHandler(clientID, requestID)
-	}()
+	}
+	
+	// Set up a timeout cleanup in case we never get a response
+	timeoutTimer := time.AfterFunc(5*time.Minute, func() {
+		log.Warn().
+			Str("session_id", sessionID).
+			Str("client_id", clientID).
+			Str("request_id", requestID).
+			Msg("Cleaning up stale tool handler after 5 minute timeout")
+		cleanup()
+	})
 
 	// Check if this is a SignalR session (they have the same sessionID and clientID)
 	if sessionID == clientID && strings.HasPrefix(sessionID, "session_") {
@@ -152,12 +156,37 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			// Wait for response with timeout
 			select {
 			case response := <-respChan:
+				// Check if this is a queued response
+				if respMap, ok := response.(map[string]interface{}); ok {
+					if status, ok := respMap["status"].(string); ok && status == "queued" {
+						// For queued responses, DON'T cleanup handlers - we need them for the actual response
+						log.Info().
+							Str("session_id", sessionID).
+							Str("request_id", requestID).
+							Msg("Tool queued for user approval - keeping handler active")
+						// Cancel the timeout timer since we got a response
+						timeoutTimer.Stop()
+						// Don't cleanup - keep handlers active for the actual response
+						return map[string]interface{}{
+							"status": "queued",
+							"message": "Tool execution queued for user approval",
+						}, nil
+					}
+				}
+				// This is a final response, cleanup handlers
+				timeoutTimer.Stop()
+				cleanup()
 				return response, nil
 			case err := <-errChan:
+				timeoutTimer.Stop()
+				cleanup()
 				return nil, err
 			case <-time.After(30 * time.Second):
+				// Don't cleanup here - the 5 minute timer will handle it
 				return nil, fmt.Errorf("tool request timeout after 30 seconds")
 			case <-ctx.Done():
+				timeoutTimer.Stop()
+				cleanup()
 				return nil, ctx.Err()
 			}
 		} else {
@@ -262,8 +291,20 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 		"preserve_formatting": preserveFormatting,
 	}
 
-	_, err := b.sendToolRequest(ctx, sessionID, request)
-	return err
+	response, err := b.sendToolRequest(ctx, sessionID, request)
+	if err != nil {
+		return err
+	}
+	
+	// Check if the response indicates the tool was queued
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if status, ok := respMap["status"].(string); ok && status == "queued" {
+			// Return a special error that can be handled by the tool executor
+			return fmt.Errorf("Tool execution queued for user approval")
+		}
+	}
+	
+	return nil
 }
 
 // ApplyFormula applies a formula to cells
@@ -275,8 +316,20 @@ func (b *BridgeImpl) ApplyFormula(ctx context.Context, sessionID string, rangeAd
 		"relative_references": relativeRefs,
 	}
 
-	_, err := b.sendToolRequest(ctx, sessionID, request)
-	return err
+	response, err := b.sendToolRequest(ctx, sessionID, request)
+	if err != nil {
+		return err
+	}
+	
+	// Check if the response indicates the tool was queued
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if status, ok := respMap["status"].(string); ok && status == "queued" {
+			// Return a special error that can be handled by the tool executor
+			return fmt.Errorf("Tool execution queued for user approval")
+		}
+	}
+	
+	return nil
 }
 
 // AnalyzeData analyzes data in a range
@@ -309,6 +362,24 @@ func (b *BridgeImpl) AnalyzeData(ctx context.Context, sessionID string, rangeAdd
 
 // FormatRange applies formatting to cells
 func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAddr string, format *ai.CellFormat) error {
+	b.logger.Info().
+		Str("sessionID", sessionID).
+		Str("range", rangeAddr).
+		Interface("format", format).
+		Msg("FormatRange called")
+	
+	// Validate format before sending
+	validator := NewFormatValidator()
+	if err := validator.ValidateFormat(format); err != nil {
+		b.logger.Error().
+			Err(err).
+			Str("sessionID", sessionID).
+			Str("range", rangeAddr).
+			Interface("format", format).
+			Msg("Format validation failed")
+		return fmt.Errorf("format validation failed: %w", err)
+	}
+	
 	request := map[string]interface{}{
 		"tool":  "format_range",
 		"range": rangeAddr,
@@ -338,8 +409,24 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 		}
 	}
 
-	_, err := b.sendToolRequest(ctx, sessionID, request)
-	return err
+	b.logger.Info().
+		Interface("request", request).
+		Msg("Sending format_range request to frontend")
+
+	response, err := b.sendToolRequest(ctx, sessionID, request)
+	if err != nil {
+		return err
+	}
+	
+	// Check if the response indicates the tool was queued
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if status, ok := respMap["status"].(string); ok && status == "queued" {
+			// Return a special error that can be handled by the tool executor
+			return fmt.Errorf("Tool execution queued for user approval")
+		}
+	}
+	
+	return nil
 }
 
 // CreateChart creates a chart in Excel
@@ -353,8 +440,20 @@ func (b *BridgeImpl) CreateChart(ctx context.Context, sessionID string, config *
 		"include_legend": config.IncludeLegend,
 	}
 
-	_, err := b.sendToolRequest(ctx, sessionID, request)
-	return err
+	response, err := b.sendToolRequest(ctx, sessionID, request)
+	if err != nil {
+		return err
+	}
+	
+	// Check if the response indicates the tool was queued
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if status, ok := respMap["status"].(string); ok && status == "queued" {
+			// Return a special error that can be handled by the tool executor
+			return fmt.Errorf("Tool execution queued for user approval")
+		}
+	}
+	
+	return nil
 }
 
 // ValidateModel validates the Excel model
@@ -420,8 +519,20 @@ func (b *BridgeImpl) CreateNamedRange(ctx context.Context, sessionID string, nam
 		"range": rangeAddr,
 	}
 
-	_, err := b.sendToolRequest(ctx, sessionID, request)
-	return err
+	response, err := b.sendToolRequest(ctx, sessionID, request)
+	if err != nil {
+		return err
+	}
+	
+	// Check if the response indicates the tool was queued
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if status, ok := respMap["status"].(string); ok && status == "queued" {
+			// Return a special error that can be handled by the tool executor
+			return fmt.Errorf("Tool execution queued for user approval")
+		}
+	}
+	
+	return nil
 }
 
 // InsertRowsColumns inserts rows or columns in Excel
@@ -433,6 +544,18 @@ func (b *BridgeImpl) InsertRowsColumns(ctx context.Context, sessionID string, po
 		"type":     insertType,
 	}
 
-	_, err := b.sendToolRequest(ctx, sessionID, request)
-	return err
+	response, err := b.sendToolRequest(ctx, sessionID, request)
+	if err != nil {
+		return err
+	}
+	
+	// Check if the response indicates the tool was queued
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if status, ok := respMap["status"].(string); ok && status == "queued" {
+			// Return a special error that can be handled by the tool executor
+			return fmt.Errorf("Tool execution queued for user approval")
+		}
+	}
+	
+	return nil
 }

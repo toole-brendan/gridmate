@@ -6,6 +6,7 @@ namespace GridmateSignalR.Hubs
     public class GridmateHub : Hub
     {
         private static readonly ConcurrentDictionary<string, string> _sessionConnections = new();
+        private static readonly ConcurrentDictionary<string, DateTime> _sessionActivity = new();
         private readonly ILogger<GridmateHub> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
 
@@ -13,6 +14,12 @@ namespace GridmateSignalR.Hubs
         {
             _logger = logger;
             _httpClientFactory = httpClientFactory;
+        }
+
+        // Update activity timestamp on any hub method call
+        private void UpdateSessionActivity(string sessionId)
+        {
+            _sessionActivity[sessionId] = DateTime.UtcNow;
         }
 
         public override async Task OnConnectedAsync()
@@ -38,6 +45,7 @@ namespace GridmateSignalR.Hubs
             if (!string.IsNullOrEmpty(sessionToRemove))
             {
                 _sessionConnections.TryRemove(sessionToRemove, out _);
+                _sessionActivity.TryRemove(sessionToRemove, out _);
             }
             
             await base.OnDisconnectedAsync(exception);
@@ -59,6 +67,7 @@ namespace GridmateSignalR.Hubs
             // Generate session ID
             var sessionId = $"session_{DateTime.UtcNow.Ticks}";
             _sessionConnections[sessionId] = Context.ConnectionId;
+            _sessionActivity[sessionId] = DateTime.UtcNow;
             
             await Clients.Caller.SendAsync("authSuccess", new
             {
@@ -71,6 +80,7 @@ namespace GridmateSignalR.Hubs
         // Send chat message to backend
         public async Task SendChatMessage(string sessionId, string content, object excelContext = null, string autonomyMode = "agent-default")
         {
+            UpdateSessionActivity(sessionId);
             _logger.LogInformation($"Chat message from session {sessionId}: {content}");
             if (excelContext != null)
             {
@@ -112,6 +122,7 @@ namespace GridmateSignalR.Hubs
         // Handle selection updates from Excel add-in
         public async Task UpdateSelection(string sessionId, string selection, string worksheet)
         {
+            UpdateSessionActivity(sessionId);
             _logger.LogInformation($"Selection update for session {sessionId}: {selection} on {worksheet}");
             
             try
@@ -150,6 +161,8 @@ namespace GridmateSignalR.Hubs
                 await Clients.Caller.SendAsync("error", "Session not found");
                 return;
             }
+            
+            UpdateSessionActivity(sessionId);
             
             try
             {
@@ -194,6 +207,27 @@ namespace GridmateSignalR.Hubs
             {
                 await hubContext.Clients.Client(connectionId).SendAsync("aiResponse", aiResponse);
             }
+        }
+
+        // Method to get session activity for cleanup purposes
+        public static Dictionary<string, DateTime> GetSessionActivity()
+        {
+            return new Dictionary<string, DateTime>(_sessionActivity);
+        }
+
+        // Method to remove a session (for cleanup purposes)
+        public static void RemoveSession(string sessionId)
+        {
+            _sessionConnections.TryRemove(sessionId, out _);
+            _sessionActivity.TryRemove(sessionId, out _);
+        }
+
+        // Heartbeat method to keep sessions alive
+        public Task Heartbeat(string sessionId)
+        {
+            UpdateSessionActivity(sessionId);
+            _logger.LogDebug("Heartbeat received for session: {SessionId}", sessionId);
+            return Task.CompletedTask;
         }
     }
 }

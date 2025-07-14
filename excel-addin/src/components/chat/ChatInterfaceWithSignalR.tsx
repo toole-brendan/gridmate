@@ -220,13 +220,34 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     }
   }, [signalRClient.current])
 
+  // Define read-only tools that should be auto-approved
+  const readOnlyTools = [
+    'read_range',
+    'analyze_data',
+    'analyze_model_structure',
+    'get_named_ranges',
+    'validate_model'
+  ]
+  
+  const isReadOnlyTool = (toolName: string): boolean => {
+    return readOnlyTools.includes(toolName)
+  }
+
   const handleToolRequest = async (toolRequest: any) => {
     console.log('🛠️ Handling tool request:', toolRequest)
     console.log('🛠️ Full tool request data:', JSON.stringify(toolRequest, null, 2))
     console.log('🎯 Current autonomy mode:', autonomyMode)
     setLastToolRequest(`Tool: ${toolRequest.tool}, Request ID: ${toolRequest.request_id}`)
     
-    // Check autonomy mode
+    // Auto-approve read-only tools regardless of mode
+    if (isReadOnlyTool(toolRequest.tool)) {
+      console.log('📖 Auto-approving read-only tool:', toolRequest.tool)
+      addToLog(`🔍 Auto-executing read tool: ${toolRequest.tool}`)
+      await executeToolRequest(toolRequest)
+      return
+    }
+    
+    // Check autonomy mode for non-read tools
     if (autonomyMode === 'ask') {
       // In Ask mode, we don't execute tools - just inform the user
       console.log('📚 Ask mode - not executing tool, informing user')
@@ -299,6 +320,12 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const executeToolRequest = async (toolRequest: any) => {
     const { tool, request_id, ...input } = toolRequest
     
+    console.log('🎯 Starting executeToolRequest:', {
+      tool,
+      request_id,
+      timestamp: new Date().toISOString()
+    })
+    
     // Perform safety check
     const safetyCheck = checkToolSafety(tool, input)
     
@@ -324,9 +351,13 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     try {
       const excelService = ExcelService.getInstance()
       console.log('🛠️ Tool input after destructuring:', JSON.stringify(input, null, 2))
-      const result = await excelService.executeToolRequest(tool, input)
       
-      console.log('✅ Tool execution successful:', result)
+      console.log('📊 Calling ExcelService.executeToolRequest...')
+      const startTime = Date.now()
+      const result = await excelService.executeToolRequest(tool, input)
+      const executionTime = Date.now() - startTime
+      
+      console.log(`✅ Tool execution successful in ${executionTime}ms:`, result)
       
       // Log successful execution
       AuditLogger.logToolExecution({
@@ -339,15 +370,20 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       })
       
       // Send response back via SignalR
-      await signalRClient.current?.send({
+      console.log('📤 Preparing to send tool response via SignalR...')
+      const responsePayload = {
         type: 'tool_response',
         data: {
           request_id: toolRequest.request_id,
           result: result,
           error: null
         }
-      })
+      }
+      console.log('📤 Response payload:', responsePayload)
       
+      await signalRClient.current?.send(responsePayload)
+      
+      console.log(`✅ Tool response sent successfully for ${toolRequest.request_id}`)
       addToLog(`→ Sent tool_response for ${toolRequest.request_id}`)
       
     } catch (error) {

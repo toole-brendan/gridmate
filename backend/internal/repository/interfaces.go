@@ -46,7 +46,7 @@ type SessionRepository interface {
 	GetByRefreshTokenHash(ctx context.Context, refreshTokenHash string) (*uuid.UUID, error)
 	Delete(ctx context.Context, tokenHash string) error
 	DeleteByUserID(ctx context.Context, userID uuid.UUID) error
-	CleanupExpired(ctx context.Context) error
+	CleanupExpired(ctx context.Context) (int64, error)
 }
 
 type APIKeyRepository interface {

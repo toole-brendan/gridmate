@@ -38,6 +38,9 @@ type ExcelBridge struct {
 	// SignalR bridge for SignalR clients
 	signalRBridge interface{} // Will be set by main.go
 	
+	// Session manager for centralized session management
+	sessionManager *SessionManager
+	
 	// Chat history management
 	chatHistory *chat.History
 }
@@ -155,14 +158,31 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 	defer eb.sessionMutex.Unlock()
 	
 	if _, exists := eb.sessions[sessionID]; !exists {
+		now := time.Now()
 		eb.sessions[sessionID] = &ExcelSession{
 			ID:           sessionID,
 			UserID:       "signalr-user",
 			ClientID:     sessionID, // Use session ID as client ID for SignalR
 			ActiveSheet:  "Sheet1",
 			Context:      make(map[string]interface{}),
-			LastActivity: time.Now(),
+			LastActivity: now,
 		}
+		
+		// Register with centralized session manager
+		if eb.sessionManager != nil {
+			eb.sessionManager.RegisterSession(&SessionInfo{
+				ID:           sessionID,
+				Type:         SessionTypeSignalR,
+				UserID:       "signalr-user",
+				CreatedAt:    now,
+				LastActivity: now,
+				Metadata: map[string]interface{}{
+					"active_sheet": "Sheet1",
+					"client_id":    sessionID,
+				},
+			})
+		}
+		
 		eb.logger.WithFields(logrus.Fields{
 			"session_id": sessionID,
 		}).Info("Created SignalR session")
@@ -182,12 +202,22 @@ func (eb *ExcelBridge) UpdateSignalRSessionSelection(sessionID, selection, works
 		session.ActiveSheet = worksheet
 		session.LastActivity = time.Now()
 		
+		// Update activity in centralized session manager
+		if eb.sessionManager != nil {
+			eb.sessionManager.UpdateActivity(sessionID)
+		}
+		
 		eb.logger.WithFields(logrus.Fields{
 			"session_id": sessionID,
 			"selection":  selection,
 			"worksheet":  worksheet,
 		}).Debug("Updated SignalR session selection")
 	}
+}
+
+// SetSessionManager sets the session manager for centralized session management
+func (eb *ExcelBridge) SetSessionManager(manager *SessionManager) {
+	eb.sessionManager = manager
 }
 
 // SetSignalRBridge sets the SignalR bridge for forwarding messages
@@ -923,7 +953,7 @@ func (eb *ExcelBridge) getCellAddress(col, row int) string {
 	
 	for col > 0 {
 		remainder := (col - 1) % 26
-		colStr = string('A'+remainder) + colStr
+		colStr = string(rune('A'+remainder)) + colStr
 		col = (col - 1) / 26
 	}
 	

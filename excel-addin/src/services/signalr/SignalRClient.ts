@@ -17,6 +17,7 @@ export class SignalRClient extends EventEmitter {
   private isIntentionallyClosed: boolean = false
   private messageQueue: SignalRMessage[] = []
   private sessionId: string | null = null
+  private heartbeatInterval: NodeJS.Timer | null = null
 
   constructor(url: string) {
     super()
@@ -98,6 +99,7 @@ export class SignalRClient extends EventEmitter {
 
     this.connection.onclose((error) => {
       console.log('🔴 SignalR disconnected:', error)
+      this.stopHeartbeat()
       this.emit('disconnected')
     })
 
@@ -110,6 +112,7 @@ export class SignalRClient extends EventEmitter {
     this.connection.on('authSuccess', (data) => {
       console.log('📥 Received authSuccess:', data)
       this.sessionId = data.sessionId
+      this.startHeartbeat()
       this.emit('auth_success', data)
       this.emit('message', { type: 'auth_success', data })
     })
@@ -179,11 +182,19 @@ export class SignalRClient extends EventEmitter {
           break
           
         case 'tool_response':
+          console.log('📤 Sending tool response:', {
+            request_id: message.data.request_id,
+            has_result: !!message.data.result,
+            has_error: !!message.data.error,
+            queued: message.data.queued || false
+          })
           await this.connection.invoke('SendToolResponse', 
             message.data.request_id, 
             message.data.result,
-            message.data.error
+            message.data.error,
+            message.data.queued || false
           )
+          console.log('✅ Tool response sent successfully')
           break
           
         case 'selection_update':
@@ -244,6 +255,7 @@ export class SignalRClient extends EventEmitter {
 
   async disconnect(): Promise<void> {
     this.isIntentionallyClosed = true
+    this.stopHeartbeat()
     if (this.connection) {
       try {
         await this.connection.stop()
@@ -256,5 +268,25 @@ export class SignalRClient extends EventEmitter {
 
   getSessionId(): string | null {
     return this.sessionId
+  }
+
+  private startHeartbeat(): void {
+    this.heartbeatInterval = setInterval(async () => {
+      if (this.connection?.state === signalR.HubConnectionState.Connected && this.sessionId) {
+        try {
+          await this.connection.invoke('Heartbeat', this.sessionId)
+          console.log('💓 Heartbeat sent')
+        } catch (error) {
+          console.error('Failed to send heartbeat:', error)
+        }
+      }
+    }, 60000) // Every minute
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
   }
 }

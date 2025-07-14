@@ -1,4 +1,5 @@
 declare const Excel: any
+import { FormatErrorHandler } from '../../utils/formatErrorHandler'
 
 export interface ExcelContext {
   workbook: string
@@ -658,12 +659,50 @@ export class ExcelService {
     })
   }
 
+  private async retryOperation<T>(
+    operation: () => Promise<T>,
+    maxRetries: number = 3,
+    delay: number = 1000
+  ): Promise<T> {
+    let lastError: Error | null = null
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await operation()
+      } catch (error) {
+        lastError = error as Error
+        console.warn(`Operation failed (attempt ${i + 1}/${maxRetries}):`, error)
+        
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)))
+        }
+      }
+    }
+    
+    throw lastError
+  }
+
   private async toolFormatRange(input: any): Promise<any> {
     const { range, number_format, font, fill_color, alignment } = input
     
-    return Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const excelRange = worksheet.getRange(range)
+    console.log(`🎨 toolFormatRange called with:`, {
+      range,
+      number_format,
+      font,
+      fill_color,
+      alignment
+    })
+    
+    return this.retryOperation(async () => {
+      return Excel.run(async (context: any) => {
+      try {
+        const worksheet = context.workbook.worksheets.getActiveWorksheet()
+        const excelRange = worksheet.getRange(range)
+        
+        // Load the range first
+        excelRange.load(['address'])
+        await context.sync()
+        console.log(`📍 Formatting range: ${excelRange.address}`)
       
       if (number_format) {
         // Comprehensive format mapping to prevent #VALUE! errors
@@ -789,32 +828,120 @@ export class ExcelService {
       }
       
       if (font) {
-        const rangeFont = excelRange.format.font
-        if (font.bold !== undefined) rangeFont.bold = font.bold
-        if (font.italic !== undefined) rangeFont.italic = font.italic
-        if (font.size !== undefined) rangeFont.size = font.size
-        if (font.color !== undefined) rangeFont.color = font.color
+        console.log(`🎨 Applying font formatting:`, font)
+        
+        try {
+          // Get the font object but don't load properties yet
+          const rangeFont = excelRange.format.font
+          
+          // Apply font properties directly without loading first
+          // Excel API should handle the loading internally
+          if (font.bold !== undefined && font.bold !== null) {
+            console.log(`   Setting bold: ${font.bold}`)
+            rangeFont.bold = font.bold
+          }
+          if (font.italic !== undefined && font.italic !== null) {
+            console.log(`   Setting italic: ${font.italic}`)
+            rangeFont.italic = font.italic
+          }
+          if (font.size !== undefined && font.size !== null && font.size > 0) {
+            console.log(`   Setting size: ${font.size}`)
+            rangeFont.size = font.size
+          }
+          if (font.color !== undefined && font.color !== null && font.color !== '') {
+            console.log(`   Setting color: ${font.color}`)
+            // Ensure color is in the right format (Excel expects hex without #)
+            let colorValue = font.color
+            if (colorValue.startsWith('#')) {
+              colorValue = colorValue.substring(1)
+            }
+            rangeFont.color = colorValue
+          }
+          
+          console.log(`✅ Font formatting properties set`)
+        } catch (error) {
+          console.error(`❌ Failed to apply font formatting:`, error)
+          // Log more details about the error
+          if (error instanceof Error) {
+            console.error(`   Error name: ${error.name}`)
+            console.error(`   Error message: ${error.message}`)
+            console.error(`   Error stack: ${error.stack}`)
+          }
+          throw new Error(`Font formatting failed: ${(error as Error).message}`)
+        }
       }
       
       if (fill_color) {
-        excelRange.format.fill.color = fill_color
+        console.log(`🎨 Applying fill color: ${fill_color}`)
+        try {
+          // Ensure color is in the right format (Excel expects hex without #)
+          let colorValue = fill_color
+          if (colorValue.startsWith('#')) {
+            colorValue = colorValue.substring(1)
+          }
+          excelRange.format.fill.color = colorValue
+          console.log(`✅ Fill color set to: ${colorValue}`)
+        } catch (error) {
+          console.error(`❌ Failed to apply fill color:`, error)
+          if (error instanceof Error) {
+            console.error(`   Error details: ${error.name} - ${error.message}`)
+          }
+          throw new Error(`Fill color formatting failed: ${(error as Error).message}`)
+        }
       }
       
       if (alignment) {
-        if (alignment.horizontal) {
-          excelRange.format.horizontalAlignment = alignment.horizontal
-        }
-        if (alignment.vertical) {
-          excelRange.format.verticalAlignment = alignment.vertical
+        console.log(`🎨 Applying alignment:`, alignment)
+        try {
+          if (alignment.horizontal) {
+            console.log(`   Setting horizontal alignment: ${alignment.horizontal}`)
+            excelRange.format.horizontalAlignment = alignment.horizontal
+          }
+          if (alignment.vertical) {
+            console.log(`   Setting vertical alignment: ${alignment.vertical}`)
+            excelRange.format.verticalAlignment = alignment.vertical
+          }
+          console.log(`✅ Alignment set`)
+        } catch (error) {
+          console.error(`❌ Failed to apply alignment:`, error)
+          if (error instanceof Error) {
+            console.error(`   Error details: ${error.name} - ${error.message}`)
+          }
+          throw new Error(`Alignment formatting failed: ${(error as Error).message}`)
         }
       }
       
       await context.sync()
       
+      // Log successful format attempt
+      FormatErrorHandler.logFormatAttempt(input, true)
+      
       return {
         message: 'Formatting applied successfully',
         status: 'success'
       }
+      } catch (error) {
+        console.error(`❌ toolFormatRange general error:`, error)
+        
+        // Log failed format attempt
+        FormatErrorHandler.logFormatAttempt(input, false, error as Error)
+        
+        if (error instanceof Error) {
+          console.error(`   Full error details:`, {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+          })
+          
+          // Use enhanced error handling
+          const enhancedError = new Error(FormatErrorHandler.handleFormatError(error, input))
+          enhancedError.name = error.name
+          enhancedError.stack = error.stack
+          throw enhancedError
+        }
+        throw error
+      }
+    })
     })
   }
 

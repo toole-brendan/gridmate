@@ -63,6 +63,9 @@ func main() {
 	// Initialize JWT manager
 	jwtManager := auth.NewJWTManager(&cfg.JWT)
 
+	// Initialize session manager
+	sessionManager := services.NewSessionManager(logger)
+
 	// Initialize WebSocket hub
 	wsHub := websocket.NewHub(logger)
 	go wsHub.Run()
@@ -84,6 +87,7 @@ func main() {
 
 	// Initialize Excel bridge service
 	excelBridge := services.NewExcelBridge(wsHub, logger)
+	excelBridge.SetSessionManager(sessionManager)
 	if aiService != nil {
 		// Set the tool executor from the bridge to the main AI service
 		excelBridge.SetAIService(aiService)
@@ -125,6 +129,7 @@ func main() {
 	// Initialize handlers
 	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)
 	signalRHandler := handlers.NewSignalRHandler(excelBridge, signalRBridge, logger)
+	metricsHandler := handlers.NewMetricsHandler(sessionManager, logger)
 
 	// Initialize router
 	router := mux.NewRouter()
@@ -136,7 +141,8 @@ func main() {
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"healthy","timestamp":"%s"}`, time.Now().UTC().Format(time.RFC3339))
+		sessionCount := sessionManager.GetSessionCount()
+		fmt.Fprintf(w, `{"status":"healthy","timestamp":"%s","session_count":%d}`, time.Now().UTC().Format(time.RFC3339), sessionCount)
 	}).Methods("GET")
 
 	// WebSocket endpoint
@@ -147,6 +153,13 @@ func main() {
 	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
 	router.HandleFunc("/api/tool-response", signalRHandler.HandleSignalRToolResponse).Methods("POST")
 	router.HandleFunc("/api/selection-update", signalRHandler.HandleSignalRSelectionUpdate).Methods("POST")
+
+	// Metrics endpoints
+	router.HandleFunc("/api/metrics/sessions", metricsHandler.GetSessionMetrics).Methods("GET")
+	router.HandleFunc("/api/metrics/health", metricsHandler.GetHealthCheck).Methods("GET")
+	router.HandleFunc("/api/metrics/session", metricsHandler.GetSessionDetails).Methods("GET")
+	router.HandleFunc("/api/metrics/sessions/by-type", metricsHandler.GetSessionsByType).Methods("GET")
+	router.HandleFunc("/api/metrics/sessions/by-user", metricsHandler.GetSessionsByUser).Methods("GET")
 
 	// Register API routes
 	routes.RegisterAPIRoutes(router, repos, jwtManager, excelBridge, docService, logger)
@@ -170,6 +183,22 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	// Start periodic session cleanup
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		
+		for range ticker.C {
+			ctx := context.Background()
+			deleted, err := repos.Sessions.CleanupExpired(ctx)
+			if err != nil {
+				logger.WithError(err).Error("Failed to cleanup expired sessions")
+			} else {
+				logger.WithField("count", deleted).Info("Cleaned up expired sessions")
+			}
+		}
+	}()
 
 	// Start server in a goroutine
 	go func() {

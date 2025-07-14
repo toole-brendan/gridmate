@@ -201,6 +201,12 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 	case "write_range":
 		err := te.executeWriteRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
+			// Check if it's a queued error
+			if err.Error() == "Tool execution queued for user approval" {
+				result.IsError = false
+				result.Content = map[string]string{"status": "queued", "message": "Write range operation queued for user approval"}
+				return result, nil
+			}
 			result.IsError = true
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil
@@ -210,6 +216,12 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 	case "apply_formula":
 		err := te.executeApplyFormula(ctx, sessionID, toolCall.Input)
 		if err != nil {
+			// Check if it's a queued error
+			if err.Error() == "Tool execution queued for user approval" {
+				result.IsError = false
+				result.Content = map[string]string{"status": "queued", "message": "Formula application queued for user approval"}
+				return result, nil
+			}
 			result.IsError = true
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil
@@ -228,6 +240,12 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 	case "format_range":
 		err := te.executeFormatRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
+			// Check if it's a queued error
+			if err.Error() == "Tool execution queued for user approval" {
+				result.IsError = false
+				result.Content = map[string]string{"status": "queued", "message": "Format operation queued for user approval"}
+				return result, nil
+			}
 			result.IsError = true
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil

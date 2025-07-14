@@ -1,4 +1,5 @@
 using GridmateSignalR.Hubs;
+using GridmateSignalR.Services;
 using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +36,9 @@ builder.Services.AddHttpClient("GoBackend", client =>
 });
 
 builder.Services.AddControllers();
+
+// Add session cleanup service
+builder.Services.AddHostedService<SessionCleanupService>();
 
 var app = builder.Build();
 

@@ -186,13 +186,17 @@ export class SignalRClient extends EventEmitter {
             request_id: message.data.request_id,
             has_result: !!message.data.result,
             has_error: !!message.data.error,
-            queued: message.data.queued || false
+            queued: message.data.queued || false,
+            has_errorDetails: !!message.data.errorDetails,
+            has_metadata: !!message.data.metadata
           })
           await this.connection.invoke('SendToolResponse', 
             message.data.request_id, 
             message.data.result,
             message.data.error,
-            message.data.queued || false
+            message.data.queued || false,
+            message.data.errorDetails || null,
+            message.data.metadata || null
           )
           console.log('✅ Tool response sent successfully')
           break

@@ -491,8 +491,10 @@ func GetExcelTools() []ExcelTool {
 
 // ToolResult represents the result of executing a tool
 type ToolResult struct {
-	Type      string      `json:"type"`
-	ToolUseID string      `json:"tool_use_id"`
-	Content   interface{} `json:"content"`
-	IsError   bool        `json:"is_error,omitempty"`
+	Type      string                 `json:"type"`
+	ToolUseID string                 `json:"tool_use_id"`
+	Content   interface{}            `json:"content"`
+	IsError   bool                   `json:"is_error,omitempty"`
+	Status    string                 `json:"status,omitempty"` // "success", "queued", "error"
+	Details   map[string]interface{} `json:"details,omitempty"` // Operation-specific details
 }

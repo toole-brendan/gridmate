@@ -16,44 +16,46 @@ import (
 
 // ExcelBridge implements the Excel integration service
 type ExcelBridge struct {
-	logger        *logrus.Logger
-	
+	logger *logrus.Logger
+
 	// Cache for spreadsheet data
-	cellCache     map[string]interface{}
-	rangeCache    map[string][][]interface{}
-	cacheMutex    sync.RWMutex
-	
+	cellCache  map[string]interface{}
+	rangeCache map[string][][]interface{}
+	cacheMutex sync.RWMutex
+
 	// AI service for chat processing
-	aiService     *ai.Service
-	toolExecutor  *ai.ToolExecutor
-	contextBuilder *excel.ContextBuilder
+	aiService       *ai.Service
+	toolExecutor    *ai.ToolExecutor
+	contextBuilder  *excel.ContextBuilder
 	excelBridgeImpl *excel.BridgeImpl // Excel bridge implementation for tool execution
-	
+
 	// Active sessions
-	sessions      map[string]*ExcelSession
-	sessionMutex  sync.RWMutex
-	
+	sessions     map[string]*ExcelSession
+	sessionMutex sync.RWMutex
+
 	// SignalR bridge for SignalR clients
 	signalRBridge interface{} // Will be set by main.go
-	
+
 	// Session manager for centralized session management
 	sessionManager *SessionManager
-	
+
 	// Chat history management
 	chatHistory *chat.History
+
+	// Queued operations registry
+	queuedOpsRegistry *QueuedOperationRegistry
 }
 
 // ExcelSession represents an active Excel session
 type ExcelSession struct {
-	ID            string
-	UserID        string
-	ClientID      string  // SignalR client ID for routing messages
-	ActiveSheet   string
-	Selection     SelectionChanged
-	Context       map[string]interface{}
-	LastActivity  time.Time
+	ID           string
+	UserID       string
+	ClientID     string // SignalR client ID for routing messages
+	ActiveSheet  string
+	Selection    SelectionChanged
+	Context      map[string]interface{}
+	LastActivity time.Time
 }
-
 
 // NewExcelBridge creates a new Excel bridge service
 func NewExcelBridge(logger *logrus.Logger) *ExcelBridge {
@@ -67,37 +69,38 @@ func NewExcelBridge(logger *logrus.Logger) *ExcelBridge {
 	}
 
 	bridge := &ExcelBridge{
-		logger:     logger,
-		cellCache:  make(map[string]interface{}),
-		rangeCache: make(map[string][][]interface{}),
-		aiService:  aiService,
-		sessions:   make(map[string]*ExcelSession),
-		chatHistory: chat.NewHistory(),
+		logger:            logger,
+		cellCache:         make(map[string]interface{}),
+		rangeCache:        make(map[string][][]interface{}),
+		aiService:         aiService,
+		sessions:          make(map[string]*ExcelSession),
+		chatHistory:       chat.NewHistory(),
+		queuedOpsRegistry: NewQueuedOperationRegistry(),
 	}
-	
+
 	// Create Excel bridge implementation for tool executor
 	excelBridgeImpl := excel.NewBridgeImpl()
 	bridge.excelBridgeImpl = excelBridgeImpl
-	
+
 	// Set client ID resolver
 	excelBridgeImpl.SetClientIDResolver(func(sessionID string) string {
 		bridge.sessionMutex.RLock()
 		defer bridge.sessionMutex.RUnlock()
-		
+
 		logger.WithFields(logrus.Fields{
-			"session_id":    sessionID,
+			"session_id":     sessionID,
 			"total_sessions": len(bridge.sessions),
 		}).Debug("Client ID resolver called")
-		
+
 		// Log all available sessions for debugging
 		for sessID, sess := range bridge.sessions {
 			logger.WithFields(logrus.Fields{
 				"available_session_id": sessID,
-				"client_id":           sess.ClientID,
-				"user_id":             sess.UserID,
+				"client_id":            sess.ClientID,
+				"user_id":              sess.UserID,
 			}).Debug("Available session in resolver")
 		}
-		
+
 		if session, ok := bridge.sessions[sessionID]; ok {
 			logger.WithFields(logrus.Fields{
 				"session_id": sessionID,
@@ -106,34 +109,38 @@ func NewExcelBridge(logger *logrus.Logger) *ExcelBridge {
 			}).Info("Client ID resolver found session")
 			return session.ClientID
 		}
-		
+
 		logger.WithFields(logrus.Fields{
 			"session_id": sessionID,
 		}).Warn("Client ID resolver: session not found")
 		return ""
 	})
-	
+
 	// Create formula validator
 	formulaValidator := formula.NewFormulaIntelligence(logger)
-	
+
 	// Create tool executor with formula validation
 	bridge.toolExecutor = ai.NewToolExecutor(excelBridgeImpl, formulaValidator)
-	
+
+	// Create context builder
+	bridge.contextBuilder = excel.NewContextBuilder(excelBridgeImpl)
+
+	// Set the queued operations registry on the tool executor
+	bridge.toolExecutor.SetQueuedOperationRegistry(bridge.queuedOpsRegistry)
+
 	// Set tool executor in AI service
 	if aiService != nil {
 		aiService.SetToolExecutor(bridge.toolExecutor)
-		logger.Info("Tool executor set in AI service")
+		aiService.SetContextBuilder(bridge.contextBuilder)
+		aiService.SetQueuedOperationRegistry(bridge.queuedOpsRegistry)
+		logger.Info("Tool executor, context builder, and queued ops registry set in AI service")
 	} else {
 		logger.Warn("AI service is nil, cannot set tool executor")
 	}
-	
-	// Create context builder
-	bridge.contextBuilder = excel.NewContextBuilder(excelBridgeImpl)
-	
-	
+
 	// Start session cleanup routine
 	go bridge.cleanupSessions()
-	
+
 	return bridge
 }
 
@@ -151,7 +158,7 @@ func (eb *ExcelBridge) GetToolExecutor() *ai.ToolExecutor {
 func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 	eb.sessionMutex.Lock()
 	defer eb.sessionMutex.Unlock()
-	
+
 	if _, exists := eb.sessions[sessionID]; !exists {
 		now := time.Now()
 		eb.sessions[sessionID] = &ExcelSession{
@@ -162,7 +169,7 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 			Context:      make(map[string]interface{}),
 			LastActivity: now,
 		}
-		
+
 		// Register with centralized session manager
 		if eb.sessionManager != nil {
 			eb.sessionManager.RegisterSession(&SessionInfo{
@@ -177,7 +184,7 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 				},
 			})
 		}
-		
+
 		eb.logger.WithFields(logrus.Fields{
 			"session_id": sessionID,
 		}).Info("Created SignalR session")
@@ -188,7 +195,7 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 func (eb *ExcelBridge) UpdateSignalRSessionSelection(sessionID, selection, worksheet string) {
 	eb.sessionMutex.Lock()
 	defer eb.sessionMutex.Unlock()
-	
+
 	if session, exists := eb.sessions[sessionID]; exists {
 		session.Selection = SelectionChanged{
 			SelectedRange: selection,
@@ -196,12 +203,12 @@ func (eb *ExcelBridge) UpdateSignalRSessionSelection(sessionID, selection, works
 		}
 		session.ActiveSheet = worksheet
 		session.LastActivity = time.Now()
-		
+
 		// Update activity in centralized session manager
 		if eb.sessionManager != nil {
 			eb.sessionManager.UpdateActivity(sessionID)
 		}
-		
+
 		eb.logger.WithFields(logrus.Fields{
 			"session_id": sessionID,
 			"selection":  selection,
@@ -229,32 +236,36 @@ func (eb *ExcelBridge) GetBridgeImpl() *excel.BridgeImpl {
 	return eb.excelBridgeImpl
 }
 
+// GetQueuedOperationRegistry returns the queued operation registry
+func (eb *ExcelBridge) GetQueuedOperationRegistry() *QueuedOperationRegistry {
+	return eb.queuedOpsRegistry
+}
 
 // ProcessChatMessage processes a chat message from a client
 func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) (*ChatResponse, error) {
 	// Get or create session
 	session := eb.getOrCreateSession(clientID, message.SessionID)
-	
+
 	// Build context for AI
 	msgContext := eb.buildContext(session, message.Context)
-	
+
 	// Process with AI if available
 	var content string
 	var suggestions []string
 	var actions []ProposedAction
 	var aiResponse *ai.CompletionResponse // Track AI response for IsFinal flag
-	
+
 	if eb.aiService != nil {
 		eb.logger.Info("AI service is available, processing message")
-		
+
 		// Add user message to history
 		eb.chatHistory.AddMessage(session.ID, "user", message.Content)
-		
+
 		// Build comprehensive context using context builder
 		var financialContext *ai.FinancialContext
 		if eb.contextBuilder != nil && session.Selection.SelectedRange != "" {
 			ctx := context.Background()
-			builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID, session.Selection.SelectedRange)
+			builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
 			if err != nil {
 				eb.logger.WithError(err).Warn("Failed to build comprehensive context")
 				// Fall back to simple context
@@ -272,10 +283,10 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			// Use simple context if no selection or context builder
 			financialContext = eb.buildFinancialContext(session, message.Context)
 		}
-		
+
 		// Get chat history for this session
 		history := eb.chatHistory.GetHistory(session.ID)
-		
+
 		// Convert chat history to AI message format
 		aiHistory := make([]ai.Message, 0, len(history))
 		for _, msg := range history {
@@ -288,7 +299,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 				Content: msg.Content,
 			})
 		}
-		
+
 		// Process chat message with AI and history
 		ctx := context.Background()
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
@@ -300,10 +311,10 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			content = aiResponse.Content
 			// Add AI response to history
 			eb.chatHistory.AddMessage(session.ID, "assistant", content)
-			
+
 			// Convert AI actions to websocket actions
 			actions = eb.convertAIActions(aiResponse.Actions)
-			
+
 			// Only detect additional actions if no tools were used
 			if len(aiResponse.ToolCalls) == 0 {
 				if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
@@ -315,19 +326,19 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		// Fallback response when AI service is not available
 		content = eb.generateFallbackResponse(message.Content, msgContext)
 		suggestions = eb.generateFallbackSuggestions(msgContext)
-		
+
 		// Detect actions from message when AI is not available
 		if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
 			actions = additionalActions
 		}
 	}
-	
+
 	// Determine if response is final (based on AI response if available)
 	isFinal := false
 	if aiResponse != nil && aiResponse.IsFinal {
 		isFinal = true
 	}
-	
+
 	response := &ChatResponse{
 		Content:     content,
 		Suggestions: suggestions,
@@ -335,24 +346,24 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		SessionID:   session.ID,
 		IsFinal:     isFinal,
 	}
-	
+
 	// Update session activity
 	session.LastActivity = time.Now()
-	
+
 	return response, nil
 }
 
 // GetCellValue retrieves a cell value from cache or requests it
 func (eb *ExcelBridge) GetCellValue(sheet, cell string) (interface{}, error) {
 	key := fmt.Sprintf("%s!%s", sheet, cell)
-	
+
 	eb.cacheMutex.RLock()
 	if value, ok := eb.cellCache[key]; ok {
 		eb.cacheMutex.RUnlock()
 		return value, nil
 	}
 	eb.cacheMutex.RUnlock()
-	
+
 	// Value not in cache, request from clients
 	// TODO: Implement request mechanism
 	return nil, fmt.Errorf("cell value not available")
@@ -361,14 +372,14 @@ func (eb *ExcelBridge) GetCellValue(sheet, cell string) (interface{}, error) {
 // GetRangeValues retrieves range values from cache or requests them
 func (eb *ExcelBridge) GetRangeValues(sheet, rangeAddr string) ([][]interface{}, error) {
 	key := fmt.Sprintf("%s!%s", sheet, rangeAddr)
-	
+
 	eb.cacheMutex.RLock()
 	if values, ok := eb.rangeCache[key]; ok {
 		eb.cacheMutex.RUnlock()
 		return values, nil
 	}
 	eb.cacheMutex.RUnlock()
-	
+
 	// Values not in cache, request from clients
 	// TODO: Implement request mechanism
 	return nil, fmt.Errorf("range values not available")
@@ -377,30 +388,30 @@ func (eb *ExcelBridge) GetRangeValues(sheet, rangeAddr string) ([][]interface{},
 // UpdateCell updates a cell value and notifies subscribers
 func (eb *ExcelBridge) UpdateCell(update CellUpdate) error {
 	key := fmt.Sprintf("%s!%s", update.Sheet, update.Cell)
-	
+
 	// Update cache
 	eb.cacheMutex.Lock()
 	eb.cellCache[key] = update.Value
 	eb.cacheMutex.Unlock()
-	
+
 	// Broadcast update to subscribers via SignalR
 	// TODO: Implement SignalR broadcast if needed
-	
+
 	return nil
 }
 
 // UpdateRange updates range values and notifies subscribers
 func (eb *ExcelBridge) UpdateRange(rangeData RangeData) error {
 	key := fmt.Sprintf("%s!%s", rangeData.Sheet, rangeData.Range)
-	
+
 	// Update cache
 	eb.cacheMutex.Lock()
 	eb.rangeCache[key] = rangeData.Values
 	eb.cacheMutex.Unlock()
-	
+
 	// Broadcast update to subscribers via SignalR
 	// TODO: Implement SignalR broadcast if needed
-	
+
 	return nil
 }
 
@@ -409,22 +420,22 @@ func (eb *ExcelBridge) UpdateRange(rangeData RangeData) error {
 func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSession {
 	eb.sessionMutex.Lock()
 	defer eb.sessionMutex.Unlock()
-	
+
 	if session, ok := eb.sessions[sessionID]; ok {
 		// Update client ID in case of reconnection
 		session.ClientID = clientID
 		session.LastActivity = time.Now()
 		return session
 	}
-	
+
 	session := &ExcelSession{
 		ID:           sessionID,
-		UserID:       clientID,  // TODO: This should be actual user ID when auth is implemented
-		ClientID:     clientID,  // Store the client ID to enable direct messaging
+		UserID:       clientID, // TODO: This should be actual user ID when auth is implemented
+		ClientID:     clientID, // Store the client ID to enable direct messaging
 		Context:      make(map[string]interface{}),
 		LastActivity: time.Now(),
 	}
-	
+
 	eb.sessions[sessionID] = session
 	return session
 }
@@ -433,7 +444,7 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 func (eb *ExcelBridge) GetSession(sessionID string) *ExcelSession {
 	eb.sessionMutex.RLock()
 	defer eb.sessionMutex.RUnlock()
-	
+
 	if session, ok := eb.sessions[sessionID]; ok {
 		return session
 	}
@@ -442,37 +453,37 @@ func (eb *ExcelBridge) GetSession(sessionID string) *ExcelSession {
 
 func (eb *ExcelBridge) buildContext(session *ExcelSession, additionalContext map[string]interface{}) map[string]interface{} {
 	context := make(map[string]interface{})
-	
+
 	// Add session context
 	for k, v := range session.Context {
 		context[k] = v
 	}
-	
+
 	// Add current selection
 	if session.Selection.SelectedCell != "" || session.Selection.SelectedRange != "" {
 		context["selection"] = session.Selection
 	}
-	
+
 	// Add active sheet
 	if session.ActiveSheet != "" {
 		context["activeSheet"] = session.ActiveSheet
 	}
-	
+
 	// Add additional context from message
 	for k, v := range additionalContext {
 		context[k] = v
 	}
-	
+
 	// Add cached data if relevant to selection
 	eb.addCachedDataToContext(context, session)
-	
+
 	return context
 }
 
 func (eb *ExcelBridge) addCachedDataToContext(context map[string]interface{}, session *ExcelSession) {
 	eb.cacheMutex.RLock()
 	defer eb.cacheMutex.RUnlock()
-	
+
 	// Add selected cell value if available
 	if session.Selection.SelectedCell != "" {
 		key := fmt.Sprintf("%s!%s", session.ActiveSheet, session.Selection.SelectedCell)
@@ -480,7 +491,7 @@ func (eb *ExcelBridge) addCachedDataToContext(context map[string]interface{}, se
 			context["selectedCellValue"] = value
 		}
 	}
-	
+
 	// Add selected range values if available
 	if session.Selection.SelectedRange != "" {
 		key := fmt.Sprintf("%s!%s", session.ActiveSheet, session.Selection.SelectedRange)
@@ -495,11 +506,11 @@ func (eb *ExcelBridge) generateFallbackResponse(message string, context map[stri
 	if contains(message, []string{"formula", "calculate", "sum", "average"}) {
 		return "To create formulas, I need access to the AI service. Please ensure the AI service is configured."
 	}
-	
+
 	if contains(message, []string{"help", "how to", "guide"}) {
 		return "I can help you with:\n• Creating and editing formulas\n• Analyzing your data\n• Explaining cell values and calculations\n• Formatting cells and ranges\n\nPlease be specific about what you'd like to do."
 	}
-	
+
 	return "I'm ready to help with your spreadsheet. Please tell me what you'd like to do."
 }
 
@@ -510,18 +521,18 @@ func (eb *ExcelBridge) generateFallbackSuggestions(context map[string]interface{
 		"Format as currency",
 		"Add conditional formatting",
 	}
-	
+
 	// Add context-specific suggestions
 	if _, hasSelection := context["selection"]; hasSelection {
 		suggestions = append([]string{"Explain this formula", "Copy formula down"}, suggestions...)
 	}
-	
+
 	return suggestions[:4] // Return top 4 suggestions
 }
 
 func (eb *ExcelBridge) detectRequestedActions(message string, context map[string]interface{}) []ProposedAction {
 	var actions []ProposedAction
-	
+
 	// Detect formula creation requests
 	if contains(message, []string{"create formula", "write formula", "sum", "average", "calculate"}) {
 		action := ProposedAction{
@@ -534,7 +545,7 @@ func (eb *ExcelBridge) detectRequestedActions(message string, context map[string
 		}
 		actions = append(actions, action)
 	}
-	
+
 	// Detect formatting requests
 	if contains(message, []string{"format", "color", "bold", "currency", "percentage"}) {
 		action := ProposedAction{
@@ -547,14 +558,14 @@ func (eb *ExcelBridge) detectRequestedActions(message string, context map[string
 		}
 		actions = append(actions, action)
 	}
-	
+
 	return actions
 }
 
 func (eb *ExcelBridge) cleanupSessions() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		eb.sessionMutex.Lock()
 		now := time.Now()
@@ -593,7 +604,7 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		RecentChanges:   make([]ai.CellChange, 0),
 		DocumentContext: make([]string, 0),
 	}
-	
+
 	// Track if we have any actual data
 	hasData := false
 
@@ -630,7 +641,7 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 	if formulas, ok := additionalContext["formulas"].(map[string]string); ok {
 		context.Formulas = formulas
 	}
-	
+
 	// Extract selected data if available
 	if selectedData, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
 		if values, ok := selectedData["values"].([]interface{}); ok {
@@ -653,7 +664,7 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 			}
 		}
 	}
-	
+
 	// Extract nearby data if available - but only if it contains actual data
 	if nearbyData, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
 		if values, ok := nearbyData["values"].([]interface{}); ok {
@@ -677,13 +688,13 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		context.ModelType = "Empty"
 		context.DocumentContext = append(context.DocumentContext, "Spreadsheet is empty")
 	}
-	
+
 	// Log context size for debugging
 	eb.logger.WithFields(logrus.Fields{
-		"has_data":     hasData,
-		"cell_count":   len(context.CellValues),
+		"has_data":      hasData,
+		"cell_count":    len(context.CellValues),
 		"formula_count": len(context.Formulas),
-		"model_type":   context.ModelType,
+		"model_type":    context.ModelType,
 	}).Debug("Built financial context")
 
 	return context
@@ -716,7 +727,7 @@ func (eb *ExcelBridge) addCachedDataToFinancialContext(context *ai.FinancialCont
 // convertAIActions converts AI actions to proposed actions
 func (eb *ExcelBridge) convertAIActions(aiActions []ai.Action) []ProposedAction {
 	actions := make([]ProposedAction, len(aiActions))
-	
+
 	for i, aiAction := range aiActions {
 		actions[i] = ProposedAction{
 			ID:          generateActionID(),
@@ -725,7 +736,7 @@ func (eb *ExcelBridge) convertAIActions(aiActions []ai.Action) []ProposedAction 
 			Parameters:  aiAction.Parameters,
 		}
 	}
-	
+
 	return actions
 }
 
@@ -775,7 +786,7 @@ func (eb *ExcelBridge) ApplyChanges(ctx context.Context, userID, previewID strin
 	// 3. Apply each approved change
 	// 4. Create a backup point
 	// 5. Update the audit trail
-	
+
 	response := &ApplyChangesResponse{
 		Success:      true,
 		AppliedCount: len(changeIDs),
@@ -783,16 +794,16 @@ func (eb *ExcelBridge) ApplyChanges(ctx context.Context, userID, previewID strin
 		BackupID:     generateBackupID(),
 		Errors:       []string{},
 	}
-	
+
 	// For MVP, we'll simulate applying changes
 	eb.logger.WithFields(logrus.Fields{
 		"userID":    userID,
 		"previewID": previewID,
 		"changeIDs": changeIDs,
 	}).Info("Applying changes from preview")
-	
+
 	// TODO: Record in audit log when audit service is integrated
-	
+
 	return response, nil
 }
 
@@ -804,9 +815,9 @@ func (eb *ExcelBridge) RejectChanges(ctx context.Context, userID, previewID, rea
 		"previewID": previewID,
 		"reason":    reason,
 	}).Info("Changes rejected by user")
-	
+
 	// TODO: Record in audit log when audit service is integrated
-	
+
 	return nil
 }
 
@@ -821,7 +832,7 @@ func (eb *ExcelBridge) processCellData(context *ai.FinancialContext, values []in
 	// baseAddress format: "Sheet1!A1:C10" or "A1:C10" or "Sheet1!A1" or "A1"
 	parts := strings.Split(baseAddress, "!")
 	rangeStr := parts[len(parts)-1]
-	
+
 	// Parse range - handle both single cells and ranges
 	var startCell string
 	rangeParts := strings.Split(rangeStr, ":")
@@ -835,9 +846,9 @@ func (eb *ExcelBridge) processCellData(context *ai.FinancialContext, values []in
 		eb.logger.WithField("address", baseAddress).Warn("Invalid range format")
 		return
 	}
-	
+
 	startCol, startRow := eb.parseCell(startCell)
-	
+
 	// Process the 2D array of values
 	for i, rowData := range values {
 		if rowArray, ok := rowData.([]interface{}); ok {
@@ -856,7 +867,7 @@ func (eb *ExcelBridge) processFormulaData(context *ai.FinancialContext, formulas
 	// Parse the base address similar to processCellData
 	parts := strings.Split(baseAddress, "!")
 	rangeStr := parts[len(parts)-1]
-	
+
 	// Parse range - handle both single cells and ranges
 	var startCell string
 	rangeParts := strings.Split(rangeStr, ":")
@@ -870,9 +881,9 @@ func (eb *ExcelBridge) processFormulaData(context *ai.FinancialContext, formulas
 		eb.logger.WithField("address", baseAddress).Warn("Invalid range format for formulas")
 		return
 	}
-	
+
 	startCol, startRow := eb.parseCell(startCell)
-	
+
 	// Process the 2D array of formulas
 	for i, rowData := range formulas {
 		if rowArray, ok := rowData.([]interface{}); ok {
@@ -915,7 +926,7 @@ func (eb *ExcelBridge) parseCell(cell string) (col int, row int) {
 	// Extract column letters and row number
 	colStr := ""
 	rowStr := ""
-	
+
 	for i, ch := range cell {
 		if ch >= 'A' && ch <= 'Z' {
 			colStr += string(ch)
@@ -924,7 +935,7 @@ func (eb *ExcelBridge) parseCell(cell string) (col int, row int) {
 			break
 		}
 	}
-	
+
 	// Convert column letters to index (A=0, B=1, etc.)
 	col = 0
 	for i, ch := range colStr {
@@ -933,11 +944,11 @@ func (eb *ExcelBridge) parseCell(cell string) (col int, row int) {
 			col-- // Make it 0-based
 		}
 	}
-	
+
 	// Convert row string to index (1-based to 0-based)
 	fmt.Sscanf(rowStr, "%d", &row)
 	row-- // Make it 0-based
-	
+
 	return col, row
 }
 
@@ -946,13 +957,13 @@ func (eb *ExcelBridge) getCellAddress(col, row int) string {
 	// Convert column index to letters
 	colStr := ""
 	col++ // Make it 1-based for calculation
-	
+
 	for col > 0 {
 		remainder := (col - 1) % 26
 		colStr = string(rune('A'+remainder)) + colStr
 		col = (col - 1) / 26
 	}
-	
+
 	// Return cell address
 	return fmt.Sprintf("%s%d", colStr, row+1)
 }

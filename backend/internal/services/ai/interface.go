@@ -92,6 +92,7 @@ type FinancialContext struct {
 	RecentChanges     []CellChange          `json:"recent_changes"`
 	DocumentContext   []string              `json:"document_context"` // Relevant document snippets
 	ModelStructure    *ModelStructure       `json:"model_structure,omitempty"` // Enhanced structure understanding
+	PendingOperations interface{}           `json:"pending_operations,omitempty"` // Summary of queued operations
 }
 
 // ModelStructure represents the structural understanding of a financial model

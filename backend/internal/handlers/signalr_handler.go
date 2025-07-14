@@ -120,12 +120,14 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 
 // SignalRToolResponse represents a tool response from SignalR
 type SignalRToolResponse struct {
-	SessionID string      `json:"sessionId"`
-	RequestID string      `json:"requestId"`
-	Result    interface{} `json:"result"`
-	Error     string      `json:"error"`
-	Timestamp time.Time   `json:"timestamp"`
-	Queued    bool        `json:"queued"` // Indicates tool is queued for approval
+	SessionID    string                 `json:"sessionId"`
+	RequestID    string                 `json:"requestId"`
+	Result       interface{}            `json:"result"`
+	Error        string                 `json:"error"`
+	ErrorDetails string                 `json:"errorDetails"` // Stack trace or detailed error info
+	Metadata     map[string]interface{} `json:"metadata"`     // Additional context
+	Timestamp    time.Time              `json:"timestamp"`
+	Queued       bool                   `json:"queued"` // Indicates tool is queued for approval
 }
 
 // HandleSignalRToolResponse processes tool responses from SignalR
@@ -145,7 +147,19 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 	h.logger.WithFields(logrus.Fields{
 		"request_id": req.RequestID,
 		"has_error":  req.Error != "",
+		"has_details": req.ErrorDetails != "",
+		"has_metadata": len(req.Metadata) > 0,
 	}).Info("Received tool response from SignalR")
+	
+	// Log detailed error information if present
+	if req.Error != "" && req.ErrorDetails != "" {
+		h.logger.WithFields(logrus.Fields{
+			"request_id": req.RequestID,
+			"error": req.Error,
+			"error_details": req.ErrorDetails,
+			"metadata": req.Metadata,
+		}).Error("Tool execution failed with details")
+	}
 
 	// Route tool response to the waiting handler through the Excel bridge implementation
 	// Get the bridge implementation from the Excel bridge
@@ -153,7 +167,12 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 		// Handle the tool response
 		var toolErr error
 		if req.Error != "" {
-			toolErr = fmt.Errorf("%s", req.Error)
+			// Create enhanced error message with details
+			if req.ErrorDetails != "" {
+				toolErr = fmt.Errorf("%s\nDetails: %s", req.Error, req.ErrorDetails)
+			} else {
+				toolErr = fmt.Errorf("%s", req.Error)
+			}
 		}
 		
 		// If tool is queued, return a special result to continue processing

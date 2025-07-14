@@ -424,13 +424,20 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         return
       }
       
-      // Send error response
+      // Send enhanced error response
       await signalRClient.current?.send({
         type: 'tool_response',
         data: {
           request_id: toolRequest.request_id,
           result: null,
-          error: errorMessage
+          error: errorMessage,
+          errorDetails: error instanceof Error ? error.stack : String(error),
+          metadata: {
+            tool: toolRequest.tool,
+            input: toolRequest.input,
+            timestamp: new Date().toISOString(),
+            connectionState: signalRClient.current?.isConnected() ? 'connected' : 'disconnected'
+          }
         }
       })
     }

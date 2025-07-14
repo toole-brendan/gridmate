@@ -479,7 +479,17 @@ export class ExcelService {
       }
     } catch (error) {
       console.error(`🔧 Tool execution error:`, error)
-      throw error
+      
+      // Create enhanced error with details
+      const enhancedError = {
+        message: error instanceof Error ? error.message : String(error),
+        tool: tool,
+        input: input,
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      }
+      
+      throw enhancedError
     }
   }
 
@@ -562,7 +572,15 @@ export class ExcelService {
         await context.sync()
       } catch (error) {
         console.error(`❌ Failed to write to range ${range}:`, error)
-        throw new Error(`Failed to write values: ${(error as Error).message}`)
+        
+        const errorDetails = {
+          operation: 'write_range',
+          range: range,
+          valueDimensions: `${cleanedValues.length}x${cleanedValues[0]?.length || 0}`,
+          excelError: error instanceof Error ? error.message : String(error)
+        }
+        
+        throw new Error(`Failed to write values: ${(error as Error).message}. Details: ${JSON.stringify(errorDetails)}`)
       }
       
       return {
@@ -613,7 +631,15 @@ export class ExcelService {
         }
       } catch (error) {
         console.error('❌ Formula application error:', error)
-        throw new Error(`Failed to apply formula "${formula}" to range "${range}": ${(error as Error).message}`)
+        
+        const errorDetails = {
+          operation: 'apply_formula',
+          range: range,
+          formula: formula,
+          excelError: error instanceof Error ? error.message : String(error)
+        }
+        
+        throw new Error(`Failed to apply formula "${formula}" to range "${range}": ${(error as Error).message}. Details: ${JSON.stringify(errorDetails)}`)
       }
     })
   }

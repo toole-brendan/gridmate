@@ -4,23 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	
-	"github.com/rs/zerolog/log"
+
 	"github.com/gridmate/backend/internal/services/formula"
+	"github.com/rs/zerolog/log"
 )
 
 // ToolExecutor handles the execution of Excel tools
 type ToolExecutor struct {
-	excelBridge       ExcelBridge
-	formulaValidator  *formula.FormulaIntelligence
+	excelBridge      ExcelBridge
+	formulaValidator *formula.FormulaIntelligence
 	// Performance optimization fields
-	modelDataCache    map[string]*CachedModelData
-	cacheMutex        sync.RWMutex
-	parallelWorkers   int
-	operationQueue    chan OperationRequest
+	modelDataCache  map[string]*CachedModelData
+	cacheMutex      sync.RWMutex
+	parallelWorkers int
+	operationQueue  chan OperationRequest
+	// Queued operations registry
+	queuedOpsRegistry interface{} // Will be set to *services.QueuedOperationRegistry
 }
 
 // ExcelBridge interface for interacting with Excel
@@ -39,22 +42,22 @@ type ExcelBridge interface {
 
 // RangeData represents data read from Excel
 type RangeData struct {
-	Values     [][]interface{}          `json:"values"`
-	Formulas   [][]interface{}          `json:"formulas,omitempty"`
-	Formatting [][]CellFormat           `json:"formatting,omitempty"`
-	Address    string                   `json:"address"`
-	RowCount   int                      `json:"rowCount"`
-	ColCount   int                      `json:"colCount"`
+	Values     [][]interface{} `json:"values"`
+	Formulas   [][]interface{} `json:"formulas,omitempty"`
+	Formatting [][]CellFormat  `json:"formatting,omitempty"`
+	Address    string          `json:"address"`
+	RowCount   int             `json:"rowCount"`
+	ColCount   int             `json:"colCount"`
 }
 
 // DataAnalysis represents analysis results
 type DataAnalysis struct {
-	DataTypes    []string                 `json:"dataTypes"`
-	Headers      []string                 `json:"headers,omitempty"`
-	Statistics   map[string]Stats         `json:"statistics,omitempty"`
-	Patterns     []string                 `json:"patterns,omitempty"`
-	RowCount     int                      `json:"rowCount"`
-	ColCount     int                      `json:"colCount"`
+	DataTypes  []string         `json:"dataTypes"`
+	Headers    []string         `json:"headers,omitempty"`
+	Statistics map[string]Stats `json:"statistics,omitempty"`
+	Patterns   []string         `json:"patterns,omitempty"`
+	RowCount   int              `json:"rowCount"`
+	ColCount   int              `json:"colCount"`
 }
 
 // Stats represents basic statistics
@@ -68,10 +71,10 @@ type Stats struct {
 
 // CellFormat represents cell formatting options
 type CellFormat struct {
-	NumberFormat string      `json:"number_format,omitempty"`
-	Font         *FontStyle  `json:"font,omitempty"`
-	FillColor    string      `json:"fill_color,omitempty"`
-	Alignment    *Alignment  `json:"alignment,omitempty"`
+	NumberFormat string     `json:"number_format,omitempty"`
+	Font         *FontStyle `json:"font,omitempty"`
+	FillColor    string     `json:"fill_color,omitempty"`
+	Alignment    *Alignment `json:"alignment,omitempty"`
 }
 
 // FontStyle represents font formatting
@@ -99,17 +102,17 @@ type ChartConfig struct {
 
 // ValidationChecks represents what to validate
 type ValidationChecks struct {
-	CheckCircularRefs      bool `json:"check_circular_refs"`
+	CheckCircularRefs       bool `json:"check_circular_refs"`
 	CheckFormulaConsistency bool `json:"check_formula_consistency"`
-	CheckErrors            bool `json:"check_errors"`
+	CheckErrors             bool `json:"check_errors"`
 }
 
 // ValidationResult represents validation results
 type ValidationResult struct {
-	IsValid        bool             `json:"is_valid"`
-	CircularRefs   []string         `json:"circular_refs,omitempty"`
-	InconsistentFormulas []string   `json:"inconsistent_formulas,omitempty"`
-	Errors         []CellError      `json:"errors,omitempty"`
+	IsValid              bool        `json:"is_valid"`
+	CircularRefs         []string    `json:"circular_refs,omitempty"`
+	InconsistentFormulas []string    `json:"inconsistent_formulas,omitempty"`
+	Errors               []CellError `json:"errors,omitempty"`
 }
 
 // CellError represents an error in a cell
@@ -123,23 +126,23 @@ type CellError struct {
 
 // ParallelToolResult represents the result of a parallel tool execution
 type ParallelToolResult struct {
-	ToolName   string                 `json:"tool_name"`
-	ToolID     string                 `json:"tool_id"`
-	Result     map[string]interface{} `json:"result"`
-	Error      error                  `json:"error,omitempty"`
-	Duration   time.Duration          `json:"duration"`
-	IsError    bool                   `json:"is_error"`
+	ToolName string                 `json:"tool_name"`
+	ToolID   string                 `json:"tool_id"`
+	Result   map[string]interface{} `json:"result"`
+	Error    error                  `json:"error,omitempty"`
+	Duration time.Duration          `json:"duration"`
+	IsError  bool                   `json:"is_error"`
 }
 
 // FinancialModelContext represents comprehensive financial model context
 type FinancialModelContext struct {
-	ModelType        string                    `json:"model_type"`
-	Structure        *ModelStructure           `json:"structure"`
-	Assumptions      *RangeData                `json:"assumptions"`
-	Calculations     *RangeData                `json:"calculations"`
-	Outputs          *RangeData                `json:"outputs"`
-	ValidationStatus *ValidationResult         `json:"validation_status"`
-	UserPreferences  *FinancialPreferences     `json:"user_preferences,omitempty"`
+	ModelType        string                `json:"model_type"`
+	Structure        *ModelStructure       `json:"structure"`
+	Assumptions      *RangeData            `json:"assumptions"`
+	Calculations     *RangeData            `json:"calculations"`
+	Outputs          *RangeData            `json:"outputs"`
+	ValidationStatus *ValidationResult     `json:"validation_status"`
+	UserPreferences  *FinancialPreferences `json:"user_preferences,omitempty"`
 }
 
 // Section represents a section of a financial model
@@ -152,10 +155,10 @@ type Section struct {
 
 // FinancialPreferences represents user preferences for financial modeling
 type FinancialPreferences struct {
-	FormattingStyle    string            `json:"formatting_style"`
-	PreferredLayouts   map[string]string `json:"preferred_layouts"`
+	FormattingStyle    string             `json:"formatting_style"`
+	PreferredLayouts   map[string]string  `json:"preferred_layouts"`
 	DefaultAssumptions map[string]float64 `json:"default_assumptions"`
-	Industry           string            `json:"industry"` // PE, HF, IB, Corp
+	Industry           string             `json:"industry"` // PE, HF, IB, Corp
 }
 
 // NewToolExecutor creates a new tool executor
@@ -164,11 +167,16 @@ func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntell
 		excelBridge:      bridge,
 		formulaValidator: formulaValidator,
 	}
-	
+
 	// Initialize performance optimizations
 	te.initializePerformanceOptimizations()
-	
+
 	return te
+}
+
+// SetQueuedOperationRegistry sets the queued operation registry
+func (te *ToolExecutor) SetQueuedOperationRegistry(registry interface{}) {
+	te.queuedOpsRegistry = registry
 }
 
 // ExecuteTool executes a tool call and returns the result
@@ -193,10 +201,17 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeReadRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
+			result.Status = "error"
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil
 		}
+		result.Status = "success"
 		result.Content = content
+		result.Details = map[string]interface{}{
+			"operation": "read_range",
+			"range":     toolCall.Input["range"],
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
 
 	case "write_range":
 		err := te.executeWriteRange(ctx, sessionID, toolCall.Input)
@@ -204,14 +219,46 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			// Check if it's a queued error
 			if err.Error() == "Tool execution queued for user approval" {
 				result.IsError = false
+				result.Status = "queued"
 				result.Content = map[string]string{"status": "queued", "message": "Write range operation queued for user approval"}
+				result.Details = map[string]interface{}{
+					"operation": "write_range",
+					"range":     toolCall.Input["range"],
+					"timestamp": time.Now().Format(time.RFC3339),
+				}
+
+				// Register in queued operations registry if available
+				if te.queuedOpsRegistry != nil {
+					if registry, ok := te.queuedOpsRegistry.(interface {
+						QueueOperation(context.Context, interface{}) error
+					}); ok {
+						queuedOp := map[string]interface{}{
+							"ID":        toolCall.ID,
+							"SessionID": sessionID,
+							"ToolName":  "write_range",
+							"RequestID": toolCall.ID,
+							"Input":     toolCall.Input,
+						}
+						if err := registry.QueueOperation(ctx, queuedOp); err != nil {
+							log.Error().Err(err).Msg("Failed to register queued operation")
+						}
+					}
+				}
+
 				return result, nil
 			}
 			result.IsError = true
+			result.Status = "error"
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil
 		}
+		result.Status = "success"
 		result.Content = map[string]string{"status": "success", "message": "Range written successfully"}
+		result.Details = map[string]interface{}{
+			"operation": "write_range",
+			"range":     toolCall.Input["range"],
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
 
 	case "apply_formula":
 		err := te.executeApplyFormula(ctx, sessionID, toolCall.Input)
@@ -219,10 +266,37 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			// Check if it's a queued error
 			if err.Error() == "Tool execution queued for user approval" {
 				result.IsError = false
+				result.Status = "queued"
 				result.Content = map[string]string{"status": "queued", "message": "Formula application queued for user approval"}
+				result.Details = map[string]interface{}{
+					"operation": "apply_formula",
+					"range":     toolCall.Input["range"],
+					"formula":   toolCall.Input["formula"],
+					"timestamp": time.Now().Format(time.RFC3339),
+				}
+
+				// Register in queued operations registry if available
+				if te.queuedOpsRegistry != nil {
+					if registry, ok := te.queuedOpsRegistry.(interface {
+						QueueOperation(context.Context, interface{}) error
+					}); ok {
+						queuedOp := map[string]interface{}{
+							"ID":        toolCall.ID,
+							"SessionID": sessionID,
+							"ToolName":  "apply_formula",
+							"RequestID": toolCall.ID,
+							"Input":     toolCall.Input,
+						}
+						if err := registry.QueueOperation(ctx, queuedOp); err != nil {
+							log.Error().Err(err).Msg("Failed to register queued operation")
+						}
+					}
+				}
+
 				return result, nil
 			}
 			result.IsError = true
+			result.Status = "error"
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil
 		}
@@ -243,14 +317,46 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			// Check if it's a queued error
 			if err.Error() == "Tool execution queued for user approval" {
 				result.IsError = false
+				result.Status = "queued"
 				result.Content = map[string]string{"status": "queued", "message": "Format operation queued for user approval"}
+				result.Details = map[string]interface{}{
+					"operation": "format_range",
+					"range":     toolCall.Input["range"],
+					"timestamp": time.Now().Format(time.RFC3339),
+				}
+
+				// Register in queued operations registry if available
+				if te.queuedOpsRegistry != nil {
+					if registry, ok := te.queuedOpsRegistry.(interface {
+						QueueOperation(context.Context, interface{}) error
+					}); ok {
+						queuedOp := map[string]interface{}{
+							"ID":        toolCall.ID,
+							"SessionID": sessionID,
+							"ToolName":  "format_range",
+							"RequestID": toolCall.ID,
+							"Input":     toolCall.Input,
+						}
+						if err := registry.QueueOperation(ctx, queuedOp); err != nil {
+							log.Error().Err(err).Msg("Failed to register queued operation")
+						}
+					}
+				}
+
 				return result, nil
 			}
 			result.IsError = true
+			result.Status = "error"
 			result.Content = map[string]string{"error": err.Error()}
 			return result, nil
 		}
+		result.Status = "success"
 		result.Content = map[string]string{"status": "success", "message": "Formatting applied successfully"}
+		result.Details = map[string]interface{}{
+			"operation": "format_range",
+			"range":     toolCall.Input["range"],
+			"timestamp": time.Now().Format(time.RFC3339),
+		}
 
 	case "create_chart":
 		err := te.executeCreateChart(ctx, sessionID, toolCall.Input)
@@ -379,7 +485,7 @@ func (te *ToolExecutor) ExecuteParallelTools(ctx context.Context, sessionID stri
 		wg.Add(1)
 		go func(index int, tool ToolCall) {
 			defer wg.Done()
-			
+
 			startTime := time.Now()
 			result, err := te.ExecuteTool(ctx, sessionID, tool)
 			duration := time.Since(startTime)
@@ -459,10 +565,10 @@ func (te *ToolExecutor) GatherComprehensiveModelContext(ctx context.Context, ses
 			ID:   "validate_model",
 			Name: "validate_model",
 			Input: map[string]interface{}{
-				"range":                    "A1:Z100",
-				"check_circular_refs":      true,
+				"range":                     "A1:Z100",
+				"check_circular_refs":       true,
 				"check_formula_consistency": true,
-				"check_errors":             true,
+				"check_errors":              true,
 			},
 		},
 	}
@@ -588,28 +694,31 @@ func (te *ToolExecutor) executeReadRange(ctx context.Context, sessionID string, 
 }
 
 func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, ok := input["range"].(string)
-	if !ok {
-		return fmt.Errorf("range parameter is required")
+	rangeAddr, _ := input["range"].(string)
+	valuesRaw := input["values"]
+	preserveFormatting := true
+	if pf, ok := input["preserve_formatting"].(bool); ok {
+		preserveFormatting = pf
 	}
 
-	valuesRaw, ok := input["values"]
-	if !ok {
-		return fmt.Errorf("values parameter is required")
-	}
-
-	// Convert values to [][]interface{}
 	values, err := convertToValueArray(valuesRaw)
 	if err != nil {
 		return fmt.Errorf("invalid values format: %w", err)
 	}
 
-	preserveFormatting := true
-	if val, ok := input["preserve_formatting"].(bool); ok {
-		preserveFormatting = val
+	// Cursor-style intelligent expansion: if writing a single value to a range,
+	// expand it to fill the entire range (like Cursor's multi-cursor editing)
+	expandedValues, err := expandValuesToMatchRange(rangeAddr, values)
+	if err != nil {
+		// Log warning but try original values
+		log.Warn().Err(err).
+			Str("range", rangeAddr).
+			Int("rows", len(values)).
+			Msg("Could not expand values to match range, using original dimensions")
+		expandedValues = values
 	}
 
-	return te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, values, preserveFormatting)
+	return te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, expandedValues, preserveFormatting)
 }
 
 func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID string, input map[string]interface{}) error {
@@ -637,7 +746,7 @@ func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID strin
 				Str("range", rangeAddr).
 				Err(err).
 				Msg("Formula validation failed, but proceeding with warning")
-			
+
 			// For now, we log warnings but don't block execution
 			// This allows gradual rollout of validation while maintaining functionality
 		}
@@ -750,7 +859,7 @@ func (te *ToolExecutor) executeValidateModel(ctx context.Context, sessionID stri
 	checks := &ValidationChecks{
 		CheckCircularRefs:       true,
 		CheckFormulaConsistency: true,
-		CheckErrors:            true,
+		CheckErrors:             true,
 	}
 
 	if val, ok := input["check_circular_refs"].(bool); ok {
@@ -824,7 +933,7 @@ func convertToValueArray(valuesRaw interface{}) ([][]interface{}, error) {
 		}
 		return values, nil
 	}
-	
+
 	// Handle normal array conversion
 	jsonBytes, err := json.Marshal(valuesRaw)
 	if err != nil {
@@ -887,7 +996,7 @@ func (te *ToolExecutor) validateFormulaContext(ctx context.Context, sessionID st
 								return fmt.Errorf("division by empty/zero cell %s in formula", ref.StartCell)
 							}
 						}
-						
+
 						// Check for first period issues (growth rate formulas)
 						if te.isGrowthRateFormula(formula) && te.isPreviousPeriodReference(ref.StartCell, rangeAddr) {
 							if value == nil || value == "" {
@@ -907,14 +1016,14 @@ func (te *ToolExecutor) validateFormulaContext(ctx context.Context, sessionID st
 func (te *ToolExecutor) validateFinancialModelingContext(formula string, rangeAddr string) error {
 	// Check for common financial modeling errors
 	lowerFormula := strings.ToLower(formula)
-	
+
 	// Growth rate formulas should use IFERROR or IF for first period handling
 	if te.isGrowthRateFormula(formula) {
 		if !strings.Contains(lowerFormula, "iferror") && !strings.Contains(lowerFormula, "if(") {
 			return fmt.Errorf("growth rate formula should include error handling (IFERROR or IF)")
 		}
 	}
-	
+
 	// Division formulas should have error handling
 	if strings.Contains(formula, "/") && !strings.Contains(lowerFormula, "iferror") {
 		// Only warn for division by cell references, not constants
@@ -941,9 +1050,9 @@ func (te *ToolExecutor) isGrowthRateFormula(formula string) bool {
 	lowerFormula := strings.ToLower(formula)
 	growthPatterns := []string{
 		")/", // Typical pattern: ((new-old)/old)
-		"-", // Contains subtraction
+		"-",  // Contains subtraction
 	}
-	
+
 	hasPattern := false
 	for _, pattern := range growthPatterns {
 		if strings.Contains(lowerFormula, pattern) {
@@ -951,7 +1060,7 @@ func (te *ToolExecutor) isGrowthRateFormula(formula string) bool {
 			break
 		}
 	}
-	
+
 	// Should contain division and subtraction for growth rate
 	return hasPattern && strings.Contains(formula, "/") && strings.Contains(formula, "-")
 }
@@ -959,7 +1068,7 @@ func (te *ToolExecutor) isGrowthRateFormula(formula string) bool {
 func (te *ToolExecutor) isPreviousPeriodReference(cellRef string, currentRange string) bool {
 	// Simple heuristic: if the cell reference column is before the current range column
 	// This is a basic implementation - could be enhanced with more sophisticated logic
-	
+
 	// Extract column from cell reference (e.g., "A4" -> "A")
 	refCol := ""
 	for _, char := range cellRef {
@@ -969,7 +1078,7 @@ func (te *ToolExecutor) isPreviousPeriodReference(cellRef string, currentRange s
 			break
 		}
 	}
-	
+
 	// Extract column from current range (e.g., "B5" -> "B")
 	currentCol := ""
 	for _, char := range currentRange {
@@ -979,7 +1088,7 @@ func (te *ToolExecutor) isPreviousPeriodReference(cellRef string, currentRange s
 			break
 		}
 	}
-	
+
 	// Simple comparison: if reference column comes before current column
 	return refCol < currentCol
 }
@@ -1229,7 +1338,7 @@ func (te *ToolExecutor) buildGrowthRateFormula(inputs map[string]interface{}, er
 	}
 
 	baseFormula := fmt.Sprintf("((%s-%s)/%s)", currentCell, previousCell, previousCell)
-	
+
 	if errorHandling {
 		formula := fmt.Sprintf(`=IF(OR(%s=0,%s=""),"N/A",%s)`, previousCell, previousCell, baseFormula)
 		return formula, fmt.Sprintf("Growth rate with error handling: (%s - %s) / %s", currentCell, previousCell, previousCell)
@@ -1249,7 +1358,7 @@ func (te *ToolExecutor) buildRatioFormula(inputs map[string]interface{}, errorHa
 	// Convert to strings
 	numCells := make([]string, len(numeratorCells))
 	denomCells := make([]string, len(denominatorCells))
-	
+
 	for i, cell := range numeratorCells {
 		numCells[i] = cell.(string)
 	}
@@ -1272,7 +1381,7 @@ func (te *ToolExecutor) buildRatioFormula(inputs map[string]interface{}, errorHa
 	}
 
 	baseFormula := fmt.Sprintf("%s/%s", numerator, denominator)
-	
+
 	if errorHandling {
 		formula := fmt.Sprintf(`=IFERROR(%s,"N/A")`, baseFormula)
 		return formula, fmt.Sprintf("Ratio with error handling: %s / %s", numerator, denominator)
@@ -1288,7 +1397,7 @@ func (te *ToolExecutor) buildSumFormula(inputs map[string]interface{}, errorHand
 	}
 
 	baseFormula := fmt.Sprintf("SUM(%s)", rangeCells)
-	
+
 	if errorHandling {
 		formula := fmt.Sprintf(`=IFERROR(%s,0)`, baseFormula)
 		return formula, fmt.Sprintf("Sum with error handling: SUM(%s)", rangeCells)
@@ -1304,7 +1413,7 @@ func (te *ToolExecutor) buildAverageFormula(inputs map[string]interface{}, error
 	}
 
 	baseFormula := fmt.Sprintf("AVERAGE(%s)", rangeCells)
-	
+
 	if errorHandling {
 		formula := fmt.Sprintf(`=IFERROR(%s,0)`, baseFormula)
 		return formula, fmt.Sprintf("Average with error handling: AVERAGE(%s)", rangeCells)
@@ -1332,7 +1441,7 @@ func (te *ToolExecutor) buildPercentageFormula(inputs map[string]interface{}, er
 	}
 
 	baseFormula := fmt.Sprintf("%s/%s", currentCell, totalCell)
-	
+
 	if errorHandling {
 		formula := fmt.Sprintf(`=IFERROR(%s,0)`, baseFormula)
 		return formula, fmt.Sprintf("Percentage with error handling: %s / %s", currentCell, totalCell)
@@ -1409,7 +1518,7 @@ func (te *ToolExecutor) detectModelTypeFromData(data *RangeData) string {
 	}
 
 	textLower := strings.ToLower(allText)
-	
+
 	if strings.Contains(textLower, "dcf") || strings.Contains(textLower, "discount") || strings.Contains(textLower, "wacc") {
 		return "DCF"
 	}
@@ -1446,105 +1555,105 @@ func (te *ToolExecutor) buildFinancialFormat(styleType string, input map[string]
 	case "financial_input", "assumption", "input":
 		format.NumberFormat = "0.00"
 		format.Font = &FontStyle{Color: "#0066CC", Bold: false} // Professional blue
-		format.FillColor = "#F0F8FF" // Light blue background for easy identification
-		
+		format.FillColor = "#F0F8FF"                            // Light blue background for easy identification
+
 	case "financial_calculation", "formula", "calculation":
 		format.NumberFormat = "0.00"
 		format.Font = &FontStyle{Color: "#000000", Bold: false} // Standard black
-		
+
 	case "financial_output", "result", "total", "output":
 		format.NumberFormat = "0.00"
 		format.Font = &FontStyle{Color: "#000000", Bold: true} // Bold for emphasis
-		
+
 	case "header", "section_header":
 		format.Font = &FontStyle{Bold: true, Size: 12, Color: "#000000"}
 		format.Alignment = &Alignment{Horizontal: "center", Vertical: "middle"}
 		format.FillColor = "#E6E6FA" // Light lavender for headers
-		
+
 	case "subheader":
 		format.Font = &FontStyle{Bold: true, Size: 10, Color: "#000000"}
 		format.Alignment = &Alignment{Horizontal: "left", Vertical: "middle"}
-		
+
 	case "percentage", "percent", "growth", "margin", "return":
 		format.NumberFormat = "0.0%"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "currency", "dollar", "financial":
 		format.NumberFormat = "$#,##0.00"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "multiple", "times", "ratio":
 		format.NumberFormat = "0.0\"x\""
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "basis_points", "bps":
 		format.NumberFormat = "0\"bps\""
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "large_currency", "millions":
 		format.NumberFormat = "$#,##0,,\"M\""
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "billions":
 		format.NumberFormat = "$#,##0,,,\"B\""
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "thousands":
 		format.NumberFormat = "#,##0"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	// Model-specific but universal styling
 	case "key_metric", "important":
 		format.NumberFormat = "0.00"
 		format.Font = &FontStyle{Color: "#000000", Bold: true, Size: 11}
 		format.FillColor = "#FFFACD" // Light yellow for key metrics
-		
+
 	case "positive_negative", "conditional":
 		format.NumberFormat = "$#,##0.00_);[Red]($#,##0.00)"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "accounting":
 		format.NumberFormat = "_($* #,##0.00_);_($* (#,##0.00);_($* \"-\"??_);_(@_)"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	// Financial-specific formats
 	case "irr", "yield", "discount_rate":
 		format.NumberFormat = "0.0%"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "ev_ebitda", "pe_ratio", "valuation_multiple":
 		format.NumberFormat = "0.0\"x\""
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	case "date_period", "period_header":
 		format.NumberFormat = "mmm yyyy"
 		format.Font = &FontStyle{Bold: true, Color: "#000000"}
 		format.Alignment = &Alignment{Horizontal: "center"}
-		
+
 	case "quarter":
 		format.NumberFormat = "\"Q\"q yyyy"
 		format.Font = &FontStyle{Bold: true, Color: "#000000"}
 		format.Alignment = &Alignment{Horizontal: "center"}
-		
+
 	case "year_only":
 		format.NumberFormat = "yyyy"
 		format.Font = &FontStyle{Bold: true, Color: "#000000"}
 		format.Alignment = &Alignment{Horizontal: "center"}
-		
+
 	// Industry-specific formats
 	case "pe_input":
 		format.NumberFormat = "0.0%"
 		format.Font = &FontStyle{Color: "#0066CC", Bold: false}
 		format.FillColor = "#F0F8FF"
-		
+
 	case "ib_presentation":
 		format.NumberFormat = "0.0"
 		format.Font = &FontStyle{Color: "#000000", Bold: false, Size: 10}
-		
+
 	case "hedge_fund":
 		format.NumberFormat = "0.00%"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
-		
+
 	default:
 		format.NumberFormat = "General"
 		format.Font = &FontStyle{Color: "#000000", Bold: false}
@@ -1578,7 +1687,7 @@ func (te *ToolExecutor) applyConditionalRules(format *CellFormat, conditionalRul
 
 		condition, hasCondition := rule["condition"].(string)
 		formatRule, hasFormat := rule["format"].(map[string]interface{})
-		
+
 		if !hasCondition || !hasFormat {
 			log.Warn().Msg("Conditional rule missing condition or format, skipping")
 			continue
@@ -1599,7 +1708,7 @@ func (te *ToolExecutor) applyConditionalRules(format *CellFormat, conditionalRul
 				}
 				format.Font.Color = fontColor
 			}
-			
+
 		case strings.Contains(condition, "<0") || strings.Contains(condition, "negative"):
 			// Negative values - typically red
 			if fontColor, ok := formatRule["font_color"].(string); ok {
@@ -1612,7 +1721,7 @@ func (te *ToolExecutor) applyConditionalRules(format *CellFormat, conditionalRul
 			if format.NumberFormat != "" && !strings.Contains(format.NumberFormat, "_)") {
 				format.NumberFormat = strings.Replace(format.NumberFormat, "0.00", "0.00_);[Red](0.00)", 1)
 			}
-			
+
 		case strings.Contains(condition, "=0") || strings.Contains(condition, "zero"):
 			// Zero values - often dash or special formatting
 			if format.NumberFormat != "" {
@@ -1676,10 +1785,10 @@ func (te *ToolExecutor) applyConditionalRules(format *CellFormat, conditionalRul
 func (te *ToolExecutor) generateAuditTrail(data *RangeData, documentationType string, addComments bool, createDocumentationSheet bool, includeSources bool) map[string]interface{} {
 	auditTrail := map[string]interface{}{
 		"documentation_type": documentationType,
-		"created_at":        time.Now().Format(time.RFC3339),
-		"cell_comments":     make(map[string]string),
-		"summary":           "",
-		"recommendations":   []string{},
+		"created_at":         time.Now().Format(time.RFC3339),
+		"cell_comments":      make(map[string]string),
+		"summary":            "",
+		"recommendations":    []string{},
 	}
 
 	cellComments := make(map[string]string)
@@ -1726,7 +1835,7 @@ func (te *ToolExecutor) addCellComments(ctx context.Context, sessionID string, c
 		Str("session", sessionID).
 		Int("comment_count", len(comments)).
 		Msg("Cell comments generated (implementation pending)")
-	
+
 	return nil
 }
 
@@ -1743,7 +1852,7 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 	if layout == "" {
 		layout = "horizontal" // Default layout
 	}
-	
+
 	analysisRange, _ := input["analysis_range"].(string)
 	if analysisRange == "" {
 		analysisRange = "A1:Z100" // Default scan range
@@ -1757,7 +1866,7 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 	cacheKey := fmt.Sprintf("%s:%s", sessionID, analysisRange)
 	var data *RangeData
 	var err error
-	
+
 	if cachedData := te.getCachedModelData(cacheKey); cachedData != nil {
 		log.Debug().
 			Str("cache_key", cacheKey).
@@ -1768,12 +1877,12 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 		log.Debug().
 			Str("range", analysisRange).
 			Msg("Reading current model structure")
-			
+
 		data, err = te.excelBridge.ReadRange(ctx, sessionID, analysisRange, true, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read model for analysis: %w", err)
 		}
-		
+
 		// Cache the data for future use
 		te.cacheModelData(cacheKey, data)
 	}
@@ -1796,7 +1905,7 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 
 	// Generate enhanced organization plan
 	organizationPlan := te.generateEnhancedOrganizationPlan(data, modelType, sections, layout, professionalStandards, industryContext)
-	
+
 	log.Info().
 		Int("sections", len(organizationPlan["sections"].([]interface{}))).
 		Str("layout", layout).
@@ -1815,22 +1924,22 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 	}
 
 	return map[string]interface{}{
-		"status": "success",
-		"message": "Financial model organized successfully",
+		"status":            "success",
+		"message":           "Financial model organized successfully",
 		"organization_plan": organizationPlan,
-		"sections_created": len(organizationPlan["sections"].([]interface{})),
-		"layout": layout,
-		"model_type": modelType,
+		"sections_created":  len(organizationPlan["sections"].([]interface{})),
+		"layout":            layout,
+		"model_type":        modelType,
 	}, nil
 }
 
 // generateUniversalOrganizationPlan creates a universal organization plan for any financial model
 func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, modelType string, sections []interface{}, layout string) map[string]interface{} {
 	plan := map[string]interface{}{
-		"layout": layout,
-		"sections": []interface{}{},
+		"layout":     layout,
+		"sections":   []interface{}{},
 		"formatting": map[string]interface{}{},
-		"spacing": map[string]interface{}{},
+		"spacing":    map[string]interface{}{},
 	}
 
 	// Universal sections that apply to all financial models
@@ -1847,12 +1956,12 @@ func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, model
 
 	// Add model title section
 	titlePlan := map[string]interface{}{
-		"name": "title",
-		"type": "header",
-		"start_row": 1,
-		"header_range": fmt.Sprintf("A1:%s1", te.getLastColumn(layout)),
-		"header_text": te.getUniversalModelTitle(modelType),
-		"header_style": "title",
+		"name":          "title",
+		"type":          "header",
+		"start_row":     1,
+		"header_range":  fmt.Sprintf("A1:%s1", te.getLastColumn(layout)),
+		"header_text":   te.getUniversalModelTitle(modelType),
+		"header_style":  "title",
 		"spacing_after": 1,
 	}
 	sectionPlans = append(sectionPlans, titlePlan)
@@ -1861,12 +1970,12 @@ func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, model
 	// Create plans for each section
 	for _, sectionInterface := range sections {
 		section := sectionInterface.(string)
-		
+
 		sectionPlan := map[string]interface{}{
-			"name": section,
-			"type": te.getSectionType(section),
-			"start_row": currentRow,
-			"header_style": "section_header",
+			"name":          section,
+			"type":          te.getSectionType(section),
+			"start_row":     currentRow,
+			"header_style":  "section_header",
 			"spacing_after": 2,
 		}
 
@@ -1874,34 +1983,34 @@ func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, model
 		headerRange := fmt.Sprintf("A%d:%s%d", currentRow, te.getLastColumn(layout), currentRow)
 		sectionPlan["header_range"] = headerRange
 		sectionPlan["header_text"] = te.getUniversalSectionHeader(section)
-		
+
 		currentRow += 3 // Header + spacing
 
 		// Estimate section size based on type and model
 		sectionRows := te.estimateSectionSize(section, modelType)
 		sectionPlan["end_row"] = currentRow + sectionRows - 1
-		sectionPlan["content_range"] = fmt.Sprintf("A%d:%s%d", currentRow, te.getLastColumn(layout), currentRow + sectionRows - 1)
-		
+		sectionPlan["content_range"] = fmt.Sprintf("A%d:%s%d", currentRow, te.getLastColumn(layout), currentRow+sectionRows-1)
+
 		currentRow += sectionRows + 2 // Content + spacing between sections
-		
+
 		sectionPlans = append(sectionPlans, sectionPlan)
 	}
 
 	plan["sections"] = sectionPlans
-	
+
 	// Add formatting specifications
 	plan["formatting"] = map[string]interface{}{
 		"title_format": map[string]interface{}{
-			"font_size": 16,
-			"bold": true,
-			"alignment": "center",
+			"font_size":  16,
+			"bold":       true,
+			"alignment":  "center",
 			"fill_color": "#4472C4",
 			"font_color": "#FFFFFF",
 		},
 		"section_header_format": map[string]interface{}{
-			"font_size": 12,
-			"bold": true,
-			"alignment": "left",
+			"font_size":  12,
+			"bold":       true,
+			"alignment":  "left",
 			"fill_color": "#D9E1F2",
 			"font_color": "#000000",
 		},
@@ -1914,10 +2023,10 @@ func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, model
 		},
 		"output_format": map[string]interface{}{
 			"font_color": "#000000",
-			"bold": true,
+			"bold":       true,
 		},
 	}
-	
+
 	return plan
 }
 
@@ -1950,7 +2059,7 @@ func (te *ToolExecutor) detectModelType(data *RangeData) string {
 		}
 	}
 
-	// LBO indicators  
+	// LBO indicators
 	lboKeywords := []string{"lbo", "leverage", "debt", "equity", "irr", "moic", "returns", "sponsor", "management"}
 	lboScore := 0
 	for _, keyword := range lboKeywords {
@@ -1980,7 +2089,7 @@ func (te *ToolExecutor) detectModelType(data *RangeData) string {
 	// Determine model type based on highest score
 	maxScore := dcfScore
 	modelType := "dcf"
-	
+
 	if lboScore > maxScore {
 		maxScore = lboScore
 		modelType = "lbo"
@@ -2020,19 +2129,19 @@ func (te *ToolExecutor) generateIntelligentSections(modelType, professionalStand
 		if professionalStandards == "investment_banking" {
 			sections = append(sections, "football_field", "precedent_transactions")
 		}
-		
+
 	case "lbo":
 		sections = []string{"transaction_summary", "assumptions", "sources_uses", "debt_schedule", "cash_flow_projections", "returns_analysis", "sensitivity"}
 		if professionalStandards == "private_equity" {
 			sections = append(sections, "management_case", "downside_case")
 		}
-		
+
 	case "merger", "m&a":
 		sections = []string{"transaction_overview", "assumptions", "standalone_projections", "synergies", "pro_forma", "accretion_dilution", "sensitivity"}
-		
+
 	case "comps":
 		sections = []string{"peer_selection", "financial_data", "multiples_calculation", "analysis", "summary"}
-		
+
 	default: // universal
 		sections = []string{"assumptions", "calculations", "outputs", "summary"}
 	}
@@ -2066,7 +2175,7 @@ func (te *ToolExecutor) generateEnhancedOrganizationPlan(data *RangeData, modelT
 		plan = te.applyProfessionalStandards(plan, professionalStandards)
 	}
 
-	// Enhance with industry context  
+	// Enhance with industry context
 	if industryContext != "" {
 		plan["industry_context"] = industryContext
 		plan = te.applyIndustryContext(plan, industryContext)
@@ -2075,9 +2184,9 @@ func (te *ToolExecutor) generateEnhancedOrganizationPlan(data *RangeData, modelT
 	// Add advanced features
 	plan["advanced_features"] = map[string]interface{}{
 		"intelligent_model_detection": modelType,
-		"context_aware_sections": true,
-		"professional_formatting": professionalStandards != "",
-		"industry_customization": industryContext != "",
+		"context_aware_sections":      true,
+		"professional_formatting":     professionalStandards != "",
+		"industry_customization":      industryContext != "",
 	}
 
 	return plan
@@ -2090,22 +2199,22 @@ func (te *ToolExecutor) applyProfessionalStandards(plan map[string]interface{}, 
 	switch standards {
 	case "investment_banking":
 		// IB standards: Conservative colors, traditional formatting
-		formatting["title_format"].(map[string]interface{})["fill_color"] = "#2E5090" // Conservative blue
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#2E5090"          // Conservative blue
 		formatting["section_header_format"].(map[string]interface{})["fill_color"] = "#B7C9E4" // Light blue
-		
+
 	case "private_equity":
 		// PE standards: Bold, professional
 		formatting["title_format"].(map[string]interface{})["fill_color"] = "#1B365D" // Dark blue
-		formatting["title_format"].(map[string]interface{})["font_size"] = 14 // Larger title
-		
+		formatting["title_format"].(map[string]interface{})["font_size"] = 14         // Larger title
+
 	case "hedge_fund":
 		// HF standards: Clean, minimal
-		formatting["title_format"].(map[string]interface{})["fill_color"] = "#333333" // Dark gray
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#333333"          // Dark gray
 		formatting["section_header_format"].(map[string]interface{})["fill_color"] = "#E5E5E5" // Light gray
-		
+
 	case "corporate":
 		// Corporate standards: Company brand friendly
-		formatting["title_format"].(map[string]interface{})["fill_color"] = "#0078D4" // Microsoft blue
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#0078D4"          // Microsoft blue
 		formatting["section_header_format"].(map[string]interface{})["fill_color"] = "#DEECF9" // Light blue
 	}
 
@@ -2193,14 +2302,14 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 
 	// Track applied changes for rollback
 	appliedChanges := []ChangeRecord{}
-	
+
 	for i, sectionInterface := range sections {
 		section := sectionInterface.(map[string]interface{})
-		
+
 		// Apply section header with error tracking
 		if headerRange, ok := section["header_range"].(string); ok {
 			if headerText, ok := section["header_text"].(string); ok {
-				
+
 				// Record change for potential rollback
 				changeRecord := ChangeRecord{
 					Operation: "write_header",
@@ -2209,15 +2318,24 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 					NewValue:  headerText,
 					Timestamp: time.Now(),
 				}
-				
+
 				// Write header text with retry logic
-				err := te.writeWithRetry(ctx, sessionID, headerRange, [][]interface{}{{headerText}}, false, 3)
+				// Expand values to match range dimensions (Cursor-style auto-expansion)
+				expandedValues, err := expandValuesToMatchRange(headerRange, [][]interface{}{{headerText}})
+				if err != nil {
+					log.Error().Err(err).
+						Str("range", headerRange).
+						Msg("Failed to expand header values")
+					return err
+				}
+
+				err = te.writeWithRetry(ctx, sessionID, headerRange, expandedValues, false, 3)
 				if err != nil {
 					log.Error().Err(err).
 						Str("range", headerRange).
 						Int("section_index", i).
 						Msg("Failed to write header - attempting recovery")
-					
+
 					// Attempt to rollback changes
 					rollbackErr := te.rollbackChanges(ctx, sessionID, appliedChanges, backup)
 					if rollbackErr != nil {
@@ -2234,18 +2352,18 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 				if headerStyle == "title" {
 					formatStyle = "title_format"
 				}
-				
+
 				if formatData, ok := formatting[formatStyle].(map[string]interface{}); ok {
 					formatInput := map[string]interface{}{
-						"range": headerRange,
+						"range":      headerRange,
 						"style_type": headerStyle,
 					}
-					
+
 					// Add format properties
 					for key, value := range formatData {
 						formatInput[key] = value
 					}
-					
+
 					err = te.executeSmartFormatCellsWithRetry(ctx, sessionID, formatInput, 3)
 					if err != nil {
 						log.Error().Err(err).
@@ -2278,7 +2396,7 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 // writeWithRetry performs write operations with retry logic
 func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, targetRange string, values [][]interface{}, preserveFormatting bool, maxRetries int) error {
 	var lastErr error
-	
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := te.excelBridge.WriteRange(ctx, sessionID, targetRange, values, preserveFormatting)
 		if err == nil {
@@ -2290,7 +2408,7 @@ func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, ta
 			}
 			return nil
 		}
-		
+
 		// Check if operation is queued - don't retry in this case
 		if err.Error() == "Tool execution queued for user approval" {
 			log.Info().
@@ -2298,7 +2416,7 @@ func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, ta
 				Msg("Write operation queued for user approval - not retrying")
 			return err
 		}
-		
+
 		lastErr = err
 		log.Warn().
 			Err(err).
@@ -2306,21 +2424,21 @@ func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, ta
 			Int("max_retries", maxRetries).
 			Str("range", targetRange).
 			Msg("Write failed, retrying")
-		
+
 		if attempt < maxRetries {
 			// Exponential backoff
 			backoffTime := time.Duration(attempt*500) * time.Millisecond
 			time.Sleep(backoffTime)
 		}
 	}
-	
+
 	return fmt.Errorf("write failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // executeSmartFormatCellsWithRetry performs formatting with retry logic
 func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, sessionID string, input map[string]interface{}, maxRetries int) error {
 	var lastErr error
-	
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := te.executeSmartFormatCells(ctx, sessionID, input)
 		if err == nil {
@@ -2332,7 +2450,7 @@ func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, se
 			}
 			return nil
 		}
-		
+
 		// Check if operation is queued - don't retry in this case
 		if err.Error() == "Tool execution queued for user approval" {
 			log.Info().
@@ -2340,7 +2458,7 @@ func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, se
 				Msg("Format operation queued for user approval - not retrying")
 			return err
 		}
-		
+
 		lastErr = err
 		log.Warn().
 			Err(err).
@@ -2348,14 +2466,14 @@ func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, se
 			Int("max_retries", maxRetries).
 			Interface("input", input).
 			Msg("Format failed, retrying")
-		
+
 		if attempt < maxRetries {
 			// Exponential backoff
 			backoffTime := time.Duration(attempt*300) * time.Millisecond
 			time.Sleep(backoffTime)
 		}
 	}
-	
+
 	return fmt.Errorf("format failed after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -2376,7 +2494,7 @@ func (te *ToolExecutor) rollbackChanges(ctx context.Context, sessionID string, c
 		if err != nil {
 			return fmt.Errorf("failed to restore values from backup: %w", err)
 		}
-		
+
 		log.Info().
 			Str("range", backup.Range).
 			Msg("Successfully restored values from backup")
@@ -2402,13 +2520,13 @@ func (te *ToolExecutor) validateModelIntegrity(ctx context.Context, sessionID st
 	}
 
 	validation := &ValidationSummary{
-		Range:           targetRange,
-		ValidationTime:  time.Now(),
-		TotalCells:      0,
-		ErrorCells:      []string{},
-		WarnCells:       []string{},
-		Issues:          []ValidationIssue{},
-		OverallStatus:   "healthy",
+		Range:          targetRange,
+		ValidationTime: time.Now(),
+		TotalCells:     0,
+		ErrorCells:     []string{},
+		WarnCells:      []string{},
+		Issues:         []ValidationIssue{},
+		OverallStatus:  "healthy",
 	}
 
 	// Count cells and detect issues
@@ -2417,10 +2535,10 @@ func (te *ToolExecutor) validateModelIntegrity(ctx context.Context, sessionID st
 			for j, cell := range row {
 				validation.TotalCells++
 				cellAddr := fmt.Sprintf("%s%d", string(rune('A'+j)), i+1)
-				
+
 				if cell != nil {
 					cellStr := fmt.Sprintf("%v", cell)
-					
+
 					// Check for Excel errors
 					if strings.Contains(cellStr, "#") {
 						validation.ErrorCells = append(validation.ErrorCells, cellAddr)
@@ -2457,10 +2575,10 @@ func (te *ToolExecutor) validateModelIntegrity(ctx context.Context, sessionID st
 
 // CachedModelData represents cached model data with expiration
 type CachedModelData struct {
-	Data       *RangeData `json:"data"`
-	CacheTime  time.Time  `json:"cache_time"`
-	Expiration time.Time  `json:"expiration"`
-	AccessCount int       `json:"access_count"`
+	Data        *RangeData `json:"data"`
+	CacheTime   time.Time  `json:"cache_time"`
+	Expiration  time.Time  `json:"expiration"`
+	AccessCount int        `json:"access_count"`
 }
 
 // OperationRequest represents a queued operation for parallel processing
@@ -2484,16 +2602,16 @@ type OperationResult struct {
 func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
 	te.cacheMutex.RLock()
 	defer te.cacheMutex.RUnlock()
-	
+
 	if te.modelDataCache == nil {
 		return nil
 	}
-	
+
 	cached, exists := te.modelDataCache[cacheKey]
 	if !exists {
 		return nil
 	}
-	
+
 	// Check if cache is expired (5 minutes TTL)
 	if time.Now().After(cached.Expiration) {
 		// Remove expired cache entry (defer to avoid deadlock)
@@ -2504,16 +2622,16 @@ func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
 		}()
 		return nil
 	}
-	
+
 	// Update access count
 	cached.AccessCount++
-	
+
 	log.Debug().
 		Str("cache_key", cacheKey).
 		Int("access_count", cached.AccessCount).
 		Time("cached_at", cached.CacheTime).
 		Msg("Cache hit for model data")
-		
+
 	return cached.Data
 }
 
@@ -2521,24 +2639,24 @@ func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
 func (te *ToolExecutor) cacheModelData(cacheKey string, data *RangeData) {
 	te.cacheMutex.Lock()
 	defer te.cacheMutex.Unlock()
-	
+
 	if te.modelDataCache == nil {
 		te.modelDataCache = make(map[string]*CachedModelData)
 	}
-	
+
 	// Cache with 5-minute TTL for balance of performance vs freshness
 	te.modelDataCache[cacheKey] = &CachedModelData{
-		Data:       data,
-		CacheTime:  time.Now(),
-		Expiration: time.Now().Add(5 * time.Minute),
+		Data:        data,
+		CacheTime:   time.Now(),
+		Expiration:  time.Now().Add(5 * time.Minute),
 		AccessCount: 1,
 	}
-	
+
 	log.Debug().
 		Str("cache_key", cacheKey).
-		Time("expiration", time.Now().Add(5 * time.Minute)).
+		Time("expiration", time.Now().Add(5*time.Minute)).
 		Msg("Cached model data")
-		
+
 	// Clean up old cache entries (max 100 entries)
 	if len(te.modelDataCache) > 100 {
 		te.cleanupCache()
@@ -2554,25 +2672,25 @@ func (te *ToolExecutor) cleanupCache() {
 			delete(te.modelDataCache, key)
 		}
 	}
-	
+
 	// If still too many entries, remove least accessed
 	if len(te.modelDataCache) > 100 {
 		// Simple LRU: remove entries with lowest access count
 		minAccess := int(^uint(0) >> 1) // Max int
 		var keyToRemove string
-		
+
 		for key, cached := range te.modelDataCache {
 			if cached.AccessCount < minAccess {
 				minAccess = cached.AccessCount
 				keyToRemove = key
 			}
 		}
-		
+
 		if keyToRemove != "" {
 			delete(te.modelDataCache, keyToRemove)
 		}
 	}
-	
+
 	log.Debug().
 		Int("cache_size", len(te.modelDataCache)).
 		Msg("Cache cleanup completed")
@@ -2583,24 +2701,24 @@ func (te *ToolExecutor) ExecuteParallelOperations(ctx context.Context, operation
 	if len(operations) == 0 {
 		return []OperationResult{}, nil
 	}
-	
+
 	log.Info().
 		Int("operation_count", len(operations)).
 		Msg("Starting parallel operation execution")
-	
+
 	startTime := time.Now()
 	results := make([]OperationResult, len(operations))
-	
+
 	// Use goroutines for parallel execution
 	var wg sync.WaitGroup
 	for i, op := range operations {
 		wg.Add(1)
 		go func(index int, operation OperationRequest) {
 			defer wg.Done()
-			
+
 			// Execute the operation
 			result, err := te.executeOperation(operation.Context, operation)
-			
+
 			results[index] = OperationResult{
 				Success: err == nil,
 				Data:    result,
@@ -2608,10 +2726,10 @@ func (te *ToolExecutor) ExecuteParallelOperations(ctx context.Context, operation
 			}
 		}(i, op)
 	}
-	
+
 	// Wait for all operations to complete
 	wg.Wait()
-	
+
 	duration := time.Since(startTime)
 	successCount := 0
 	for _, result := range results {
@@ -2619,14 +2737,14 @@ func (te *ToolExecutor) ExecuteParallelOperations(ctx context.Context, operation
 			successCount++
 		}
 	}
-	
+
 	log.Info().
 		Int("total_operations", len(operations)).
 		Int("successful_operations", successCount).
 		Dur("duration", duration).
 		Float64("avg_duration_per_op", float64(duration.Milliseconds())/float64(len(operations))).
 		Msg("Parallel operation execution completed")
-	
+
 	return results, nil
 }
 
@@ -2638,20 +2756,20 @@ func (te *ToolExecutor) executeOperation(ctx context.Context, op OperationReques
 		includeFormulas, _ := op.Input["include_formulas"].(bool)
 		includeFormatting, _ := op.Input["include_formatting"].(bool)
 		return te.excelBridge.ReadRange(ctx, op.SessionID, rangeAddr, includeFormulas, includeFormatting)
-		
+
 	case "analyze_data":
 		rangeAddr, _ := op.Input["range"].(string)
 		includeStats, _ := op.Input["include_stats"].(bool)
 		detectHeaders, _ := op.Input["detect_headers"].(bool)
 		return te.excelBridge.AnalyzeData(ctx, op.SessionID, rangeAddr, includeStats, detectHeaders)
-		
+
 	case "smart_format":
 		err := te.executeSmartFormatCells(ctx, op.SessionID, op.Input)
 		return map[string]interface{}{"success": err == nil}, err
-		
+
 	case "build_formula":
 		return te.executeBuildFinancialFormula(ctx, op.SessionID, op.Input)
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported parallel operation: %s", op.Operation)
 	}
@@ -2660,9 +2778,9 @@ func (te *ToolExecutor) executeOperation(ctx context.Context, op OperationReques
 // initializePerformanceOptimizations sets up performance features
 func (te *ToolExecutor) initializePerformanceOptimizations() {
 	te.modelDataCache = make(map[string]*CachedModelData)
-	te.parallelWorkers = 4 // Default worker count
+	te.parallelWorkers = 4                               // Default worker count
 	te.operationQueue = make(chan OperationRequest, 100) // Buffered queue
-	
+
 	log.Info().
 		Int("parallel_workers", te.parallelWorkers).
 		Int("queue_buffer", 100).
@@ -2680,7 +2798,7 @@ func (te *ToolExecutor) applyModelOrganization(ctx context.Context, sessionID st
 
 	for _, sectionInterface := range sections {
 		section := sectionInterface.(map[string]interface{})
-		
+
 		// Apply section header
 		if headerRange, ok := section["header_range"].(string); ok {
 			if headerText, ok := section["header_text"].(string); ok {
@@ -2697,18 +2815,18 @@ func (te *ToolExecutor) applyModelOrganization(ctx context.Context, sessionID st
 				if headerStyle == "title" {
 					formatStyle = "title_format"
 				}
-				
+
 				if formatData, ok := formatting[formatStyle].(map[string]interface{}); ok {
 					formatInput := map[string]interface{}{
-						"range": headerRange,
+						"range":      headerRange,
 						"style_type": headerStyle,
 					}
-					
+
 					// Add format properties
 					for key, value := range formatData {
 						formatInput[key] = value
 					}
-					
+
 					err = te.executeSmartFormatCells(ctx, sessionID, formatInput)
 					if err != nil {
 						log.Error().Err(err).Str("range", headerRange).Msg("Failed to format header")
@@ -2798,4 +2916,82 @@ func (te *ToolExecutor) estimateSectionSize(section string, modelType string) in
 	default:
 		return 10 // Default section size
 	}
+}
+
+// expandValuesToMatchRange expands a single value to fill the entire range
+// Similar to how Cursor auto-completes patterns
+func expandValuesToMatchRange(rangeAddr string, values [][]interface{}) ([][]interface{}, error) {
+	// Parse range to get dimensions
+	parts := strings.Split(rangeAddr, ":")
+	if len(parts) != 2 {
+		return values, nil // Single cell, no expansion needed
+	}
+
+	startCol, startRow, err := parseCell(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid start cell: %w", err)
+	}
+
+	endCol, endRow, err := parseCell(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid end cell: %w", err)
+	}
+
+	neededRows := endRow - startRow + 1
+	neededCols := endCol - startCol + 1
+
+	// If values is a single cell, expand it to fill the range
+	if len(values) == 1 && len(values[0]) == 1 {
+		expandedValues := make([][]interface{}, neededRows)
+		for i := 0; i < neededRows; i++ {
+			expandedValues[i] = make([]interface{}, neededCols)
+			for j := 0; j < neededCols; j++ {
+				expandedValues[i][j] = values[0][0]
+			}
+		}
+		return expandedValues, nil
+	}
+
+	// If dimensions already match, return as is
+	if len(values) == neededRows && len(values[0]) == neededCols {
+		return values, nil
+	}
+
+	return nil, fmt.Errorf("values dimensions (%dx%d) don't match range dimensions (%dx%d)",
+		len(values), len(values[0]), neededRows, neededCols)
+}
+
+// parseCell extracts column and row from a cell reference (e.g., "A1" -> 0, 0)
+func parseCell(cell string) (col, row int, err error) {
+	// Remove sheet reference if present
+	if idx := strings.Index(cell, "!"); idx >= 0 {
+		cell = cell[idx+1:]
+	}
+
+	// Extract column letters and row number
+	colStr := ""
+	rowStr := ""
+	for i, ch := range cell {
+		if ch >= 'A' && ch <= 'Z' {
+			colStr += string(ch)
+		} else if ch >= '0' && ch <= '9' {
+			rowStr = cell[i:]
+			break
+		}
+	}
+
+	// Convert column letters to number (A=0, B=1, etc.)
+	col = 0
+	for i := 0; i < len(colStr); i++ {
+		col = col*26 + int(colStr[i]-'A')
+	}
+
+	// Convert row string to number (1-based to 0-based)
+	row64, err := strconv.ParseInt(rowStr, 10, 32)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid row number: %s", rowStr)
+	}
+	row = int(row64) - 1
+
+	return col, row, nil
 }

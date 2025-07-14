@@ -6,6 +6,8 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gridmate/backend/internal/services/ai"
 )
@@ -15,6 +17,17 @@ type ContextBuilder struct {
 	bridge    ai.ExcelBridge
 	maxCells  int // Maximum cells to include in context
 	maxRanges int // Maximum number of ranges to analyze
+	// Cache for tracking cell changes
+	cellChangeTracker map[string]*CellChangeInfo
+	trackerMutex      sync.RWMutex
+}
+
+// CellChangeInfo tracks changes to individual cells
+type CellChangeInfo struct {
+	LastValue    interface{}
+	LastFormula  string
+	LastModified time.Time
+	ModifyCount  int
 }
 
 // NewContextBuilder creates a new context builder
@@ -23,11 +36,19 @@ func NewContextBuilder(bridge ai.ExcelBridge) *ContextBuilder {
 		bridge:    bridge,
 		maxCells:  1000, // Default max cells to prevent context overflow
 		maxRanges: 10,   // Default max ranges to analyze
+		cellChangeTracker: make(map[string]*CellChangeInfo),
 	}
 }
 
 // BuildContext builds comprehensive context from the current Excel state
-func (cb *ContextBuilder) BuildContext(ctx context.Context, sessionID string, selectedRange string) (*ai.FinancialContext, error) {
+// This overload is for the AI service interface
+func (cb *ContextBuilder) BuildContext(ctx context.Context, sessionID string) (*ai.FinancialContext, error) {
+	// Default to a reasonable range for context - can be enhanced later
+	return cb.BuildContextWithRange(ctx, sessionID, "A1:Z100")
+}
+
+// BuildContextWithRange builds comprehensive context from the current Excel state with specific range
+func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID string, selectedRange string) (*ai.FinancialContext, error) {
 	context := &ai.FinancialContext{
 		SelectedRange: selectedRange,
 		CellValues:    make(map[string]interface{}),
@@ -937,4 +958,210 @@ func (cb *ContextBuilder) findFirstDataCell(rangeInfo *RangeInfo, structure *ai.
 	
 	// Default to the start of the selected range
 	return getCellAddress(rangeInfo.StartRow, rangeInfo.StartCol)
+}
+
+// BuildIncrementalContext updates existing context with changes
+func (cb *ContextBuilder) BuildIncrementalContext(ctx context.Context, sessionID string, currentContext *ai.FinancialContext, changedCells []string) (*ai.FinancialContext, error) {
+	// If no current context, build from scratch
+	if currentContext == nil {
+		return cb.BuildContext(ctx, sessionID)
+	}
+
+	// Clone current context
+	newContext := &ai.FinancialContext{
+		WorkbookName:      currentContext.WorkbookName,
+		WorksheetName:     currentContext.WorksheetName,
+		SelectedRange:     currentContext.SelectedRange,
+		CellValues:        make(map[string]interface{}),
+		Formulas:          make(map[string]string),
+		ModelType:         currentContext.ModelType,
+		RecentChanges:     make([]ai.CellChange, 0),
+		DocumentContext:   currentContext.DocumentContext,
+		ModelStructure:    currentContext.ModelStructure,
+		PendingOperations: currentContext.PendingOperations,
+	}
+
+	// Copy existing values
+	for k, v := range currentContext.CellValues {
+		newContext.CellValues[k] = v
+	}
+	for k, v := range currentContext.Formulas {
+		newContext.Formulas[k] = v
+	}
+
+	// Update changed cells
+	for _, cellAddr := range changedCells {
+		if err := cb.updateCellInContext(ctx, sessionID, cellAddr, newContext); err != nil {
+			fmt.Printf("Warning: failed to update cell %s: %v\n", cellAddr, err)
+		}
+	}
+
+	// Track changes
+	cb.trackCellChanges(newContext, currentContext)
+
+	// Re-analyze if structure changed significantly
+	if cb.hasSignificantChanges(newContext.RecentChanges) {
+		if rangeInfo, err := parseRange(newContext.SelectedRange); err == nil {
+			cb.buildModelStructure(ctx, sessionID, rangeInfo, newContext)
+		}
+	}
+
+	return newContext, nil
+}
+
+// TrackCellChanges records changes between contexts
+func (cb *ContextBuilder) TrackCellChanges(newContext, oldContext *ai.FinancialContext) []ai.CellChange {
+	cb.trackerMutex.Lock()
+	defer cb.trackerMutex.Unlock()
+
+	changes := []ai.CellChange{}
+	now := time.Now()
+
+	// Check for value changes
+	for cellAddr, newValue := range newContext.CellValues {
+		oldValue, existed := oldContext.CellValues[cellAddr]
+		
+		if !existed || !valuesEqual(oldValue, newValue) {
+			change := ai.CellChange{
+				Address:   cellAddr,
+				OldValue:  oldValue,
+				NewValue:  newValue,
+				Timestamp: now,
+				Source:    "user",
+			}
+			changes = append(changes, change)
+
+			// Update tracker
+			if info, exists := cb.cellChangeTracker[cellAddr]; exists {
+				info.LastValue = newValue
+				info.LastModified = now
+				info.ModifyCount++
+			} else {
+				cb.cellChangeTracker[cellAddr] = &CellChangeInfo{
+					LastValue:    newValue,
+					LastModified: now,
+					ModifyCount:  1,
+				}
+			}
+		}
+	}
+
+	// Check for formula changes
+	for cellAddr, newFormula := range newContext.Formulas {
+		oldFormula, existed := oldContext.Formulas[cellAddr]
+		
+		if !existed || oldFormula != newFormula {
+			change := ai.CellChange{
+				Address:   cellAddr,
+				OldValue:  oldFormula,
+				NewValue:  newFormula,
+				Timestamp: now,
+				Source:    "formula",
+			}
+			changes = append(changes, change)
+
+			// Update tracker
+			if info, exists := cb.cellChangeTracker[cellAddr]; exists {
+				info.LastFormula = newFormula
+				info.LastModified = now
+				info.ModifyCount++
+			} else {
+				cb.cellChangeTracker[cellAddr] = &CellChangeInfo{
+					LastFormula:  newFormula,
+					LastModified: now,
+					ModifyCount:  1,
+				}
+			}
+		}
+	}
+
+	return changes
+}
+
+// GetPendingOperations returns a summary of pending operations
+func (cb *ContextBuilder) GetPendingOperations(registry interface{}, sessionID string) interface{} {
+	if registry == nil {
+		return nil
+	}
+
+	// Use type assertion to call GetOperationSummary
+	if r, ok := registry.(interface {
+		GetOperationSummary(context.Context, string) map[string]interface{}
+	}); ok {
+		return r.GetOperationSummary(context.Background(), sessionID)
+	}
+
+	return nil
+}
+
+// Helper methods for incremental context building
+
+func (cb *ContextBuilder) updateCellInContext(ctx context.Context, sessionID string, cellAddr string, context *ai.FinancialContext) error {
+	// Read single cell data
+	data, err := cb.bridge.ReadRange(ctx, sessionID, cellAddr, true, false)
+	if err != nil {
+		return err
+	}
+
+	if len(data.Values) > 0 && len(data.Values[0]) > 0 {
+		context.CellValues[cellAddr] = data.Values[0][0]
+	}
+
+	if data.Formulas != nil && len(data.Formulas) > 0 && len(data.Formulas[0]) > 0 {
+		if formulaStr, ok := data.Formulas[0][0].(string); ok && formulaStr != "" {
+			context.Formulas[cellAddr] = formulaStr
+		}
+	}
+
+	return nil
+}
+
+func (cb *ContextBuilder) trackCellChanges(newContext, oldContext *ai.FinancialContext) {
+	changes := cb.TrackCellChanges(newContext, oldContext)
+	
+	// Keep only recent changes (last 10)
+	newContext.RecentChanges = append(changes, oldContext.RecentChanges...)
+	if len(newContext.RecentChanges) > 10 {
+		newContext.RecentChanges = newContext.RecentChanges[:10]
+	}
+}
+
+func (cb *ContextBuilder) hasSignificantChanges(changes []ai.CellChange) bool {
+	// Consider changes significant if:
+	// - More than 5 cells changed
+	// - Any formula structure changed
+	// - Key financial cells changed
+	
+	if len(changes) > 5 {
+		return true
+	}
+
+	for _, change := range changes {
+		if change.Source == "formula" {
+			return true
+		}
+		// Check if it's a key financial cell (could be enhanced)
+		if strings.Contains(strings.ToLower(fmt.Sprintf("%v", change.OldValue)), "total") ||
+		   strings.Contains(strings.ToLower(fmt.Sprintf("%v", change.NewValue)), "total") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func valuesEqual(a, b interface{}) bool {
+	// Handle nil cases
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Convert to strings for comparison
+	aStr := fmt.Sprintf("%v", a)
+	bStr := fmt.Sprintf("%v", b)
+	
+	return aStr == bStr
 }

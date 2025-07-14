@@ -148,8 +148,9 @@ namespace GridmateSignalR.Hubs
             }
         }
 
-        // Handle tool responses from Excel add-in
-        public async Task SendToolResponse(string requestId, object result, string error = null, bool queued = false)
+        // Handle tool responses from Excel add-in (enhanced with detailed error info)
+        public async Task SendToolResponse(string requestId, object result, string error = null, 
+            bool queued = false, string errorDetails = null, Dictionary<string, object> metadata = null)
         {
             _logger.LogInformation($"Tool response for request {requestId}");
             
@@ -158,7 +159,11 @@ namespace GridmateSignalR.Hubs
             if (string.IsNullOrEmpty(sessionId))
             {
                 _logger.LogError("No session found for connection");
-                await Clients.Caller.SendAsync("error", "Session not found");
+                await Clients.Caller.SendAsync("error", new { 
+                    message = "Session not found",
+                    details = "Unable to find session for current connection",
+                    timestamp = DateTime.UtcNow
+                });
                 return;
             }
             
@@ -166,7 +171,7 @@ namespace GridmateSignalR.Hubs
             
             try
             {
-                // Forward to Go backend
+                // Forward to Go backend with enhanced error information
                 var httpClient = _httpClientFactory.CreateClient("GoBackend");
                 var response = await httpClient.PostAsJsonAsync("/api/tool-response", new
                 {
@@ -174,20 +179,32 @@ namespace GridmateSignalR.Hubs
                     requestId,
                     result,
                     error,
+                    errorDetails,
+                    metadata,
                     queued,
                     timestamp = DateTime.UtcNow
                 });
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogError($"Backend error: {response.StatusCode}");
-                    await Clients.Caller.SendAsync("error", $"Backend error: {response.StatusCode}");
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"Backend error: {response.StatusCode}, Content: {errorContent}");
+                    await Clients.Caller.SendAsync("error", new {
+                        message = $"Backend error: {response.StatusCode}",
+                        details = errorContent,
+                        timestamp = DateTime.UtcNow
+                    });
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error forwarding tool response");
-                await Clients.Caller.SendAsync("error", "Failed to send tool response");
+                await Clients.Caller.SendAsync("error", new {
+                    message = "Failed to send tool response",
+                    details = ex.Message,
+                    stackTrace = ex.StackTrace,
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
 

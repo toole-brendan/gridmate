@@ -20,6 +20,8 @@ type Service struct {
 	contextAnalyzer  *FinancialModelAnalyzer
 	toolOrchestrator *ToolOrchestrator
 	config           ServiceConfig
+	contextBuilder   interface{} // Will be set to excel.ContextBuilder
+	queuedOpsRegistry interface{} // Will be set to *services.QueuedOperationRegistry
 }
 
 // ServiceConfig holds configuration for the AI service
@@ -762,6 +764,17 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			ToolResults: toolResults,
 		}
 		messages = append(messages, toolResultMsg)
+		
+		// Refresh context after tool execution to get latest state
+		if context != nil {
+			refreshedContext, err := s.RefreshContext(ctx, sessionID, context)
+			if err == nil {
+				context = refreshedContext
+				log.Info().Msg("Context refreshed after tool execution")
+			} else {
+				log.Warn().Err(err).Msg("Failed to refresh context, continuing with existing")
+			}
+		}
 	}
 
 	return nil, fmt.Errorf("exceeded maximum rounds of tool use")
@@ -778,6 +791,54 @@ func (s *Service) SetAdvancedComponents(memoryService *FinancialMemoryService, c
 		Bool("context_analyzer", contextAnalyzer != nil).
 		Bool("tool_orchestrator", toolOrchestrator != nil).
 		Msg("Advanced AI components configured")
+}
+
+// SetContextBuilder sets the context builder for dynamic context refresh
+func (s *Service) SetContextBuilder(contextBuilder interface{}) {
+	s.contextBuilder = contextBuilder
+}
+
+// SetQueuedOperationRegistry sets the queued operation registry
+func (s *Service) SetQueuedOperationRegistry(registry interface{}) {
+	s.queuedOpsRegistry = registry
+}
+
+// RefreshContext refreshes the financial context with latest data and pending operations
+func (s *Service) RefreshContext(ctx context.Context, sessionID string, currentContext *FinancialContext) (*FinancialContext, error) {
+	// If no context builder, return current context
+	if s.contextBuilder == nil {
+		return currentContext, nil
+	}
+	
+	// Use type assertion to call BuildContext method
+	if builder, ok := s.contextBuilder.(interface {
+		BuildContext(context.Context, string) (*FinancialContext, error)
+	}); ok {
+		// Get fresh context
+		newContext, err := builder.BuildContext(ctx, sessionID)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to refresh context")
+			return currentContext, err
+		}
+		
+		// Add pending operations if registry is available
+		if s.queuedOpsRegistry != nil {
+			if registry, ok := s.queuedOpsRegistry.(interface {
+				GetOperationSummary(context.Context, string) map[string]interface{}
+			}); ok {
+				newContext.PendingOperations = registry.GetOperationSummary(ctx, sessionID)
+			}
+		}
+		
+		log.Info().
+			Str("session_id", sessionID).
+			Bool("has_pending_ops", newContext.PendingOperations != nil).
+			Msg("Context refreshed successfully")
+			
+		return newContext, nil
+	}
+	
+	return currentContext, nil
 }
 
 // ProcessIntelligentChatMessage processes a chat message using advanced AI components

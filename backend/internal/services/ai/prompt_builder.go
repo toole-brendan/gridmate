@@ -133,6 +133,11 @@ func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 		parts = append(parts, pb.buildDocumentContextSection(context.DocumentContext))
 	}
 
+	// Pending operations - if any exist
+	if context.PendingOperations != nil {
+		parts = append(parts, pb.buildPendingOperationsSection(context.PendingOperations))
+	}
+
 	return strings.Join(parts, "\n")
 }
 
@@ -232,6 +237,26 @@ func (pb *PromptBuilder) buildDocumentContextSection(docs []string) string {
 	return strings.Join(parts, "\n")
 }
 
+// buildPendingOperationsSection builds the pending operations section
+func (pb *PromptBuilder) buildPendingOperationsSection(pendingOps interface{}) string {
+	// Type assertion to handle the interface
+	if ops, ok := pendingOps.(map[string]interface{}); ok {
+		if pendingCount, ok := ops["pending_count"].(int); ok && pendingCount > 0 {
+			parts := []string{fmt.Sprintf("Pending Operations (%d queued):", pendingCount)}
+			
+			if pendingList, ok := ops["pending_operations"].([]string); ok {
+				for i, op := range pendingList {
+					parts = append(parts, fmt.Sprintf("  %d. %s", i+1, op))
+				}
+			}
+			
+			return strings.Join(parts, "\n")
+		}
+	}
+	
+	return ""
+}
+
 // getFinancialModelingSystemPrompt returns the enhanced system prompt for financial modeling
 func getFinancialModelingSystemPrompt() string {
 	return `You are Gridmate, an AI assistant specialized in financial modeling and Excel/Google Sheets analysis, powered by Claude Sonnet 4.
@@ -266,6 +291,24 @@ CRITICAL: For maximum efficiency in financial model analysis, execute multiple t
 - Build multiple charts AND format ranges AND create audit trail in parallel
 
 DEFAULT TO PARALLEL: Unless operations must be sequential (output of A required for B), execute multiple tools simultaneously for 3-5x faster analysis.
+
+## Handling Queued Operations
+IMPORTANT: When using tools that modify Excel data (write_range, apply_formula, format_range), understand that:
+
+1. **Queued Status**: If a tool returns status "queued", it means the operation is pending user approval
+   - This is NOT an error - it's a safety feature for financial accuracy
+   - Do NOT retry queued operations - they are already waiting for approval
+   - Continue with other tasks or analysis while waiting
+
+2. **Response to Queued Operations**:
+   - Acknowledge that the operation is queued for approval
+   - Continue planning next steps without depending on the queued operation
+   - Offer to perform read-only analysis or other non-modifying operations
+   - When multiple operations are queued, summarize them for the user
+
+3. **Example Handling**:
+   - Tool returns: {"status": "queued", "message": "Write range operation queued for user approval"}
+   - Your response: "I've queued the write operation for cells A1:D10. This requires your approval before executing. While waiting, I can analyze other parts of the model or answer questions."
 
 ## Comprehensive Financial Context Gathering
 Before making ANY changes to a financial model:

@@ -29,7 +29,8 @@
       "Bash(az postgres flexible-server firewall-rule create:*)",
       "Bash(az postgres flexible-server update:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(go run:*)"
     ],
     "deny": []
   }

@@ -90,11 +90,11 @@ type ModelValidationRequest struct {
 	ModelType string
 	Formulas  map[string]string // Cell reference to formula
 	Checks    []string          // Specific validation checks requested
-	Ranges    []CellRange
+	Ranges    []ValidationRange
 }
 
-// CellRange represents a range of cells
-type CellRange struct {
+// ValidationRange represents a range of cells for validation
+type ValidationRange struct {
 	Sheet     string
 	StartCell string
 	EndCell   string
@@ -167,14 +167,14 @@ type TemplateGenerationRequest struct {
 
 // TemplateGenerationResponse contains the generated template structure
 type TemplateGenerationResponse struct {
-	Structure    ModelStructure
+	Structure    ModelTemplate
 	Instructions []StepInstruction
 	Formulas     map[string]FormulaDefinition
 	BestPractices []string
 }
 
-// ModelStructure defines the structure of a financial model
-type ModelStructure struct {
+// ModelTemplate defines the structure of a financial model template
+type ModelTemplate struct {
 	Sheets       []SheetDefinition
 	NamedRanges  []NamedRange
 	Assumptions  []AssumptionInput

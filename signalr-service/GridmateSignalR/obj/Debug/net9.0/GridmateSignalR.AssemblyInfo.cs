@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("GridmateSignalR")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+edfd705350dbdd6215ed750e5c5dae737f399a1b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f00e123fe55788568babd4a17b12e3ece2ad680d")]
 [assembly: System.Reflection.AssemblyProductAttribute("GridmateSignalR")]
 [assembly: System.Reflection.AssemblyTitleAttribute("GridmateSignalR")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

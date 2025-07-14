@@ -578,19 +578,41 @@ export class ExcelService {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
       const excelRange = worksheet.getRange(range)
       
-      if (relative_references) {
-        // Apply formula with relative references
-        excelRange.formulas = [[formula]]
-      } else {
-        // Apply formula to all cells
-        excelRange.formulas = [[formula]]
-      }
-      
+      // Load range properties to determine size
+      excelRange.load(['rowCount', 'columnCount', 'address'])
       await context.sync()
       
-      return {
-        message: 'Formula applied successfully',
-        status: 'success'
+      console.log(`🔧 Applying formula "${formula}" to range ${excelRange.address} (${excelRange.rowCount}x${excelRange.columnCount})`)
+      
+      try {
+        if (relative_references && (excelRange.rowCount > 1 || excelRange.columnCount > 1)) {
+          // For ranges with relative references, use .formula property
+          // This allows Excel to auto-adjust references for each cell
+          console.log(`📐 Using relative references for multi-cell range`)
+          excelRange.formula = formula
+        } else {
+          // For single cells or absolute references, use formulas array
+          const formulaArray = Array(excelRange.rowCount).fill(null).map(() => 
+            Array(excelRange.columnCount).fill(formula)
+          )
+          console.log(`📊 Using formula array for ${excelRange.rowCount}x${excelRange.columnCount} range`)
+          excelRange.formulas = formulaArray
+        }
+        
+        await context.sync()
+        
+        console.log(`✅ Formula applied successfully to ${excelRange.address}`)
+        
+        return {
+          message: 'Formula applied successfully',
+          status: 'success',
+          range: excelRange.address,
+          formula_applied: formula,
+          cells_affected: excelRange.rowCount * excelRange.columnCount
+        }
+      } catch (error) {
+        console.error('❌ Formula application error:', error)
+        throw new Error(`Failed to apply formula "${formula}" to range "${range}": ${error.message}`)
       }
     })
   }

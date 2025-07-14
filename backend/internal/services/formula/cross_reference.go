@@ -249,14 +249,19 @@ func (fi *FormulaIntelligence) checkCrossSheetReferences(result *CrossReferenceR
 
 // checkNamedRanges checks for named range usage
 func (fi *FormulaIntelligence) checkNamedRanges(formula string, result *CrossReferenceResult, sheetContext map[string]interface{}) {
-	// Look for potential named ranges (uppercase words not followed by parentheses)
-	namedRangePattern := regexp.MustCompile(`\b([A-Z_][A-Z0-9_]+)\b(?!\s*\()`)
+	// Look for potential named ranges (uppercase words)
+	namedRangePattern := regexp.MustCompile(`\b([A-Z_][A-Z0-9_]+)\b`)
 	matches := namedRangePattern.FindAllStringSubmatch(formula, -1)
 	
 	for _, match := range matches {
 		potentialName := match[1]
 		// Skip if it's a cell reference
 		if isCellReference(potentialName) {
+			continue
+		}
+		
+		// Skip if it's a function (check if followed by parentheses in original formula)
+		if isExcelFunction(potentialName, formula) {
 			continue
 		}
 		
@@ -313,4 +318,28 @@ func parseCell(cell string) (col int, row int) {
 func isCellReference(str string) bool {
 	cellPattern := regexp.MustCompile(`^[A-Z]+\d+$`)
 	return cellPattern.MatchString(str)
+}
+
+// isExcelFunction checks if a potential name is actually an Excel function
+func isExcelFunction(name, formula string) bool {
+	// Common Excel functions that might appear in formulas
+	functions := []string{
+		"IF", "OR", "AND", "NOT", "SUM", "AVERAGE", "COUNT", "MAX", "MIN",
+		"VLOOKUP", "HLOOKUP", "INDEX", "MATCH", "IFERROR", "ISERROR", "ISNA",
+		"ABS", "ROUND", "ROUNDUP", "ROUNDDOWN", "INT", "MOD", "POWER", "SQRT",
+		"LEFT", "RIGHT", "MID", "LEN", "FIND", "SEARCH", "SUBSTITUTE", "TRIM",
+		"UPPER", "LOWER", "PROPER", "CONCATENATE", "TEXT", "VALUE", "DATEVALUE",
+		"YEAR", "MONTH", "DAY", "TODAY", "NOW", "WEEKDAY", "EOMONTH", "WORKDAY",
+		"NPV", "IRR", "XIRR", "PMT", "PV", "FV", "RATE", "NPER",
+	}
+	
+	for _, fn := range functions {
+		if name == fn {
+			// Additional check: see if it's followed by parentheses in the formula
+			functionPattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\s*\(`)
+			return functionPattern.MatchString(formula)
+		}
+	}
+	
+	return false
 }

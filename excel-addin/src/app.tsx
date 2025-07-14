@@ -1,6 +1,7 @@
 import ReactDOM from 'react-dom/client'
 import { ChatInterfaceWrapper } from './components/chat/ChatInterfaceWrapper'
 import './styles/index.css'
+import './styles/cursor-theme.css'
 
 // Office.js initialization
 declare const Office: any

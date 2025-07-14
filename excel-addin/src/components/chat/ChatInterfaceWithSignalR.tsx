@@ -4,7 +4,8 @@ import { ChatInterface } from './ChatInterface'
 import { ChatMessage } from '../../types/chat'
 import { SignalRClient } from '../../services/signalr/SignalRClient'
 import { PendingAction } from './ActionPreview'
-import { PendingActionsPanel } from './PendingActionsPanel'
+import { EnhancedPendingActionsPanel } from './EnhancedPendingActionsPanel'
+import { useOperationQueue } from '../../hooks/useOperationQueue'
 import { ExcelService } from '../../services/excel/ExcelService'
 import { AutonomyMode } from './AutonomyModeSelector'
 import { CompactAutonomySelector } from './CompactAutonomySelector'
@@ -27,6 +28,31 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const [toolError, setToolError] = useState<string>('')
   // const [signalRLog, setSignalRLog] = useState<string[]>([])
   const [aiIsGenerating, setAiIsGenerating] = useState(false)
+  
+  // Initialize operation queue hook
+  const { 
+    queue,
+    summary,
+    approveAllInOrder, 
+    dependencies,
+    undoStack,
+    redoStack,
+    updateFromBackendSummary 
+  } = useOperationQueue(sessionIdRef.current)
+  
+  // Convert ActionPreview.PendingAction to operations.PendingAction
+  const convertToOperationsPendingAction = (actions: PendingAction[]): import('../../types/operations').PendingAction[] => {
+    return actions.map(action => ({
+      id: action.id,
+      type: action.toolName,
+      description: action.description,
+      input: action.parameters || {},
+      status: action.status === 'executing' ? 'pending' : (action.status || 'pending'),
+      createdAt: action.timestamp.toISOString(),
+      canApprove: action.status === 'pending' || action.status === undefined,
+      error: action.error
+    }));
+  }
   
   // Autonomy mode state - load from localStorage
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => {
@@ -149,6 +175,10 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       
       if (data.type === 'ai_response') {
         handleAIResponse(data.data)
+      }
+      
+      if (data.type === 'pending_operations') {
+        updateFromBackendSummary(data.data)
       }
     })
 
@@ -707,6 +737,33 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     
     setPendingActions([])
   }
+  
+  // Handle approve all in order
+  const handleApproveAllInOrder = async () => {
+    await approveAllInOrder(queue, async (actionId) => {
+      await handleActionApprove(actionId);
+    });
+  };
+
+  // Handle undo
+  const handleUndo = async () => {
+    if (signalRClient.current) {
+      await signalRClient.current.send({
+        type: 'undoLastOperation',
+        data: { sessionId: sessionIdRef.current }
+      });
+    }
+  };
+
+  // Handle redo
+  const handleRedo = async () => {
+    if (signalRClient.current) {
+      await signalRClient.current.send({
+        type: 'redoLastOperation',
+        data: { sessionId: sessionIdRef.current }
+      });
+    }
+  };
 
   // const _testSignalR = async () => {
   //   if (signalRClient.current?.isConnected()) {
@@ -740,15 +797,19 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Pending Actions */}
-      {pendingActions.length > 0 && (
-        <PendingActionsPanel
-          actions={pendingActions}
+      {(pendingActions.length > 0 || queue.length > 0) && (
+        <EnhancedPendingActionsPanel
+          actions={queue.length > 0 ? queue : convertToOperationsPendingAction(pendingActions)}
+          summary={summary || { counts: {}, pending: [], total: 0, has_blocked: false, batches: [] }}
+          onApprove={handleActionApprove}
+          onReject={handleActionReject}
           onApproveAll={handleApproveAll}
-          onRejectAll={handleRejectAll}
-          onApproveOne={handleActionApprove}
-          onRejectOne={handleActionReject}
-          isProcessing={isProcessingAction}
-          aiIsGenerating={aiIsGenerating}
+          onApproveAllInOrder={handleApproveAllInOrder}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          dependencies={dependencies}
+          hasUndo={undoStack.length > 0}
+          hasRedo={redoStack.length > 0}
         />
       )}
       

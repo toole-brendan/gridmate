@@ -1,22 +1,3 @@
-# Cursor-Style UI Implementation Guide
-
-## Overview
-This guide details the frontend implementation for Cursor-inspired UI features in the Excel add-in, focusing on the "Approve All in Order" functionality and intelligent operation management.
-
-## Task List
-### UI Enhancements
-- [x] Update PendingActionsPanel with dependency visualization
-- [x] Add "Approve All in Order" functionality
-- [x] Implement operation preview UI
-- [x] Add undo/redo buttons
-- [x] Display operation counts and status summary
-- [x] Show batch completion progress
-
-## 1. Enhanced Pending Actions Panel
-
-### File: `excel-addin/src/components/chat/PendingActionsPanel.tsx`
-
-```tsx
 import React, { useState, useMemo } from 'react';
 import { PendingAction, OperationSummary } from '../../types/operations';
 
@@ -95,6 +76,18 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
       'undo_format_range': 'Undo Format',
     };
     return typeMap[type] || type;
+  };
+
+  const toggleBatch = (batchId: string) => {
+    setExpandedBatches(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(batchId)) {
+        newSet.delete(batchId);
+      } else {
+        newSet.add(batchId);
+      }
+      return newSet;
+    });
   };
 
   return (
@@ -299,135 +292,61 @@ const OperationCard: React.FC<{
     </div>
   );
 };
-```
 
-## 2. Approve All in Order Implementation
-
-### File: `excel-addin/src/hooks/useOperationQueue.ts`
-
-```typescript
-import { useState, useCallback, useEffect } from 'react';
-import { PendingAction, OperationSummary } from '../types/operations';
-
-export const useOperationQueue = (sessionId: string) => {
-  const [queue, setQueue] = useState<PendingAction[]>([]);
-  const [summary, setSummary] = useState<OperationSummary | null>(null);
-  const [dependencies, setDependencies] = useState<Record<string, string[]>>({});
-  const [processing, setProcessing] = useState(false);
-  const [undoStack, setUndoStack] = useState<string[]>([]);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
-
-  // Update from backend operation summary
-  const updateFromBackendSummary = useCallback((backendSummary: any) => {
-    const pendingOps: PendingAction[] = backendSummary.pending?.map((op: any) => ({
-      id: op.id,
-      type: op.type,
-      description: op.preview || op.description,
-      preview: op.preview,
-      input: op.input || {},
-      status: op.status === 'queued' ? 'pending' : op.status,
-      canApprove: op.can_approve,
-      dependencies: op.dependencies || [],
-      batchId: op.batch_id,
-      priority: op.priority,
-      context: op.context,
-      createdAt: new Date().toISOString(),
-    })) || [];
-
-    setQueue(pendingOps);
-    setSummary({
-      counts: backendSummary.counts || {},
-      pending: pendingOps,
-      total: backendSummary.total || pendingOps.length,
-      has_blocked: backendSummary.has_blocked || false,
-      batches: backendSummary.batches || [],
-    });
-
-    // Build dependencies map
-    const depMap: Record<string, string[]> = {};
-    pendingOps.forEach(op => {
-      if (op.dependencies && op.dependencies.length > 0) {
-        depMap[op.id] = op.dependencies;
-      }
-    });
-    setDependencies(depMap);
-  }, []);
-
-  // Get execution order based on dependencies and can_approve flags
-  const getExecutionOrder = useCallback((actions: PendingAction[]): string[] => {
-    // Simply filter and sort by those that can be approved
-    const approvable = actions.filter(a => a.canApprove);
-    
-    // Sort by priority (higher first) and batch grouping
-    approvable.sort((a, b) => {
-      // Group by batch first
-      if (a.batchId && b.batchId && a.batchId === b.batchId) {
-        // Within same batch, use original order
-        return 0;
-      }
-      // Then by priority
-      return (b.priority || 0) - (a.priority || 0);
-    });
-
-    return approvable.map(a => a.id);
-  }, []);
-
-  // Approve all operations in order
-  const approveAllInOrder = useCallback(async (
-    actions: PendingAction[],
-    onApprove: (id: string) => Promise<void>
-  ) => {
-    setProcessing(true);
-    const order = getExecutionOrder(actions);
-    
-    console.log('Approving operations in order:', order);
-    
-    for (const actionId of order) {
-      try {
-        await onApprove(actionId);
-        // Add small delay for UI feedback
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error(`Failed to approve action ${actionId}:`, error);
-        // Continue with next operations even if one fails
-      }
-    }
-    
-    setProcessing(false);
-  }, [getExecutionOrder]);
-
-  return {
-    queue,
-    summary,
-    dependencies,
-    processing,
-    undoStack,
-    redoStack,
-    approveAllInOrder,
-    getExecutionOrder,
-    updateFromBackendSummary,
-  };
+// Batched Operations Component
+const BatchedOperations: React.FC<{
+  batchId: string;
+  actions: PendingAction[];
+  expanded: boolean;
+  onToggle: () => void;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  canApprove: (id: string) => boolean;
+  getStatusIcon: (action: PendingAction) => string;
+  getOperationTypeDisplay: (type: string) => string;
+}> = ({ batchId, actions, expanded, onToggle, onApprove, onReject, canApprove, getStatusIcon, getOperationTypeDisplay }) => {
+  return (
+    <div className="batch-group mb-4">
+      <button
+        onClick={onToggle}
+        className="w-full text-left p-2 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors"
+      >
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-sm flex items-center gap-2">
+            <span>{expanded ? '▼' : '▶'}</span>
+            🔗 Batch: {batchId.slice(0, 8)}...
+            <span className="text-xs text-gray-600">({actions.length} operations)</span>
+          </span>
+          <span className="text-xs text-blue-600">
+            {actions.filter(a => canApprove(a.id)).length}/{actions.length} ready
+          </span>
+        </div>
+      </button>
+      
+      {expanded && (
+        <div className="mt-2 space-y-2 pl-4">
+          {actions.map((action, index) => (
+            <OperationCard
+              key={action.id}
+              action={action}
+              canApprove={canApprove(action.id)}
+              statusIcon={getStatusIcon(action)}
+              operationTypeDisplay={getOperationTypeDisplay(action.type)}
+              onApprove={() => onApprove(action.id)}
+              onReject={() => onReject(action.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
-```
 
-## 3. Visual Dependency Graph
-
-### File: `excel-addin/src/components/chat/DependencyGraph.tsx`
-
-```tsx
-import React from 'react';
-import { PendingAction } from '../../types/operations';
-
-interface DependencyGraphProps {
+// Dependency Graph Component
+const DependencyGraph: React.FC<{
   actions: PendingAction[];
   dependencies: Record<string, string[]>;
-}
-
-export const DependencyGraph: React.FC<DependencyGraphProps> = ({
-  actions,
-  dependencies,
-}) => {
-  // Simple ASCII-art style dependency visualization
+}> = ({ actions, dependencies }) => {
   const renderGraph = () => {
     const actionMap = new Map(actions.map(a => [a.id, a]));
     const lines: string[] = [];
@@ -472,247 +391,4 @@ export const DependencyGraph: React.FC<DependencyGraphProps> = ({
       )}
     </div>
   );
-};
-```
-
-## 4. Integration with ChatInterface
-
-### File: `excel-addin/src/components/chat/ChatInterfaceWithSignalR.tsx`
-
-Update the existing component to use the new enhanced panel:
-
-```tsx
-// Add to imports
-import { EnhancedPendingActionsPanel } from './EnhancedPendingActionsPanel';
-import { useOperationQueue } from '../../hooks/useOperationQueue';
-
-// Inside component
-const { 
-  queue,
-  summary,
-  approveAllInOrder, 
-  dependencies,
-  undoStack,
-  redoStack,
-  updateFromBackendSummary 
-} = useOperationQueue(sessionId);
-
-// Update pending actions when receiving from backend
-useEffect(() => {
-  signalRClient.on('pendingOperations', (operationSummary: any) => {
-    updateFromBackendSummary(operationSummary);
-  });
-}, [signalRClient, updateFromBackendSummary]);
-
-// Handle approve all in order
-const handleApproveAllInOrder = async () => {
-  await approveAllInOrder(queue, async (actionId) => {
-    await handleActionApproval(actionId);
-  });
-};
-
-// Handle undo/redo
-const handleUndo = async () => {
-  await signalRClient.send('undoLastOperation', { sessionId });
-};
-
-const handleRedo = async () => {
-  await signalRClient.send('redoLastOperation', { sessionId });
-};
-
-// Replace existing PendingActionsPanel with:
-<EnhancedPendingActionsPanel
-  actions={queue}
-  summary={summary || { counts: {}, pending: [], total: 0, has_blocked: false, batches: [] }}
-  onApprove={handleActionApproval}
-  onReject={handleActionRejection}
-  onApproveAll={handleApproveAll}
-  onApproveAllInOrder={handleApproveAllInOrder}
-  onUndo={handleUndo}
-  onRedo={handleRedo}
-  dependencies={dependencies}
-  hasUndo={undoStack.length > 0}
-  hasRedo={redoStack.length > 0}
-/>
-```
-
-## 5. Type Definitions
-
-### File: `excel-addin/src/types/operations.ts`
-
-```typescript
-export interface PendingAction {
-  id: string;
-  type: string;
-  description: string;
-  input: Record<string, any>;
-  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'failed' | 'cancelled';
-  createdAt: string;
-  completedAt?: string;
-  batchId?: string;
-  dependencies?: string[];
-  priority?: number;
-  preview?: string;
-  context?: string;
-  canApprove?: boolean; // From backend's CanExecute check
-  error?: string; // Error message if failed
-  result?: any; // Result of completed operation
-}
-
-export interface OperationBatch {
-  id: string;
-  size: number;
-  ready_count: number;
-  can_approve_all: boolean;
-}
-
-export interface OperationSummary {
-  counts: {
-    queued?: number;
-    in_progress?: number;
-    completed?: number;
-    failed?: number;
-    cancelled?: number;
-  };
-  pending: PendingAction[];
-  total: number;
-  has_blocked: boolean;
-  batches?: OperationBatch[];
-}
-
-export interface OperationDependency {
-  from: string;
-  to: string;
-  type: 'requires' | 'blocks' | 'related';
-}
-
-// Backend operation status enum
-export enum OperationStatus {
-  Queued = 'queued',
-  InProgress = 'in_progress',
-  Completed = 'completed',
-  Failed = 'failed',
-  Cancelled = 'cancelled',
-}
-```
-
-## 6. Styling for Cursor-like Experience
-
-### File: `excel-addin/src/styles/cursor-theme.css`
-
-```css
-/* Cursor-inspired theme */
-.pending-actions-panel {
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  background: linear-gradient(to bottom, #f8f9fa, #f3f4f6);
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-.operation-card {
-  transition: all 0.15s ease;
-  border: 1px solid #e5e7eb;
-}
-
-.operation-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-/* Batch grouping visual */
-.batch-group {
-  position: relative;
-  padding-left: 12px;
-  margin-bottom: 8px;
-}
-
-.batch-group::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: #3b82f6;
-  border-radius: 2px;
-}
-
-/* Status indicators */
-.status-waiting { color: #f59e0b; }
-.status-ready { color: #10b981; }
-.status-error { color: #ef4444; }
-.status-batch { color: #3b82f6; }
-
-/* Undo/Redo buttons */
-button[title*="Undo"], button[title*="Redo"] {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-weight: bold;
-}
-
-/* Operation type badges */
-.operation-type-badge {
-  font-size: 0.7rem;
-  padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
-  font-weight: 500;
-}
-
-.operation-type-write { background: #dbeafe; color: #1e40af; }
-.operation-type-formula { background: #d1fae5; color: #065f46; }
-.operation-type-format { background: #fef3c7; color: #92400e; }
-.operation-type-undo { background: #e0e7ff; color: #4338ca; }
-
-/* Smooth animations */
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.operation-card {
-  animation: slideIn 0.3s ease;
-}
-
-/* Progress indicator for batch operations */
-.batch-progress {
-  height: 3px;
-  background: #e5e7eb;
-  border-radius: 2px;
-  overflow: hidden;
-  margin-top: 4px;
-}
-
-.batch-progress-bar {
-  height: 100%;
-  background: #3b82f6;
-  transition: width 0.3s ease;
-}
-```
-
-## Implementation Benefits
-
-1. **Clear Visual Hierarchy**: Users can immediately see which operations can be approved
-2. **Batch Awareness**: Related operations are grouped visually
-3. **Dependency Clarity**: Clear indication of why operations are waiting
-4. **One-Click Approval**: "Approve All in Order" handles complex sequences
-5. **Preview Capability**: Users can see what will happen before approving
-6. **Responsive Feedback**: Smooth animations and status updates
-7. **Undo/Redo Support**: Easy reversal of operations
-8. **Backend Alignment**: Properly uses backend's operation summary and status flags
-
-## Testing Checklist
-
-- [ ] Test with complex dependency chains
-- [ ] Verify batch grouping works correctly
-- [ ] Ensure "Approve All in Order" respects dependencies
-- [ ] Test error handling when operations fail
-- [ ] Verify UI updates in real-time from backend summary
-- [ ] Test with 50+ pending operations for performance 
-- [ ] Verify undo/redo functionality works
-- [ ] Test operation status transitions (queued → in_progress → completed)
-- [ ] Ensure proper handling of cancelled operations due to failed dependencies 
+}; 

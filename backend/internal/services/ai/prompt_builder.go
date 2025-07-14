@@ -17,6 +17,11 @@ func NewPromptBuilder() *PromptBuilder {
 	}
 }
 
+// GetFinancialSystemPrompt returns the financial modeling system prompt
+func (pb *PromptBuilder) GetFinancialSystemPrompt() string {
+	return pb.systemPrompt
+}
+
 // BuildChatPrompt builds a prompt for chat interactions
 func (pb *PromptBuilder) BuildChatPrompt(userMessage string, context *FinancialContext) []Message {
 	messages := []Message{

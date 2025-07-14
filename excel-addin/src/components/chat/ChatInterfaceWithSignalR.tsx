@@ -251,13 +251,24 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       // Collect Excel context before sending
       let excelContext = null
       try {
-        const context = await ExcelService.getInstance().getContext()
+        // Get comprehensive context with smart loading
+        const comprehensiveContext = await ExcelService.getInstance().getSmartContext()
+        
         excelContext = {
-          worksheet: context.worksheet || 'Sheet1',
-          selection: context.selectedRange || '',
-          workbook: context.workbook || 'Workbook'
+          worksheet: comprehensiveContext.worksheet || 'Sheet1',
+          selection: comprehensiveContext.selectedRange || '',
+          workbook: comprehensiveContext.workbook || 'Workbook',
+          // Include actual cell data
+          selectedData: comprehensiveContext.selectedData,
+          nearbyData: comprehensiveContext.nearbyData
         }
-        console.log('📊 Collected Excel context:', excelContext)
+        
+        console.log('📊 Collected comprehensive Excel context:', {
+          worksheet: excelContext.worksheet,
+          selection: excelContext.selection,
+          selectedCells: excelContext.selectedData?.rowCount * excelContext.selectedData?.colCount || 0,
+          nearbyCells: excelContext.nearbyData?.rowCount * excelContext.nearbyData?.colCount || 0
+        })
       } catch (contextError) {
         console.warn('Failed to collect Excel context:', contextError)
         // Continue without context rather than failing completely

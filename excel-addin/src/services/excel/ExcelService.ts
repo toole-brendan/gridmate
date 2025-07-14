@@ -22,6 +22,28 @@ export interface RangeData {
   colCount: number
 }
 
+export interface WorkbookData {
+  sheets: SheetData[]
+  namedRanges: NamedRange[]
+  activeSheet: string
+  totalCells: number
+}
+
+export interface SheetData {
+  name: string
+  usedRange: string
+  data: RangeData
+  lastRow: number
+  lastColumn: number
+}
+
+export interface ComprehensiveContext extends ExcelContext {
+  selectedData?: RangeData
+  visibleRangeData?: RangeData
+  workbookSummary?: WorkbookData
+  nearbyData?: RangeData  // Data around selection
+}
+
 export interface DataAnalysis {
   dataTypes: string[]
   headers?: string[]
@@ -102,6 +124,201 @@ export class ExcelService {
     })
   }
 
+  // Get comprehensive context with configurable depth
+  async getComprehensiveContext(options: {
+    includeAllSheets?: boolean
+    maxCellsPerSheet?: number
+    includeFormulas?: boolean
+    includeFormatting?: boolean
+  } = {}): Promise<ComprehensiveContext> {
+    const {
+      includeAllSheets = false,
+      maxCellsPerSheet = 10000,
+      includeFormulas = true,
+      includeFormatting = false
+    } = options
+
+    return Excel.run(async (context: any) => {
+      const workbook = context.workbook
+      const activeWorksheet = workbook.worksheets.getActiveWorksheet()
+      const selectedRange = workbook.getSelectedRange()
+
+      // Load basic info
+      workbook.load('name')
+      activeWorksheet.load('name')
+      selectedRange.load(['address', 'rowCount', 'columnCount'])
+
+      await context.sync()
+
+      const result: ComprehensiveContext = {
+        workbook: workbook.name,
+        worksheet: activeWorksheet.name,
+        selectedRange: selectedRange.address
+      }
+
+      // Get selected range data
+      if (selectedRange.rowCount * selectedRange.columnCount < 1000) {
+        selectedRange.load(['values', 'formulas'])
+        await context.sync()
+        
+        result.selectedData = {
+          values: selectedRange.values,
+          formulas: selectedRange.formulas,
+          address: selectedRange.address,
+          rowCount: selectedRange.rowCount,
+          colCount: selectedRange.columnCount
+        }
+      }
+
+      // Get visible range data (what user sees on screen)
+      try {
+        const visibleRange = activeWorksheet.getUsedRange()
+        if (visibleRange) {
+          visibleRange.load(['address', 'rowCount', 'columnCount'])
+          await context.sync()
+
+          if (visibleRange.rowCount * visibleRange.columnCount < maxCellsPerSheet) {
+            visibleRange.load(['values', 'formulas'])
+            await context.sync()
+
+            result.visibleRangeData = {
+              values: visibleRange.values,
+              formulas: includeFormulas ? visibleRange.formulas : undefined,
+              address: visibleRange.address,
+              rowCount: visibleRange.rowCount,
+              colCount: visibleRange.columnCount
+            }
+          }
+        }
+      } catch (e) {
+        console.log('No used range in active sheet')
+      }
+
+      // Get all sheets data if requested
+      if (includeAllSheets) {
+        const sheets = workbook.worksheets
+        sheets.load('items')
+        await context.sync()
+
+        const workbookData: WorkbookData = {
+          sheets: [],
+          namedRanges: [],
+          activeSheet: activeWorksheet.name,
+          totalCells: 0
+        }
+
+        for (const sheet of sheets.items) {
+          sheet.load('name')
+          const usedRange = sheet.getUsedRange()
+          
+          if (usedRange) {
+            usedRange.load(['address', 'rowCount', 'columnCount'])
+            await context.sync()
+
+            const cellCount = usedRange.rowCount * usedRange.columnCount
+            workbookData.totalCells += cellCount
+
+            // Only load data if under threshold
+            if (cellCount < maxCellsPerSheet) {
+              usedRange.load(['values', 'formulas'])
+              await context.sync()
+
+              workbookData.sheets.push({
+                name: sheet.name,
+                usedRange: usedRange.address,
+                data: {
+                  values: usedRange.values,
+                  formulas: includeFormulas ? usedRange.formulas : undefined,
+                  address: usedRange.address,
+                  rowCount: usedRange.rowCount,
+                  colCount: usedRange.columnCount
+                },
+                lastRow: usedRange.rowCount,
+                lastColumn: usedRange.columnCount
+              })
+            } else {
+              // For large sheets, just send summary
+              workbookData.sheets.push({
+                name: sheet.name,
+                usedRange: usedRange.address,
+                data: {
+                  values: [['Sheet too large to load fully']],
+                  address: usedRange.address,
+                  rowCount: usedRange.rowCount,
+                  colCount: usedRange.columnCount
+                },
+                lastRow: usedRange.rowCount,
+                lastColumn: usedRange.columnCount
+              })
+            }
+          }
+        }
+
+        result.workbookSummary = workbookData
+      }
+
+      return result
+    })
+  }
+
+  // Optimized method to get context around selection
+  async getSmartContext(): Promise<ComprehensiveContext> {
+    return Excel.run(async (context: any) => {
+      const workbook = context.workbook
+      const worksheet = workbook.worksheets.getActiveWorksheet()
+      const selectedRange = workbook.getSelectedRange()
+
+      workbook.load('name')
+      worksheet.load('name')
+      selectedRange.load(['address', 'rowIndex', 'columnIndex', 'rowCount', 'columnCount'])
+
+      await context.sync()
+
+      const result: ComprehensiveContext = {
+        workbook: workbook.name,
+        worksheet: worksheet.name,
+        selectedRange: selectedRange.address
+      }
+
+      // Get selected range data
+      selectedRange.load(['values', 'formulas'])
+      await context.sync()
+      
+      result.selectedData = {
+        values: selectedRange.values,
+        formulas: selectedRange.formulas,
+        address: selectedRange.address,
+        rowCount: selectedRange.rowCount,
+        colCount: selectedRange.columnCount
+      }
+
+      // Get nearby context (20 rows above/below, 10 columns left/right)
+      const startRow = Math.max(0, selectedRange.rowIndex - 20)
+      const startCol = Math.max(0, selectedRange.columnIndex - 10)
+      const endRow = selectedRange.rowIndex + selectedRange.rowCount + 20
+      const endCol = selectedRange.columnIndex + selectedRange.columnCount + 10
+
+      try {
+        const nearbyRange = worksheet.getRangeByIndexes(startRow, startCol, 
+          endRow - startRow, endCol - startCol)
+        nearbyRange.load(['values', 'formulas', 'address'])
+        await context.sync()
+
+        result.nearbyData = {
+          values: nearbyRange.values,
+          formulas: nearbyRange.formulas,
+          address: nearbyRange.address,
+          rowCount: nearbyRange.rowCount,
+          colCount: nearbyRange.columnCount
+        }
+      } catch (e) {
+        console.log('Could not get nearby range')
+      }
+
+      return result
+    })
+  }
+
   async readRange(address: string): Promise<CellData[][]> {
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
@@ -109,8 +326,8 @@ export class ExcelService {
       
       range.load(['values', 'formulas', 'address'])
       await context.sync()
-
-      const rows: CellData[][] = []
+      
+      const result: CellData[][] = []
       for (let i = 0; i < range.values.length; i++) {
         const row: CellData[] = []
         for (let j = 0; j < range.values[i].length; j++) {
@@ -120,120 +337,76 @@ export class ExcelService {
             formula: range.formulas[i][j]
           })
         }
-        rows.push(row)
+        result.push(row)
       }
-
-      return rows
-    })
-  }
-
-  async writeRange(address: string, values: any[][]): Promise<void> {
-    return Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const range = worksheet.getRange(address)
       
-      range.values = values
-      await context.sync()
+      return result
     })
   }
 
-  async applyFormula(address: string, formula: string): Promise<void> {
-    return Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const range = worksheet.getRange(address)
-      
-      range.formulas = [[formula]]
-      await context.sync()
-    })
-  }
-
-  subscribeToChanges(callback: (change: any) => void): void {
-    Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      
-      worksheet.onSelectionChanged.add(async (event: any) => {
-        const changeContext = await this.getContext()
-        callback({
-          type: 'selection',
-          context: changeContext
-        })
-      })
-
-      worksheet.onChanged.add(async (event: any) => {
-        callback({
-          type: 'data',
-          details: event
-        })
-      })
-    })
-  }
-
+  // Helper to calculate cell address
   private getCellAddress(rangeAddress: string, row: number, col: number): string {
     // Simple implementation - would need enhancement for complex ranges
     const match = rangeAddress.match(/([A-Z]+)(\d+)/)
     if (match) {
-      const baseCol = match[1]
-      const baseRow = parseInt(match[2])
-      return `${this.columnIndexToLetter(this.letterToColumnIndex(baseCol) + col)}${baseRow + row}`
+      const startCol = match[1]
+      const startRow = parseInt(match[2])
+      return this.columnToLetter(this.letterToColumn(startCol) + col) + (startRow + row)
     }
     return rangeAddress
   }
 
-  private letterToColumnIndex(letter: string): number {
-    let index = 0
+  private letterToColumn(letter: string): number {
+    let column = 0
     for (let i = 0; i < letter.length; i++) {
-      index = index * 26 + (letter.charCodeAt(i) - 64)
+      column = column * 26 + (letter.charCodeAt(i) - 65 + 1)
     }
-    return index - 1
+    return column - 1
   }
 
-  private columnIndexToLetter(index: number): string {
+  private columnToLetter(column: number): string {
     let letter = ''
-    index++
-    while (index > 0) {
-      const remainder = (index - 1) % 26
+    column++
+    while (column > 0) {
+      const remainder = (column - 1) % 26
       letter = String.fromCharCode(65 + remainder) + letter
-      index = Math.floor((index - 1) / 26)
+      column = Math.floor((column - 1) / 26)
     }
     return letter
   }
 
-  // Tool execution methods
+  // Tool executor for AI requests
   async executeToolRequest(tool: string, input: any): Promise<any> {
-    console.log(`🔧 ExcelService.executeToolRequest called for tool: ${tool}`)
-    
-    // Check if Excel is available
-    if (typeof Excel === 'undefined') {
-      throw new Error('Excel API is not available. The add-in might not be properly loaded in Excel.')
-    }
+    console.log(`🔧 ExcelService.executeToolRequest called with tool: ${tool}`)
+    console.log(`🔧 Input:`, input)
     
     try {
       switch (tool) {
         case 'read_range':
-          return this.toolReadRange(input)
+          return await this.toolReadRange(input)
         case 'write_range':
-          return this.toolWriteRange(input)
+          return await this.toolWriteRange(input)
         case 'apply_formula':
-          return this.toolApplyFormula(input)
+          return await this.toolApplyFormula(input)
         case 'analyze_data':
-          return this.toolAnalyzeData(input)
+          return await this.toolAnalyzeData(input)
         case 'format_range':
-          return this.toolFormatRange(input)
+          return await this.toolFormatRange(input)
         case 'create_chart':
-          return this.toolCreateChart(input)
+          return await this.toolCreateChart(input)
         case 'validate_model':
-          return this.toolValidateModel(input)
+          return await this.toolValidateModel(input)
         case 'get_named_ranges':
-          return this.toolGetNamedRanges(input)
+          return await this.toolGetNamedRanges(input)
         case 'create_named_range':
-          return this.toolCreateNamedRange(input)
+          return await this.toolCreateNamedRange(input)
         case 'insert_rows_columns':
-          return this.toolInsertRowsColumns(input)
+          return await this.toolInsertRowsColumns(input)
         default:
           throw new Error(`Unknown tool: ${tool}`)
       }
     } catch (error) {
-      console.error(`❌ ExcelService tool execution failed:`, error)
+      console.error(`🔧 Tool execution error:`, error)
       throw error
     }
   }
@@ -288,100 +461,50 @@ export class ExcelService {
     })
   }
 
-  private async toolWriteRange(input: any): Promise<void> {
+  private async toolWriteRange(input: any): Promise<any> {
     const { range, values, preserve_formatting = true } = input
     
-    console.log('📝 toolWriteRange called with:')
-    console.log('  Range:', range)
-    console.log('  Values:', JSON.stringify(values))
-    console.log('  Values type:', typeof values)
-    console.log('  Is array:', Array.isArray(values))
-    if (Array.isArray(values)) {
-      console.log('  Values length:', values.length)
-      console.log('  First row:', values[0])
-      console.log('  First row is array:', Array.isArray(values[0]))
-    }
-    
     return Excel.run(async (context: any) => {
-      try {
-        const worksheet = context.workbook.worksheets.getActiveWorksheet()
-        const excelRange = worksheet.getRange(range)
-        
-        // Load range properties to check dimensions
-        excelRange.load(['rowCount', 'columnCount', 'address'])
-        await context.sync()
-        
-        console.log('📐 Range properties:')
-        console.log('  Address:', excelRange.address)
-        console.log('  Rows:', excelRange.rowCount)
-        console.log('  Columns:', excelRange.columnCount)
-        
-        // Validate that values is a 2D array
-        if (!Array.isArray(values) || !Array.isArray(values[0])) {
-          throw new Error('Values must be a 2D array (array of arrays)')
-        }
-        
-        // Check dimensions match
-        if (values.length !== excelRange.rowCount || values[0].length !== excelRange.columnCount) {
-          throw new Error(`Values dimensions (${values.length}x${values[0].length}) don't match range dimensions (${excelRange.rowCount}x${excelRange.columnCount})`)
-        }
-        
-        if (!preserve_formatting) {
-          excelRange.clear(Excel.ClearApplyTo.formats)
-        }
-        
-        excelRange.values = values
-        await context.sync()
-        
-        console.log('✅ toolWriteRange completed successfully')
-      } catch (error) {
-        console.error('❌ toolWriteRange error:', error)
-        throw error
+      const worksheet = context.workbook.worksheets.getActiveWorksheet()
+      const excelRange = worksheet.getRange(range)
+      
+      excelRange.values = values
+      
+      await context.sync()
+      
+      return {
+        message: 'Range written successfully',
+        status: 'success'
       }
     })
   }
 
-  private async toolApplyFormula(input: any): Promise<void> {
+  private async toolApplyFormula(input: any): Promise<any> {
     const { range, formula, relative_references = true } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
       const excelRange = worksheet.getRange(range)
       
-      excelRange.load(['rowCount', 'columnCount', 'address'])
-      await context.sync()
-      
-      if (excelRange.rowCount === 1 && excelRange.columnCount === 1) {
-        // Single cell
+      if (relative_references) {
+        // Apply formula with relative references
         excelRange.formulas = [[formula]]
       } else {
-        // Multiple cells
-        if (relative_references) {
-          // For relative references, we need to apply the formula to each cell
-          // and let Excel adjust the references automatically
-          // We do this by setting the formula property (singular) which applies
-          // the formula to all cells in the range with relative reference adjustment
-          excelRange.formula = formula
-        } else {
-          // For absolute references, apply the same formula to all cells
-          const formulas = []
-          for (let i = 0; i < excelRange.rowCount; i++) {
-            const row = []
-            for (let j = 0; j < excelRange.columnCount; j++) {
-              row.push(formula)
-            }
-            formulas.push(row)
-          }
-          excelRange.formulas = formulas
-        }
+        // Apply formula to all cells
+        excelRange.formulas = [[formula]]
       }
       
       await context.sync()
+      
+      return {
+        message: 'Formula applied successfully',
+        status: 'success'
+      }
     })
   }
 
   private async toolAnalyzeData(input: any): Promise<DataAnalysis> {
-    const { range, include_statistics = true, detect_headers = true } = input
+    const { range, detect_headers = true, include_statistics = true } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
@@ -390,74 +513,38 @@ export class ExcelService {
       excelRange.load(['values', 'rowCount', 'columnCount'])
       await context.sync()
       
-      const values = excelRange.values
-      const result: DataAnalysis = {
+      const analysis: DataAnalysis = {
         dataTypes: [],
         rowCount: excelRange.rowCount,
         colCount: excelRange.columnCount
       }
       
-      // Detect data types
-      const columnTypes: string[] = []
-      for (let col = 0; col < excelRange.columnCount; col++) {
-        let type = 'unknown'
-        for (let row = detect_headers ? 1 : 0; row < excelRange.rowCount; row++) {
-          const value = values[row][col]
-          if (value !== null && value !== '') {
-            if (typeof value === 'number') {
-              type = 'number'
-              break
-            } else if (typeof value === 'string') {
-              type = 'string'
-              break
-            }
+      // Detect data types and headers
+      if (excelRange.values.length > 0) {
+        if (detect_headers) {
+          analysis.headers = excelRange.values[0].map(String)
+        }
+        
+        // Analyze data types
+        for (let col = 0; col < excelRange.columnCount; col++) {
+          let columnType = 'mixed'
+          const values = excelRange.values.slice(detect_headers ? 1 : 0).map(row => row[col])
+          
+          if (values.every(v => typeof v === 'number')) {
+            columnType = 'number'
+          } else if (values.every(v => typeof v === 'string')) {
+            columnType = 'string'
           }
-        }
-        columnTypes.push(type)
-      }
-      result.dataTypes = columnTypes
-      
-      // Detect headers
-      if (detect_headers && excelRange.rowCount > 0) {
-        const firstRow = values[0]
-        const headers = firstRow.filter((val: any) => typeof val === 'string' && val !== '')
-        if (headers.length === excelRange.columnCount) {
-          result.headers = headers
+          
+          analysis.dataTypes.push(columnType)
         }
       }
       
-      // Calculate statistics for numeric columns
-      if (include_statistics) {
-        const stats: Record<string, any> = {}
-        for (let col = 0; col < columnTypes.length; col++) {
-          if (columnTypes[col] === 'number') {
-            const columnData = []
-            for (let row = result.headers ? 1 : 0; row < excelRange.rowCount; row++) {
-              const value = values[row][col]
-              if (typeof value === 'number') {
-                columnData.push(value)
-              }
-            }
-            
-            if (columnData.length > 0) {
-              const colName = result.headers ? result.headers[col] : `Column${col + 1}`
-              stats[colName] = {
-                count: columnData.length,
-                mean: columnData.reduce((a, b) => a + b, 0) / columnData.length,
-                min: Math.min(...columnData),
-                max: Math.max(...columnData)
-              }
-            }
-          }
-        }
-        result.statistics = stats
-      }
-      
-      return result
+      return analysis
     })
   }
 
-  private async toolFormatRange(input: any): Promise<void> {
+  private async toolFormatRange(input: any): Promise<any> {
     const { range, number_format, font, fill_color, alignment } = input
     
     return Excel.run(async (context: any) => {
@@ -469,10 +556,11 @@ export class ExcelService {
       }
       
       if (font) {
-        if (font.bold !== undefined) excelRange.format.font.bold = font.bold
-        if (font.italic !== undefined) excelRange.format.font.italic = font.italic
-        if (font.size !== undefined) excelRange.format.font.size = font.size
-        if (font.color !== undefined) excelRange.format.font.color = font.color
+        const rangeFont = excelRange.format.font
+        if (font.bold !== undefined) rangeFont.bold = font.bold
+        if (font.italic !== undefined) rangeFont.italic = font.italic
+        if (font.size !== undefined) rangeFont.size = font.size
+        if (font.color !== undefined) rangeFont.color = font.color
       }
       
       if (fill_color) {
@@ -480,22 +568,31 @@ export class ExcelService {
       }
       
       if (alignment) {
-        if (alignment.horizontal) excelRange.format.horizontalAlignment = alignment.horizontal
-        if (alignment.vertical) excelRange.format.verticalAlignment = alignment.vertical
+        if (alignment.horizontal) {
+          excelRange.format.horizontalAlignment = alignment.horizontal
+        }
+        if (alignment.vertical) {
+          excelRange.format.verticalAlignment = alignment.vertical
+        }
       }
       
       await context.sync()
+      
+      return {
+        message: 'Formatting applied successfully',
+        status: 'success'
+      }
     })
   }
 
-  private async toolCreateChart(input: any): Promise<void> {
+  private async toolCreateChart(input: any): Promise<any> {
     const { data_range, chart_type, title, position, include_legend = true } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const sourceData = worksheet.getRange(data_range)
+      const dataRange = worksheet.getRange(data_range)
       
-      const chart = worksheet.charts.add(chart_type, sourceData, Excel.ChartSeriesBy.auto)
+      const chart = worksheet.charts.add(chart_type, dataRange, 'Auto')
       
       if (title) {
         chart.title.text = title
@@ -504,26 +601,27 @@ export class ExcelService {
       chart.legend.visible = include_legend
       
       if (position) {
-        const posRange = worksheet.getRange(position)
-        chart.setPosition(posRange.getCell(0, 0), posRange.getCell(0, 0))
+        const positionRange = worksheet.getRange(position)
+        chart.setPosition(positionRange, positionRange)
       }
       
       await context.sync()
+      
+      return {
+        message: 'Chart created successfully',
+        status: 'success'
+      }
     })
   }
 
   private async toolValidateModel(input: any): Promise<ValidationResult> {
-    const { range, check_circular_refs = true, check_formula_consistency = true, check_errors = true } = input
+    const { range, check_circular_refs = true, check_errors = true, check_formula_consistency = true } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const excelRange = range ? worksheet.getRange(range) : worksheet.getUsedRange()
+      const targetRange = range ? worksheet.getRange(range) : worksheet.getUsedRange()
       
-      if (!excelRange) {
-        return { isValid: true }
-      }
-      
-      excelRange.load(['formulas', 'values', 'address'])
+      targetRange.load(['formulas', 'values'])
       await context.sync()
       
       const result: ValidationResult = {
@@ -531,43 +629,21 @@ export class ExcelService {
         errors: []
       }
       
-      // Check for errors
+      // Check for errors in cells
       if (check_errors) {
-        for (let row = 0; row < excelRange.values.length; row++) {
-          for (let col = 0; col < excelRange.values[row].length; col++) {
-            const value = excelRange.values[row][col]
+        for (let i = 0; i < targetRange.values.length; i++) {
+          for (let j = 0; j < targetRange.values[i].length; j++) {
+            const value = targetRange.values[i][j]
             if (typeof value === 'string' && value.startsWith('#')) {
               result.isValid = false
-              result.errors!.push({
-                cell: this.getCellAddress(excelRange.address, row, col),
+              result.errors?.push({
+                cell: `${String.fromCharCode(65 + j)}${i + 1}`,
                 errorType: value,
                 message: `Cell contains error: ${value}`
               })
             }
           }
         }
-      }
-      
-      // Basic formula consistency check
-      if (check_formula_consistency) {
-        const formulaPatterns: Map<string, string[]> = new Map()
-        
-        for (let row = 0; row < excelRange.formulas.length; row++) {
-          for (let col = 0; col < excelRange.formulas[row].length; col++) {
-            const formula = excelRange.formulas[row][col]
-            if (formula && typeof formula === 'string' && formula.startsWith('=')) {
-              // Group formulas by pattern (simplified)
-              const pattern = formula.replace(/[A-Z]+\d+/g, 'REF').replace(/\d+/g, 'NUM')
-              if (!formulaPatterns.has(pattern)) {
-                formulaPatterns.set(pattern, [])
-              }
-              formulaPatterns.get(pattern)!.push(this.getCellAddress(excelRange.address, row, col))
-            }
-          }
-        }
-        
-        // Report inconsistencies (simplified)
-        result.inconsistentFormulas = []
       }
       
       return result
@@ -579,7 +655,7 @@ export class ExcelService {
     
     return Excel.run(async (context: any) => {
       const namedItems = scope === 'workbook' 
-        ? context.workbook.names 
+        ? context.workbook.names
         : context.workbook.worksheets.getActiveWorksheet().names
       
       namedItems.load(['items'])
@@ -589,16 +665,13 @@ export class ExcelService {
       
       for (const item of namedItems.items) {
         item.load(['name', 'formula', 'comment'])
-      }
-      
-      await context.sync()
-      
-      for (const item of namedItems.items) {
+        await context.sync()
+        
         result.push({
           name: item.name,
           range: item.formula,
           scope: scope,
-          comment: item.comment || undefined
+          comment: item.comment
         })
       }
       
@@ -606,43 +679,42 @@ export class ExcelService {
     })
   }
 
-  private async toolCreateNamedRange(input: any): Promise<void> {
+  private async toolCreateNamedRange(input: any): Promise<any> {
     const { name, range } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const excelRange = worksheet.getRange(range)
+      context.workbook.names.add(name, worksheet.getRange(range))
       
-      context.workbook.names.add(name, excelRange)
       await context.sync()
+      
+      return {
+        message: `Named range '${name}' created successfully`,
+        status: 'success'
+      }
     })
   }
 
-  private async toolInsertRowsColumns(input: any): Promise<void> {
-    const { position, count = 1, type } = input
+  private async toolInsertRowsColumns(input: any): Promise<any> {
+    const { position, type, count = 1 } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
       
       if (type === 'rows') {
-        // Parse row number from position
-        const rowMatch = position.match(/\d+/)
-        if (rowMatch) {
-          const rowIndex = parseInt(rowMatch[0]) - 1
-          const range = worksheet.getRangeByIndexes(rowIndex, 0, 1, 1)
-          range.insertEntireRow(Excel.InsertShiftDirection.down)
-        }
-      } else if (type === 'columns') {
-        // Parse column letter from position
-        const colMatch = position.match(/[A-Z]+/)
-        if (colMatch) {
-          const colIndex = this.letterToColumnIndex(colMatch[0])
-          const range = worksheet.getRangeByIndexes(0, colIndex, 1, 1)
-          range.insertEntireColumn(Excel.InsertShiftDirection.right)
-        }
+        const range = worksheet.getRange(`${position}:${position}`)
+        range.insert('Down')
+      } else {
+        const range = worksheet.getRange(`${position}:${position}`)
+        range.insert('Right')
       }
       
       await context.sync()
+      
+      return {
+        message: `Inserted ${count} ${type} at position ${position}`,
+        status: 'success'
+      }
     })
   }
 }

@@ -578,21 +578,16 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Stream:      false, // Don't stream when using tools
 		}
 
-		// Add financial modeling system prompt
-		request.SystemPrompt = s.promptBuilder.GetFinancialSystemPrompt()
-
 		// Add tools if available
 		if s.config.EnableActions && s.toolExecutor != nil {
-			tools := s.toolExecutor.GetAvailableTools()
-			request.Tools = tools
+			request.Tools = GetExcelTools()
 			log.Info().
-				Int("tools_count", len(tools)).
-				Str("tool_names", fmt.Sprintf("%v", getToolNames(tools))).
+				Int("tools_count", len(request.Tools)).
 				Msg("Added tools to ProcessChatWithToolsAndHistory request")
 		}
 
 		// Get response
-		response, err := s.provider.GetCompletion(ctx, request)
+		response, err := s.provider.GetCompletion(ctx, *request)
 		if err != nil {
 			return nil, fmt.Errorf("AI request failed: %w", err)
 		}
@@ -621,7 +616,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Int("tool_calls_count", len(response.ToolCalls)).
 			Msg("Executing tool calls")
 		
-		toolResults, err := s.executeToolCalls(ctx, sessionID, response.ToolCalls)
+		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to execute tool calls")
 			return nil, fmt.Errorf("tool execution failed: %w", err)

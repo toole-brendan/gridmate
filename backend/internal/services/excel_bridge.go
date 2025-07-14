@@ -588,6 +588,31 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 	if formulas, ok := additionalContext["formulas"].(map[string]string); ok {
 		context.Formulas = formulas
 	}
+	
+	// Extract selected data if available
+	if selectedData, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
+		if values, ok := selectedData["values"].([]interface{}); ok {
+			// Convert 2D array to cell map
+			if address, ok := selectedData["address"].(string); ok {
+				eb.processCellData(context, values, address)
+			}
+		}
+		if formulas, ok := selectedData["formulas"].([]interface{}); ok {
+			// Process formulas similarly
+			if address, ok := selectedData["address"].(string); ok {
+				eb.processFormulaData(context, formulas, address)
+			}
+		}
+	}
+	
+	// Extract nearby data if available
+	if nearbyData, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
+		if values, ok := nearbyData["values"].([]interface{}); ok {
+			if address, ok := nearbyData["address"].(string); ok {
+				eb.processCellData(context, values, address)
+			}
+		}
+	}
 
 	// Add cached data
 	eb.addCachedDataToFinancialContext(context, session)
@@ -724,4 +749,109 @@ func (eb *ExcelBridge) RejectChanges(ctx context.Context, userID, previewID, rea
 // generateBackupID generates a unique backup ID
 func generateBackupID() string {
 	return "backup_" + time.Now().Format("20060102_150405")
+}
+
+// processCellData processes cell values from Excel and adds them to the context
+func (eb *ExcelBridge) processCellData(context *ai.FinancialContext, values []interface{}, baseAddress string) {
+	// Parse the base address to get starting row and column
+	// baseAddress format: "Sheet1!A1:C10" or "A1:C10"
+	parts := strings.Split(baseAddress, "!")
+	rangeStr := parts[len(parts)-1]
+	
+	// Parse range (simplified - assumes format like "A1:C10")
+	rangeParts := strings.Split(rangeStr, ":")
+	if len(rangeParts) != 2 {
+		eb.logger.WithField("address", baseAddress).Warn("Invalid range format")
+		return
+	}
+	
+	startCell := rangeParts[0]
+	startCol, startRow := eb.parseCell(startCell)
+	
+	// Process the 2D array of values
+	for i, rowData := range values {
+		if rowArray, ok := rowData.([]interface{}); ok {
+			for j, cellValue := range rowArray {
+				if cellValue != nil && cellValue != "" {
+					cellAddress := eb.getCellAddress(startCol+j, startRow+i)
+					context.CellValues[cellAddress] = cellValue
+				}
+			}
+		}
+	}
+}
+
+// processFormulaData processes formulas from Excel and adds them to the context
+func (eb *ExcelBridge) processFormulaData(context *ai.FinancialContext, formulas []interface{}, baseAddress string) {
+	// Parse the base address similar to processCellData
+	parts := strings.Split(baseAddress, "!")
+	rangeStr := parts[len(parts)-1]
+	
+	rangeParts := strings.Split(rangeStr, ":")
+	if len(rangeParts) != 2 {
+		eb.logger.WithField("address", baseAddress).Warn("Invalid range format for formulas")
+		return
+	}
+	
+	startCell := rangeParts[0]
+	startCol, startRow := eb.parseCell(startCell)
+	
+	// Process the 2D array of formulas
+	for i, rowData := range formulas {
+		if rowArray, ok := rowData.([]interface{}); ok {
+			for j, formula := range rowArray {
+				if formulaStr, ok := formula.(string); ok && formulaStr != "" {
+					cellAddress := eb.getCellAddress(startCol+j, startRow+i)
+					context.Formulas[cellAddress] = formulaStr
+				}
+			}
+		}
+	}
+}
+
+// parseCell parses a cell reference like "A1" into column and row indices
+func (eb *ExcelBridge) parseCell(cell string) (col int, row int) {
+	// Extract column letters and row number
+	colStr := ""
+	rowStr := ""
+	
+	for i, ch := range cell {
+		if ch >= 'A' && ch <= 'Z' {
+			colStr += string(ch)
+		} else {
+			rowStr = cell[i:]
+			break
+		}
+	}
+	
+	// Convert column letters to index (A=0, B=1, etc.)
+	col = 0
+	for i, ch := range colStr {
+		col = col*26 + int(ch-'A'+1)
+		if i == len(colStr)-1 {
+			col-- // Make it 0-based
+		}
+	}
+	
+	// Convert row string to index (1-based to 0-based)
+	fmt.Sscanf(rowStr, "%d", &row)
+	row-- // Make it 0-based
+	
+	return col, row
+}
+
+// getCellAddress converts column and row indices back to cell reference
+func (eb *ExcelBridge) getCellAddress(col, row int) string {
+	// Convert column index to letters
+	colStr := ""
+	col++ // Make it 1-based for calculation
+	
+	for col > 0 {
+		remainder := (col - 1) % 26
+		colStr = string('A'+remainder) + colStr
+		col = (col - 1) / 26
+	}
+	
+	// Return cell address
+	return fmt.Sprintf("%s%d", colStr, row+1)
 }

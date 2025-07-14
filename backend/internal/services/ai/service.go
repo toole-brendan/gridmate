@@ -97,14 +97,15 @@ func (s *Service) ProcessChatMessage(ctx context.Context, userMessage string, co
 		Model:       s.config.DefaultModel,
 	}
 
-	// Add Excel tools if enabled
+	// Add Excel tools if enabled - use smart selection for better token efficiency
 	if s.config.EnableActions && s.toolExecutor != nil {
-		request.Tools = GetExcelTools()
+		request.Tools = s.selectRelevantTools(userMessage, context)
 		log.Info().
 			Bool("actions_enabled", s.config.EnableActions).
 			Bool("tool_executor_available", s.toolExecutor != nil).
 			Int("tools_count", len(request.Tools)).
-			Msg("Adding Excel tools to request")
+			Int("total_available_tools", len(GetExcelTools())).
+			Msg("Adding relevant Excel tools to request using smart selection")
 	} else {
 		log.Warn().
 			Bool("actions_enabled", s.config.EnableActions).
@@ -575,12 +576,19 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 			Model:       s.config.DefaultModel,
 		}
 
-		// Add Excel tools if enabled
+		// Add Excel tools if enabled - use smart selection for round 0, all tools for subsequent rounds
 		if s.config.EnableActions && s.toolExecutor != nil {
-			request.Tools = GetExcelTools()
+			if round == 0 {
+				request.Tools = s.selectRelevantTools(userMessage, context)
+			} else {
+				// For subsequent rounds, include all tools since we're in execution mode
+				request.Tools = GetExcelTools()
+			}
 			log.Info().
 				Int("tools_count", len(request.Tools)).
-				Msg("Added tools to ProcessChatWithTools request")
+				Int("total_available_tools", len(GetExcelTools())).
+				Int("round", round).
+				Msg("Added relevant tools to ProcessChatWithTools request")
 		} else {
 			log.Warn().
 				Bool("actions_enabled", s.config.EnableActions).

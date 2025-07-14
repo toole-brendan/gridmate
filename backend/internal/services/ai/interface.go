@@ -82,14 +82,54 @@ type Action struct {
 
 // FinancialContext represents financial modeling context
 type FinancialContext struct {
-	WorkbookName    string                 `json:"workbook_name"`
-	WorksheetName   string                 `json:"worksheet_name"`
-	SelectedRange   string                 `json:"selected_range"`
-	CellValues      map[string]interface{} `json:"cell_values"`
-	Formulas        map[string]string      `json:"formulas"`
-	ModelType       string                 `json:"model_type"` // "DCF", "LBO", "M&A", etc.
-	RecentChanges   []CellChange          `json:"recent_changes"`
-	DocumentContext []string              `json:"document_context"` // Relevant document snippets
+	WorkbookName      string                 `json:"workbook_name"`
+	WorksheetName     string                 `json:"worksheet_name"`
+	SelectedRange     string                 `json:"selected_range"`
+	CellValues        map[string]interface{} `json:"cell_values"`
+	Formulas          map[string]string      `json:"formulas"`
+	ModelType         string                 `json:"model_type"` // "DCF", "LBO", "M&A", etc.
+	RecentChanges     []CellChange          `json:"recent_changes"`
+	DocumentContext   []string              `json:"document_context"` // Relevant document snippets
+	ModelStructure    *ModelStructure       `json:"model_structure,omitempty"` // Enhanced structure understanding
+}
+
+// ModelStructure represents the structural understanding of a financial model
+type ModelStructure struct {
+	DataDirection     string                     `json:"data_direction"`      // "horizontal", "vertical"
+	PeriodColumns     []string                   `json:"period_columns"`      // ["B", "C", "D"] for time periods
+	LabelColumns      []string                   `json:"label_columns"`       // ["A"] for row headers
+	FirstDataCell     string                     `json:"first_data_cell"`     // "B3" - first actual data cell
+	TimeOrientation   string                     `json:"time_orientation"`    // "columns", "rows"
+	CellRoles         map[string]string          `json:"cell_roles"`          // cell -> "input", "calculation", "output"
+	ModelSections     map[string]CellRange       `json:"model_sections"`      // "assumptions" -> range
+	KeyCells          map[string]string          `json:"key_cells"`           // "wacc" -> "D15"
+	Dependencies      []CellDependency           `json:"dependencies"`        // Formula dependency graph
+	PeriodHeaders     []PeriodInfo               `json:"period_headers"`      // Time period information
+}
+
+// CellRange represents a range of cells in the model
+type CellRange struct {
+	StartCell string `json:"start_cell"`
+	EndCell   string `json:"end_cell"`
+	Address   string `json:"address"`   // Full range address like "A1:D10"
+	Purpose   string `json:"purpose"`   // "assumptions", "calculations", "outputs", "headers"
+}
+
+// CellDependency represents a dependency between cells
+type CellDependency struct {
+	FromCell     string   `json:"from_cell"`      // Cell that depends on others
+	ToCells      []string `json:"to_cells"`       // Cells it depends on
+	Relationship string   `json:"relationship"`   // "direct", "growth", "ratio", "sum"
+}
+
+// PeriodInfo represents information about a time period in the model
+type PeriodInfo struct {
+	Column       string `json:"column"`         // "B", "C", "D"
+	Header       string `json:"header"`         // "2024", "2025", "Q1 2024"
+	PeriodType   string `json:"period_type"`    // "year", "quarter", "month"
+	IsHistorical bool   `json:"is_historical"`  // true for historical periods
+	IsProjected  bool   `json:"is_projected"`   // true for projected periods
+	Order        int    `json:"order"`          // Sequential order (0, 1, 2...)
 }
 
 // CellChange represents a recent cell change

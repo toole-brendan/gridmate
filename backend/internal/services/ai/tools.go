@@ -274,6 +274,175 @@ func GetExcelTools() []ExcelTool {
 				"required": []string{"position", "type"},
 			},
 		},
+		{
+			Name:        "build_financial_formula",
+			Description: "Intelligently builds financial formulas with proper error handling and context awareness. Handles first period vs subsequent periods, prevents #DIV/0! errors, and applies financial modeling best practices.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"formula_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of financial formula to build",
+						"enum":        []string{"growth_rate", "ratio", "sum", "average", "npv", "irr", "percentage", "lookup", "conditional"},
+					},
+					"target_cell": map[string]interface{}{
+						"type":        "string",
+						"description": "The cell where the formula will be applied (e.g., 'B5')",
+					},
+					"inputs": map[string]interface{}{
+						"type":        "object",
+						"description": "Context-aware parameters for formula generation",
+						"properties": map[string]interface{}{
+							"current_period_cell": map[string]interface{}{
+								"type":        "string",
+								"description": "Cell containing current period value",
+							},
+							"previous_period_cell": map[string]interface{}{
+								"type":        "string", 
+								"description": "Cell containing previous period value (for growth calculations)",
+							},
+							"numerator_cells": map[string]interface{}{
+								"type":        "array",
+								"description": "Cells for numerator in ratio calculations",
+								"items":       map[string]interface{}{"type": "string"},
+							},
+							"denominator_cells": map[string]interface{}{
+								"type":        "array",
+								"description": "Cells for denominator in ratio calculations", 
+								"items":       map[string]interface{}{"type": "string"},
+							},
+							"range_cells": map[string]interface{}{
+								"type":        "string",
+								"description": "Range for sum/average calculations (e.g., 'A1:A10')",
+							},
+							"lookup_table": map[string]interface{}{
+								"type":        "string",
+								"description": "Table range for lookup formulas",
+							},
+							"condition": map[string]interface{}{
+								"type":        "string",
+								"description": "Condition for conditional formulas",
+							},
+						},
+					},
+					"error_handling": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to wrap formula in IFERROR for safety",
+						"default":     true,
+					},
+					"is_first_period": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether this is the first period in a time series (affects growth rate formulas)",
+						"default":     false,
+					},
+				},
+				"required": []string{"formula_type", "target_cell", "inputs"},
+			},
+		},
+		{
+			Name:        "analyze_model_structure",
+			Description: "Analyzes the structure and layout of financial models to understand sections, time periods, and data flow. Identifies assumptions, calculations, outputs, and key financial metrics.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"analysis_range": map[string]interface{}{
+						"type":        "string",
+						"description": "Range to analyze for model structure (e.g., 'A1:Z100')",
+					},
+					"focus_area": map[string]interface{}{
+						"type":        "string",
+						"description": "Specific area to focus analysis on",
+						"enum":        []string{"entire_model", "assumptions", "calculations", "outputs", "time_periods", "key_metrics"},
+						"default":     "entire_model",
+					},
+					"model_type_hint": map[string]interface{}{
+						"type":        "string",
+						"description": "Hint about expected model type to improve analysis",
+						"enum":        []string{"DCF", "LBO", "M&A", "Comps", "Budget", "General"},
+					},
+				},
+				"required": []string{"analysis_range"},
+			},
+		},
+		{
+			Name:        "smart_format_cells", 
+			Description: "Applies intelligent formatting to cells based on their content and role in financial models. Includes standard financial formatting, conditional formatting, and model styling best practices.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"range": map[string]interface{}{
+						"type":        "string",
+						"description": "Range of cells to format",
+					},
+					"style_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of financial styling to apply",
+						"enum":        []string{"financial_input", "financial_calculation", "financial_output", "header", "assumption", "percentage", "currency", "multiple", "basis_points"},
+					},
+					"conditional_rules": map[string]interface{}{
+						"type":        "array",
+						"description": "Conditional formatting rules to apply",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"condition": map[string]interface{}{
+									"type":        "string",
+									"description": "Condition for formatting (e.g., '>0', '<0', '=0')",
+								},
+								"format": map[string]interface{}{
+									"type":        "object",
+									"description": "Format to apply when condition is met",
+									"properties": map[string]interface{}{
+										"font_color": map[string]interface{}{"type": "string"},
+										"background_color": map[string]interface{}{"type": "string"},
+										"font_style": map[string]interface{}{"type": "string", "enum": []string{"bold", "italic", "normal"}},
+									},
+								},
+							},
+						},
+					},
+					"number_format": map[string]interface{}{
+						"type":        "string",
+						"description": "Specific number format to apply (overrides style_type default)",
+					},
+				},
+				"required": []string{"range", "style_type"},
+			},
+		},
+		{
+			Name:        "create_audit_trail",
+			Description: "Creates comprehensive audit trail documentation for financial models including formula explanations, assumptions documentation, and change tracking.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"target_range": map[string]interface{}{
+						"type":        "string",
+						"description": "Range to document and create audit trail for",
+					},
+					"documentation_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of documentation to create",
+						"enum":        []string{"formula_explanations", "assumptions_summary", "model_overview", "change_log", "validation_notes"},
+					},
+					"add_comments": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to add cell comments explaining formulas",
+						"default":     true,
+					},
+					"create_documentation_sheet": map[string]interface{}{
+						"type":        "boolean", 
+						"description": "Whether to create a separate documentation worksheet",
+						"default":     false,
+					},
+					"include_sources": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to include source references and citations",
+						"default":     true,
+					},
+				},
+				"required": []string{"target_range", "documentation_type"},
+			},
+		},
 	}
 }
 

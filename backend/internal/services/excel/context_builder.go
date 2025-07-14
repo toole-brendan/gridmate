@@ -52,9 +52,14 @@ func (cb *ContextBuilder) BuildContext(ctx context.Context, sessionID string, se
 		fmt.Printf("Warning: failed to get surrounding context: %v\n", err)
 	}
 
-	// 3. Detect headers and structure
+	// 3. Detect headers and basic structure
 	if err := cb.detectStructure(ctx, sessionID, rangeInfo, context); err != nil {
-		fmt.Printf("Warning: failed to detect structure: %v\n", err)
+		fmt.Printf("Warning: failed to detect basic structure: %v\n", err)
+	}
+
+	// 3.5. Build comprehensive model structure understanding
+	if err := cb.buildModelStructure(ctx, sessionID, rangeInfo, context); err != nil {
+		fmt.Printf("Warning: failed to build model structure: %v\n", err)
 	}
 
 	// 4. Get named ranges that might be relevant
@@ -503,4 +508,433 @@ func (cb *ContextBuilder) ExpandRange(rangeAddr string, expandRows, expandCols i
 	endCol := rangeInfo.EndCol + expandCols
 
 	return fmt.Sprintf("%s:%s", getCellAddress(startRow, startCol), getCellAddress(endRow, endCol))
+}
+
+// buildModelStructure builds comprehensive model structure understanding
+func (cb *ContextBuilder) buildModelStructure(ctx context.Context, sessionID string, rangeInfo *RangeInfo, context *ai.FinancialContext) error {
+	structure := &ai.ModelStructure{
+		CellRoles:     make(map[string]string),
+		ModelSections: make(map[string]ai.CellRange),
+		KeyCells:      make(map[string]string),
+		Dependencies:  []ai.CellDependency{},
+		PeriodHeaders: []ai.PeriodInfo{},
+		PeriodColumns: []string{},
+		LabelColumns:  []string{},
+	}
+
+	// 1. Detect data direction and time orientation
+	structure.DataDirection, structure.TimeOrientation = cb.detectDataDirection(ctx, sessionID, rangeInfo)
+
+	// 2. Identify period columns and headers
+	if err := cb.identifyPeriods(ctx, sessionID, rangeInfo, structure); err != nil {
+		fmt.Printf("Warning: failed to identify periods: %v\n", err)
+	}
+
+	// 3. Detect model sections (assumptions, calculations, outputs)
+	if err := cb.detectModelSections(ctx, sessionID, rangeInfo, structure); err != nil {
+		fmt.Printf("Warning: failed to detect model sections: %v\n", err)
+	}
+
+	// 4. Classify cell roles (input, calculation, output)
+	if err := cb.classifyCellRoles(context, structure); err != nil {
+		fmt.Printf("Warning: failed to classify cell roles: %v\n", err)
+	}
+
+	// 5. Build dependency graph
+	if err := cb.buildDependencyGraph(context, structure); err != nil {
+		fmt.Printf("Warning: failed to build dependency graph: %v\n", err)
+	}
+
+	// 6. Identify key financial cells
+	if err := cb.identifyKeyCells(context, structure); err != nil {
+		fmt.Printf("Warning: failed to identify key cells: %v\n", err)
+	}
+
+	// 7. Set first data cell
+	structure.FirstDataCell = cb.findFirstDataCell(rangeInfo, structure)
+
+	context.ModelStructure = structure
+	return nil
+}
+
+// detectDataDirection analyzes whether data flows horizontally or vertically
+func (cb *ContextBuilder) detectDataDirection(ctx context.Context, sessionID string, rangeInfo *RangeInfo) (string, string) {
+	// Heuristic: if we have more columns than rows, likely horizontal time flow
+	if rangeInfo.ColCount > rangeInfo.RowCount {
+		return "horizontal", "columns"
+	}
+	return "vertical", "rows"
+}
+
+// identifyPeriods identifies time periods in the model
+func (cb *ContextBuilder) identifyPeriods(ctx context.Context, sessionID string, rangeInfo *RangeInfo, structure *ai.ModelStructure) error {
+	// Look for period headers in the row above the selection
+	headerRow := rangeInfo.StartRow - 1
+	if headerRow < 1 {
+		return nil
+	}
+
+	headerRange := fmt.Sprintf("%s:%s",
+		getCellAddress(headerRow, rangeInfo.StartCol),
+		getCellAddress(headerRow, rangeInfo.EndCol))
+
+	data, err := cb.bridge.ReadRange(ctx, sessionID, headerRange, false, false)
+	if err != nil {
+		return err
+	}
+
+	if len(data.Values) == 0 || len(data.Values[0]) == 0 {
+		return nil
+	}
+
+	// Analyze headers for time patterns
+	for colIdx, value := range data.Values[0] {
+		if value == nil {
+			continue
+		}
+
+		header := fmt.Sprintf("%v", value)
+		if header == "" {
+			continue
+		}
+
+		column := getCellAddress(1, rangeInfo.StartCol+colIdx)[0:1] // Get column letter
+
+		periodInfo := ai.PeriodInfo{
+			Column: column,
+			Header: header,
+			Order:  colIdx,
+		}
+
+		// Detect period type and historical/projected status
+		if cb.isYearHeader(header) {
+			periodInfo.PeriodType = "year"
+			periodInfo.IsHistorical = cb.isHistoricalYear(header)
+			periodInfo.IsProjected = !periodInfo.IsHistorical
+		} else if cb.isQuarterHeader(header) {
+			periodInfo.PeriodType = "quarter"
+			periodInfo.IsHistorical = cb.isHistoricalPeriod(header)
+			periodInfo.IsProjected = !periodInfo.IsHistorical
+		} else if cb.isMonthHeader(header) {
+			periodInfo.PeriodType = "month"
+			periodInfo.IsHistorical = cb.isHistoricalPeriod(header)
+			periodInfo.IsProjected = !periodInfo.IsHistorical
+		}
+
+		structure.PeriodHeaders = append(structure.PeriodHeaders, periodInfo)
+		structure.PeriodColumns = append(structure.PeriodColumns, column)
+	}
+
+	// Identify label columns (typically column A)
+	if rangeInfo.StartCol > 1 {
+		structure.LabelColumns = append(structure.LabelColumns, "A")
+	}
+
+	return nil
+}
+
+// detectModelSections identifies different sections of the financial model
+func (cb *ContextBuilder) detectModelSections(ctx context.Context, sessionID string, rangeInfo *RangeInfo, structure *ai.ModelStructure) error {
+	// Look for section headers in surrounding areas
+	sectionKeywords := map[string][]string{
+		"assumptions": {"assumption", "input", "driver", "growth", "margin", "rate"},
+		"calculations": {"calculation", "computed", "derived", "formula"},
+		"outputs": {"output", "result", "total", "subtotal", "summary"},
+		"revenue": {"revenue", "sales", "income", "turnover"},
+		"expenses": {"expense", "cost", "opex", "capex", "operating"},
+		"cash_flow": {"cash flow", "fcf", "free cash", "operating cash"},
+		"valuation": {"valuation", "dcf", "npv", "irr", "wacc", "terminal"},
+	}
+
+	// Expand search area to look for section headers
+	expandedRange := cb.ExpandRange(rangeInfo.Address, 10, 5)
+	expandedInfo, err := parseRange(expandedRange)
+	if err != nil {
+		return err
+	}
+
+	data, err := cb.bridge.ReadRange(ctx, sessionID, expandedRange, false, false)
+	if err != nil {
+		return err
+	}
+
+	// Scan for section keywords
+	for row := 0; row < data.RowCount; row++ {
+		for col := 0; col < data.ColCount; col++ {
+			if row >= len(data.Values) || col >= len(data.Values[row]) {
+				continue
+			}
+
+			value := data.Values[row][col]
+			if value == nil {
+				continue
+			}
+
+			text := strings.ToLower(fmt.Sprintf("%v", value))
+			
+			for sectionName, keywords := range sectionKeywords {
+				for _, keyword := range keywords {
+					if strings.Contains(text, keyword) {
+						// Found a section header - estimate the section range
+						sectionRange := cb.estimateSectionRange(expandedInfo, row, col, data)
+						structure.ModelSections[sectionName] = sectionRange
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// classifyCellRoles classifies cells as inputs, calculations, or outputs
+func (cb *ContextBuilder) classifyCellRoles(context *ai.FinancialContext, structure *ai.ModelStructure) error {
+	for cellAddr, value := range context.CellValues {
+		role := "input" // Default
+
+		// Check if cell has a formula
+		if formula, hasFormula := context.Formulas[cellAddr]; hasFormula {
+			if cb.isSimpleCalculation(formula) {
+				role = "calculation"
+			} else if cb.isComplexCalculation(formula) {
+				role = "output"
+			} else {
+				role = "calculation" // Default for formulas
+			}
+		} else {
+			// No formula - check if it's a number (likely input) or text (likely label)
+			if cb.isNumericValue(value) {
+				role = "input"
+			} else {
+				role = "label"
+			}
+		}
+
+		structure.CellRoles[cellAddr] = role
+	}
+
+	return nil
+}
+
+// buildDependencyGraph builds a dependency graph of cell relationships
+func (cb *ContextBuilder) buildDependencyGraph(context *ai.FinancialContext, structure *ai.ModelStructure) error {
+	for cellAddr, formula := range context.Formulas {
+		refs := extractCellReferences(formula)
+		if len(refs) > 0 {
+			relationship := cb.determineRelationship(formula)
+			
+			dependency := ai.CellDependency{
+				FromCell:     cellAddr,
+				ToCells:      refs,
+				Relationship: relationship,
+			}
+			
+			structure.Dependencies = append(structure.Dependencies, dependency)
+		}
+	}
+
+	return nil
+}
+
+// identifyKeyCells identifies important financial metrics and their cell locations
+func (cb *ContextBuilder) identifyKeyCells(context *ai.FinancialContext, structure *ai.ModelStructure) error {
+	keyTerms := map[string][]string{
+		"wacc":           {"wacc", "cost of capital", "discount rate"},
+		"terminal_value": {"terminal", "terminal value", "tv"},
+		"npv":            {"npv", "net present value"},
+		"irr":            {"irr", "internal rate"},
+		"revenue":        {"revenue", "sales", "turnover"},
+		"ebitda":         {"ebitda", "operating income"},
+		"free_cash_flow": {"fcf", "free cash flow", "cash flow"},
+		"debt":           {"debt", "borrowing", "loan"},
+		"equity":         {"equity", "shareholders"},
+	}
+
+	// Look for key terms in nearby label cells
+	for cellAddr, value := range context.CellValues {
+		if value == nil {
+			continue
+		}
+		
+		text := strings.ToLower(fmt.Sprintf("%v", value))
+		
+		for keyName, terms := range keyTerms {
+			for _, term := range terms {
+				if strings.Contains(text, term) {
+					// This cell contains a key term - the data might be in adjacent cells
+					dataCell := cb.findAdjacentDataCell(cellAddr, context)
+					if dataCell != "" {
+						structure.KeyCells[keyName] = dataCell
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// Helper methods for model structure analysis
+
+func (cb *ContextBuilder) isYearHeader(header string) bool {
+	// Check if header looks like a year (4 digits between 1900-2100)
+	re := regexp.MustCompile(`\b(19|20|21)\d{2}\b`)
+	return re.MatchString(header)
+}
+
+func (cb *ContextBuilder) isQuarterHeader(header string) bool {
+	// Check for quarter patterns like "Q1 2024", "1Q24", etc.
+	re := regexp.MustCompile(`\b[Qq][1-4]\b|\b[1-4][Qq]\b`)
+	return re.MatchString(header)
+}
+
+func (cb *ContextBuilder) isMonthHeader(header string) bool {
+	// Check for month names or patterns
+	months := []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"}
+	lower := strings.ToLower(header)
+	for _, month := range months {
+		if strings.Contains(lower, month) {
+			return true
+		}
+	}
+	return false
+}
+
+func (cb *ContextBuilder) isHistoricalYear(header string) bool {
+	// Simple heuristic: years before 2025 are historical
+	re := regexp.MustCompile(`\b(19|20|21|22|23|24)\d{2}\b`)
+	matches := re.FindStringSubmatch(header)
+	if len(matches) > 0 {
+		// More sophisticated logic could go here
+		return !strings.Contains(header, "25") && !strings.Contains(header, "26") && !strings.Contains(header, "27")
+	}
+	return false
+}
+
+func (cb *ContextBuilder) isHistoricalPeriod(header string) bool {
+	// Default heuristic - could be enhanced with actual date comparison
+	return !strings.Contains(strings.ToLower(header), "forecast") && 
+		   !strings.Contains(strings.ToLower(header), "proj")
+}
+
+func (cb *ContextBuilder) isSimpleCalculation(formula string) bool {
+	// Simple arithmetic operations
+	simpleOps := []string{"+", "-", "*", "/"}
+	complexFuncs := []string{"SUM", "AVERAGE", "NPV", "IRR", "IF", "VLOOKUP"}
+	
+	upper := strings.ToUpper(formula)
+	for _, fn := range complexFuncs {
+		if strings.Contains(upper, fn+"(") {
+			return false
+		}
+	}
+	
+	for _, op := range simpleOps {
+		if strings.Contains(formula, op) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+func (cb *ContextBuilder) isComplexCalculation(formula string) bool {
+	// Complex functions that typically represent outputs
+	complexFuncs := []string{"SUM", "NPV", "IRR", "XNPV", "XIRR", "SUMPRODUCT", "SUMIF"}
+	upper := strings.ToUpper(formula)
+	
+	for _, fn := range complexFuncs {
+		if strings.Contains(upper, fn+"(") {
+			return true
+		}
+	}
+	
+	return false
+}
+
+func (cb *ContextBuilder) isNumericValue(value interface{}) bool {
+	switch value.(type) {
+	case int, int32, int64, float32, float64:
+		return true
+	case string:
+		str := strings.TrimSpace(value.(string))
+		_, err := regexp.MatchString(`^-?\d*\.?\d+$`, str)
+		return err == nil
+	}
+	return false
+}
+
+func (cb *ContextBuilder) determineRelationship(formula string) string {
+	upper := strings.ToUpper(formula)
+	
+	if strings.Contains(upper, "SUM(") {
+		return "sum"
+	}
+	if strings.Contains(formula, ")/") && strings.Contains(formula, "-") {
+		return "growth"
+	}
+	if strings.Contains(formula, "/") && !strings.Contains(formula, "-") {
+		return "ratio"
+	}
+	return "direct"
+}
+
+func (cb *ContextBuilder) findAdjacentDataCell(labelCell string, context *ai.FinancialContext) string {
+	// Parse the label cell address
+	row, col, err := parseCellAddress(labelCell)
+	if err != nil {
+		return ""
+	}
+	
+	// Check adjacent cells for data (right, then down)
+	candidates := []string{
+		getCellAddress(row, col+1),     // Right
+		getCellAddress(row, col+2),     // Further right
+		getCellAddress(row+1, col),     // Down
+		getCellAddress(row+1, col+1),   // Diagonal
+	}
+	
+	for _, candidate := range candidates {
+		if value, exists := context.CellValues[candidate]; exists {
+			if cb.isNumericValue(value) {
+				return candidate
+			}
+		}
+	}
+	
+	return ""
+}
+
+func (cb *ContextBuilder) estimateSectionRange(expandedInfo *RangeInfo, headerRow, headerCol int, data *ai.RangeData) ai.CellRange {
+	// Estimate section boundaries based on header position
+	startRow := expandedInfo.StartRow + headerRow
+	startCol := expandedInfo.StartCol + headerCol
+	
+	// Simple heuristic: section extends 10 rows down and 5 columns right
+	endRow := startRow + 10
+	endCol := startCol + 5
+	
+	return ai.CellRange{
+		StartCell: getCellAddress(startRow, startCol),
+		EndCell:   getCellAddress(endRow, endCol),
+		Address:   fmt.Sprintf("%s:%s", getCellAddress(startRow, startCol), getCellAddress(endRow, endCol)),
+		Purpose:   "section",
+	}
+}
+
+func (cb *ContextBuilder) findFirstDataCell(rangeInfo *RangeInfo, structure *ai.ModelStructure) string {
+	// Find the first cell that likely contains actual data (not headers)
+	if len(structure.PeriodColumns) > 0 {
+		// If we have period columns, first data cell is likely in the first period column
+		firstCol := structure.PeriodColumns[0]
+		// Convert column letter to number for calculation
+		col := int(firstCol[0] - 'A' + 1)
+		row := rangeInfo.StartRow
+		return getCellAddress(row, col)
+	}
+	
+	// Default to the start of the selected range
+	return getCellAddress(rangeInfo.StartRow, rangeInfo.StartCol)
 }

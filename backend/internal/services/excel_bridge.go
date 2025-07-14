@@ -10,6 +10,7 @@ import (
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/services/chat"
 	"github.com/gridmate/backend/internal/services/excel"
+	"github.com/gridmate/backend/internal/services/formula"
 	"github.com/gridmate/backend/internal/websocket"
 	"github.com/sirupsen/logrus"
 )
@@ -112,8 +113,11 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 		return ""
 	})
 	
-	// Create tool executor
-	bridge.toolExecutor = ai.NewToolExecutor(excelBridgeImpl)
+	// Create formula validator
+	formulaValidator := formula.NewFormulaIntelligence(logger)
+	
+	// Create tool executor with formula validation
+	bridge.toolExecutor = ai.NewToolExecutor(excelBridgeImpl, formulaValidator)
 	
 	// Set tool executor in AI service
 	if aiService != nil {

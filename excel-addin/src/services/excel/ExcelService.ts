@@ -375,6 +375,77 @@ export class ExcelService {
     return letter
   }
 
+  private validateAndNormalizeFormat(format: string, formatMap: { [key: string]: string }): string {
+    if (!format || typeof format !== 'string') {
+      console.warn(`⚠️ Invalid format provided: ${format}, using General`)
+      return 'General'
+    }
+
+    // First try exact match in format map
+    const lowerFormat = format.toLowerCase().trim()
+    if (formatMap[lowerFormat]) {
+      return formatMap[lowerFormat]
+    }
+
+    // Check if it's already a valid Excel format code
+    if (this.isValidExcelFormat(format)) {
+      return format
+    }
+
+    // Try to infer format from common patterns
+    const inferredFormat = this.inferFormatFromPattern(format)
+    if (inferredFormat) {
+      return inferredFormat
+    }
+
+    // Fallback to General if nothing matches
+    console.warn(`⚠️ Unknown format "${format}", using General`)
+    return 'General'
+  }
+
+  private isValidExcelFormat(format: string): boolean {
+    // Basic validation for Excel format codes
+    // Check for common Excel format patterns
+    const validPatterns = [
+      /^[0#]*\.?[0#]*%?$/, // Basic number patterns like 0.00, #,##0, 0%
+      /^[0#,]*\.?[0#]*$/, // Number with commas
+      /^\$[#,0]*\.?[0#]*$/, // Currency patterns
+      /^[mdhysq\/\-\s:]*$/i, // Date/time patterns
+      /^@$/, // Text format
+      /^General$/i, // General format
+      /^0\.00E\+00$/i, // Scientific notation
+      /^[#0\s]*\?+\/[#0\s]*$/ // Fraction patterns
+    ]
+
+    return validPatterns.some(pattern => pattern.test(format))
+  }
+
+  private inferFormatFromPattern(format: string): string | null {
+    const lower = format.toLowerCase()
+    
+    // Try to match partial patterns
+    if (lower.includes('$') || lower.includes('dollar') || lower.includes('currency')) {
+      return '$#,##0.00'
+    }
+    if (lower.includes('%') || lower.includes('percent')) {
+      return '0.00%'
+    }
+    if (lower.includes('date')) {
+      return 'm/d/yyyy'
+    }
+    if (lower.includes('time')) {
+      return 'h:mm:ss AM/PM'
+    }
+    if (lower.includes('comma') || lower.includes('thousand')) {
+      return '#,##0.00'
+    }
+    if (lower.includes('decimal') || lower.includes('number')) {
+      return '0.00'
+    }
+    
+    return null
+  }
+
   // Tool executor for AI requests
   async executeToolRequest(tool: string, input: any): Promise<any> {
     console.log(`🔧 ExcelService.executeToolRequest called with tool: ${tool}`)
@@ -573,25 +644,111 @@ export class ExcelService {
       const excelRange = worksheet.getRange(range)
       
       if (number_format) {
-        // Map common format names to Excel format codes
+        // Comprehensive format mapping to prevent #VALUE! errors
         const formatMap: { [key: string]: string } = {
+          // Basic formats
           'general': 'General',
           'number': '0.00',
+          'integer': '0',
+          'whole': '0',
+          
+          // Currency formats - most problematic area
           'currency': '$#,##0.00',
+          'dollar': '$#,##0.00',
+          'dollars': '$#,##0.00',
+          'money': '$#,##0.00',
+          'usd': '$#,##0.00',
+          'cash': '$#,##0.00',
+          'financial': '$#,##0.00',
+          'currency_red': '$#,##0.00_);[Red]($#,##0.00)',
+          'currency_positive': '$#,##0.00_);($#,##0.00)',
+          
+          // Accounting formats
           'accounting': '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)',
+          'account': '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)',
+          
+          // Percentage formats - second most problematic
           'percentage': '0.00%',
           'percent': '0.00%',
+          'pct': '0.00%',
+          '%': '0.00%',
+          'percentage_whole': '0%',
+          'percent_whole': '0%',
+          'percentage_1dp': '0.0%',
+          'percent_1dp': '0.0%',
+          
+          // Financial-specific formats
+          'basis_points': '0"bps"',
+          'bps': '0"bps"',
+          'multiple': '0.0"x"',
+          'times': '0.0"x"',
+          'ratio': '0.00',
+          'factor': '0.00',
+          'index': '0.00',
+          'growth': '0.0%',
+          'growth_rate': '0.0%',
+          'margin': '0.0%',
+          'return': '0.0%',
+          'irr': '0.0%',
+          'yield': '0.0%',
+          'discount': '0.0%',
+          'premium': '0.0%',
+          
+          // Number formats with commas
+          'thousands': '#,##0',
+          'comma': '#,##0.00',
+          'comma_no_decimal': '#,##0',
+          'millions': '#,##0,,"M"',
+          'billions': '#,##0,,,"B"',
+          'thousands_k': '#,##0,"K"',
+          
+          // Date formats
           'date': 'm/d/yyyy',
-          'short date': 'm/d/yy',
-          'long date': 'mmmm d, yyyy',
+          'short_date': 'm/d/yy',
+          'long_date': 'mmmm d, yyyy',
+          'date_us': 'm/d/yyyy',
+          'date_iso': 'yyyy-mm-dd',
+          'month_year': 'mmm yyyy',
+          'quarter': '"Q"q yyyy',
+          'year': 'yyyy',
+          
+          // Time formats
           'time': 'h:mm:ss AM/PM',
+          'time_24': 'h:mm:ss',
+          'hours': 'h:mm',
+          
+          // Text formats
           'text': '@',
+          'string': '@',
+          
+          // Scientific notation
           'scientific': '0.00E+00',
-          'fraction': '# ?/?'
+          'exponential': '0.00E+00',
+          
+          // Fractions
+          'fraction': '# ?/?',
+          'fraction_halves': '# ?/2',
+          'fraction_quarters': '# ?/4',
+          'fraction_eighths': '# ?/8',
+          'fraction_sixteenths': '# ?/16',
+          
+          // Special formats for financial modeling
+          'input': '0.00',  // Blue font for inputs
+          'assumption': '0.00',
+          'calculated': '0.00',  // Black font for calculations
+          'output': '0.00',  // Bold for outputs
+          'total': '0.00',
+          'subtotal': '0.00',
+          
+          // Common Excel format variations that AI might use
+          'decimal': '0.00',
+          'fixed': '0.00',
+          'float': '0.00',
+          'numeric': '0.00'
         }
         
-        // Check if it's a common format name, otherwise use as-is
-        const actualFormat = formatMap[number_format.toLowerCase()] || number_format
+        // Validate and normalize format
+        const actualFormat = this.validateAndNormalizeFormat(number_format, formatMap)
         
         console.log(`🎨 Format mapping: "${number_format}" -> "${actualFormat}"`)
         
@@ -599,7 +756,13 @@ export class ExcelService {
           excelRange.numberFormat = actualFormat
         } catch (error) {
           console.error(`❌ Failed to apply number format "${actualFormat}":`, error)
-          throw new Error(`Invalid number format: ${number_format}`)
+          // Try fallback to General format
+          try {
+            excelRange.numberFormat = 'General'
+            console.log(`⚠️ Applied fallback 'General' format instead of "${actualFormat}"`)
+          } catch (fallbackError) {
+            throw new Error(`Invalid number format and fallback failed: ${number_format}`)
+          }
         }
       }
       

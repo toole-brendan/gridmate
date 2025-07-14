@@ -419,15 +419,22 @@ func (s *Service) SetToolExecutor(executor *ToolExecutor) {
 		Msg("SetToolExecutor called")
 }
 
-// ProcessToolCalls processes tool calls from an AI response
+// ProcessToolCalls processes multiple tool calls
 func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCalls []ToolCall) ([]ToolResult, error) {
+	log.Info().
+		Str("session_id", sessionID).
+		Int("total_tools", len(toolCalls)).
+		Interface("tool_names", getToolNames(toolCalls)).
+		Msg("Processing tool calls")
+
+	// Check if we can batch any operations
 	if s.toolExecutor == nil {
-		return nil, fmt.Errorf("tool executor not configured")
+		log.Error().Msg("Tool executor not initialized")
+		return nil, fmt.Errorf("tool executor not initialized")
 	}
 
-	// Detect batchable operations
+	// Detect batchable operations for efficiency
 	batches := s.toolExecutor.DetectBatchableOperations(toolCalls)
-
 	log.Info().
 		Str("session_id", sessionID).
 		Int("total_tools", len(toolCalls)).
@@ -437,49 +444,75 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 	results := make([]ToolResult, 0, len(toolCalls))
 
 	// Process each batch
-	for batchIdx, batch := range batches {
-		if len(batch) > 1 {
-			// Multiple operations in this batch - queue them with dependencies
-			batchID := fmt.Sprintf("batch_%s_%d", sessionID, batchIdx)
+	for i, batch := range batches {
+		log.Info().
+			Str("session_id", sessionID).
+			Int("batch_index", i).
+			Int("tools_in_batch", len(batch)).
+			Interface("batch_tools", getToolNames(batch)).
+			Msg("Processing batch")
 
-			log.Info().
-				Str("batch_id", batchID).
-				Int("operations", len(batch)).
-				Msg("Processing batch of operations")
-
-			// Execute operations in the batch
-			for i, toolCall := range batch {
-				// Add batch info to the tool call input
-				if toolCall.Input == nil {
-					toolCall.Input = make(map[string]interface{})
-				}
-				toolCall.Input["_batch_id"] = batchID
-				toolCall.Input["_batch_index"] = i
-				toolCall.Input["_batch_size"] = len(batch)
-
-				result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall)
-				if err != nil {
-					log.Error().Err(err).Str("tool", toolCall.Name).Msg("Failed to execute tool in batch")
-					// Add error result
-					results = append(results, *result)
-				} else {
-					results = append(results, *result)
-				}
+		// For batches with multiple tools, we could optimize further
+		// For now, process sequentially but mark with batch IDs
+		for j, toolCall := range batch {
+			// Add batch metadata if this is part of a batch
+			if len(batch) > 1 {
+				toolCall.Input["_batch_id"] = fmt.Sprintf("batch_%d_%s", i, sessionID)
+				toolCall.Input["_batch_index"] = j
 			}
-		} else {
-			// Single operation - execute normally
-			result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, batch[0])
+
+			log.Debug().
+				Str("tool_name", toolCall.Name).
+				Str("tool_id", toolCall.ID).
+				Interface("input", toolCall.Input).
+				Msg("Executing individual tool in batch")
+
+			result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall)
 			if err != nil {
-				log.Error().Err(err).Str("tool", batch[0].Name).Msg("Failed to execute tool")
-				// Add error result
-				results = append(results, *result)
-			} else {
-				results = append(results, *result)
+				log.Error().
+					Err(err).
+					Str("tool_name", toolCall.Name).
+					Str("tool_id", toolCall.ID).
+					Msg("Tool execution failed")
+				// Continue with error result instead of failing all
+				result = &ToolResult{
+					Type:      "tool_result",
+					ToolUseID: toolCall.ID,
+					IsError:   true,
+					Content:   err.Error(),
+				}
 			}
+			results = append(results, *result)
 		}
 	}
 
+	log.Info().
+		Str("session_id", sessionID).
+		Int("total_results", len(results)).
+		Int("successful", countSuccessful(results)).
+		Msg("Tool calls processing completed")
+
 	return results, nil
+}
+
+// Helper function to get tool names for logging
+func getToolNames(toolCalls []ToolCall) []string {
+	names := make([]string, len(toolCalls))
+	for i, tc := range toolCalls {
+		names[i] = tc.Name
+	}
+	return names
+}
+
+// Helper function to count successful results
+func countSuccessful(results []ToolResult) int {
+	count := 0
+	for _, r := range results {
+		if !r.IsError {
+			count++
+		}
+	}
+	return count
 }
 
 // selectRelevantTools intelligently selects which tools to include based on the user's message
@@ -843,10 +876,17 @@ func (s *Service) SetQueuedOperationRegistry(registry interface{}) {
 	s.queuedOpsRegistry = registry
 }
 
-// RefreshContext refreshes the financial context with latest data and pending operations
+// RefreshContext refreshes the financial context after tool execution
 func (s *Service) RefreshContext(ctx context.Context, sessionID string, currentContext *FinancialContext) (*FinancialContext, error) {
-	// If no context builder, return current context
+	log.Info().
+		Str("session_id", sessionID).
+		Bool("has_context_builder", s.contextBuilder != nil).
+		Bool("has_queued_ops_registry", s.queuedOpsRegistry != nil).
+		Bool("has_current_context", currentContext != nil).
+		Msg("Starting context refresh")
+
 	if s.contextBuilder == nil {
+		log.Warn().Msg("No context builder available, returning current context")
 		return currentContext, nil
 	}
 
@@ -861,24 +901,46 @@ func (s *Service) RefreshContext(ctx context.Context, sessionID string, currentC
 			return currentContext, err
 		}
 
+		// Log what changed
+		if currentContext != nil && newContext != nil {
+			log.Debug().
+				Int("old_cell_count", len(currentContext.CellValues)).
+				Int("new_cell_count", len(newContext.CellValues)).
+				Str("old_selection", currentContext.SelectedRange).
+				Str("new_selection", newContext.SelectedRange).
+				Bool("model_type_changed", currentContext.ModelType != newContext.ModelType).
+				Msg("Context differences after refresh")
+		}
+
 		// Add pending operations if registry is available
 		if s.queuedOpsRegistry != nil {
+			log.Debug().Msg("Checking queued operations registry")
 			if registry, ok := s.queuedOpsRegistry.(interface {
 				GetOperationSummary(context.Context, string) map[string]interface{}
 			}); ok {
-				newContext.PendingOperations = registry.GetOperationSummary(ctx, sessionID)
+				opSummary := registry.GetOperationSummary(ctx, sessionID)
+				newContext.PendingOperations = opSummary
+
+				log.Info().
+					Interface("pending_ops_summary", opSummary).
+					Msg("Added pending operations to context")
+			} else {
+				log.Warn().Msg("QueuedOpsRegistry doesn't implement GetOperationSummary")
 			}
 		}
 
 		log.Info().
 			Str("session_id", sessionID).
 			Bool("has_pending_ops", newContext.PendingOperations != nil).
+			Int("cell_count", len(newContext.CellValues)).
+			Str("model_type", newContext.ModelType).
 			Msg("Context refreshed successfully")
 
 		return newContext, nil
 	}
 
-	return currentContext, nil
+	log.Error().Msg("Context builder doesn't implement BuildContext interface")
+	return currentContext, fmt.Errorf("context builder interface not implemented")
 }
 
 // ProcessIntelligentChatMessage processes a chat message using advanced AI components

@@ -154,6 +154,11 @@ func (eb *ExcelBridge) GetToolExecutor() *ai.ToolExecutor {
 	return eb.toolExecutor
 }
 
+// GetContextBuilder returns the context builder for transferring to main AI service
+func (eb *ExcelBridge) GetContextBuilder() *excel.ContextBuilder {
+	return eb.contextBuilder
+}
+
 // CreateSignalRSession creates a session for SignalR clients
 func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 	eb.sessionMutex.Lock()

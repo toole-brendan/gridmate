@@ -87,32 +87,33 @@ func (pb *PromptBuilder) BuildAnalysisPrompt(context *FinancialContext, analysis
 func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 	// For empty spreadsheets, provide minimal context
 	if context.ModelType == "Empty" {
-		return fmt.Sprintf("Workbook: %s\nWorksheet: %s\nThe spreadsheet is currently empty.",
+		return fmt.Sprintf(`<current_context>
+<workbook>%s</workbook>
+<worksheet>%s</worksheet>
+<status>The spreadsheet is currently empty.</status>
+</current_context>`,
 			context.WorkbookName, context.WorksheetName)
 	}
 
 	var parts []string
+	parts = append(parts, "<current_context>")
 
-	// Basic info - combine to save tokens
-	basicInfo := []string{}
+	// Basic info
 	if context.WorkbookName != "" {
-		basicInfo = append(basicInfo, fmt.Sprintf("Workbook: %s", context.WorkbookName))
+		parts = append(parts, fmt.Sprintf("<workbook>%s</workbook>", context.WorkbookName))
 	}
 	if context.WorksheetName != "" {
-		basicInfo = append(basicInfo, fmt.Sprintf("Worksheet: %s", context.WorksheetName))
-	}
-	if len(basicInfo) > 0 {
-		parts = append(parts, strings.Join(basicInfo, ", "))
+		parts = append(parts, fmt.Sprintf("<worksheet>%s</worksheet>", context.WorksheetName))
 	}
 
 	// Model type - only if meaningful
 	if context.ModelType != "" && context.ModelType != "General" {
-		parts = append(parts, fmt.Sprintf("Model Type: %s", context.ModelType))
+		parts = append(parts, fmt.Sprintf("<model_type>%s</model_type>", context.ModelType))
 	}
 
 	// Selected range - only if it contains data
 	if context.SelectedRange != "" && len(context.CellValues) > 0 {
-		parts = append(parts, fmt.Sprintf("Selected Range: %s", context.SelectedRange))
+		parts = append(parts, fmt.Sprintf("<selected_range>%s</selected_range>", context.SelectedRange))
 	}
 
 	// Cell values and formulas - optimize for size
@@ -138,54 +139,129 @@ func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 		parts = append(parts, pb.buildPendingOperationsSection(context.PendingOperations))
 	}
 
+	parts = append(parts, "</current_context>")
 	return strings.Join(parts, "\n")
 }
 
-// buildOptimizedCellDataSection builds a compact cell data section
-// Only includes the most relevant data to minimize token usage
+// parseReference extracts column and row from cell reference (e.g., "A1" -> "A", 1)
+func parseReference(ref string) (string, int) {
+	col := ""
+	row := 0
+
+	// Extract column letters
+	i := 0
+	for i < len(ref) && (ref[i] >= 'A' && ref[i] <= 'Z' || ref[i] >= 'a' && ref[i] <= 'z') {
+		col += string(ref[i])
+		i++
+	}
+
+	// Extract row number
+	if i < len(ref) {
+		fmt.Sscanf(ref[i:], "%d", &row)
+	}
+
+	return col, row
+}
+
+// buildOptimizedCellDataSection builds cell data section optimized for token usage
 func (pb *PromptBuilder) buildOptimizedCellDataSection(context *FinancialContext) string {
 	var parts []string
-	totalCells := len(context.CellValues) + len(context.Formulas)
+	parts = append(parts, "<spreadsheet_data>")
 
-	// If we have very few cells, include all
-	if totalCells <= 20 {
-		return pb.buildCellDataSection(context)
+	// For very small data sets, include everything
+	if len(context.CellValues) <= 10 {
+		parts = append(parts, "<values>")
+		for ref, val := range context.CellValues {
+			if val != nil && val != "" && val != "0" {
+				parts = append(parts, fmt.Sprintf("  <%s>%v</%s>", ref, val, ref))
+			}
+		}
+		parts = append(parts, "</values>")
+
+		if len(context.Formulas) > 0 {
+			parts = append(parts, "<formulas>")
+			for ref, formula := range context.Formulas {
+				parts = append(parts, fmt.Sprintf("  <%s>%s</%s>", ref, formula, ref))
+			}
+			parts = append(parts, "</formulas>")
+		}
+
+		parts = append(parts, "</spreadsheet_data>")
+		return strings.Join(parts, "\n")
 	}
 
-	// For larger contexts, summarize and show only key cells
-	if len(context.CellValues) > 20 {
-		parts = append(parts, fmt.Sprintf("Cell Data: %d cells with values", len(context.CellValues)))
-		// Show first 10 cells as sample
-		count := 0
-		for addr, value := range context.CellValues {
-			if count >= 10 {
-				parts = append(parts, "  ... (more cells omitted)")
+	// For larger datasets, summarize and show key cells
+	// Group by row/column patterns
+	headers := make(map[string]string)
+	dataRows := make(map[int]map[string]string)
+
+	for ref, val := range context.CellValues {
+		col, row := parseReference(ref)
+		valStr := fmt.Sprintf("%v", val) // Convert interface{} to string
+		if row == 1 {                    // Assume row 1 is headers
+			headers[col] = valStr
+		} else if row <= 20 { // Limit to first 20 rows for context
+			if dataRows[row] == nil {
+				dataRows[row] = make(map[string]string)
+			}
+			dataRows[row][col] = valStr
+		}
+	}
+
+	// Show headers if found
+	if len(headers) > 0 {
+		parts = append(parts, "<headers>")
+		for col, header := range headers {
+			if header != "" {
+				parts = append(parts, fmt.Sprintf("  <column_%s>%s</column_%s>", col, header, col))
+			}
+		}
+		parts = append(parts, "</headers>")
+	}
+
+	// Show sample data rows
+	if len(dataRows) > 0 {
+		parts = append(parts, "<sample_data rows=\"first_10\">")
+		rowCount := 0
+		for row := 2; row <= 20 && rowCount < 10; row++ {
+			if rowData, exists := dataRows[row]; exists {
+				var rowValues []string
+				for col, val := range rowData {
+					if val != "" && val != "0" {
+						rowValues = append(rowValues, fmt.Sprintf("%s%d: %v", col, row, val))
+					}
+				}
+				if len(rowValues) > 0 {
+					parts = append(parts, fmt.Sprintf("  <row_%d>%s</row_%d>", row, strings.Join(rowValues, ", "), row))
+					rowCount++
+				}
+			}
+		}
+		parts = append(parts, "</sample_data>")
+	}
+
+	// Show key formulas
+	if len(context.Formulas) > 0 {
+		parts = append(parts, "<key_formulas>")
+		formulaCount := 0
+		for ref, formula := range context.Formulas {
+			if formulaCount >= 10 {
+				parts = append(parts, fmt.Sprintf("  <note>... and %d more formulas</note>", len(context.Formulas)-10))
 				break
 			}
-			parts = append(parts, fmt.Sprintf("  %s: %v", addr, value))
-			count++
+			parts = append(parts, fmt.Sprintf("  <%s>%s</%s>", ref, formula, ref))
+			formulaCount++
 		}
+		parts = append(parts, "</key_formulas>")
 	}
 
-	if len(context.Formulas) > 10 {
-		parts = append(parts, fmt.Sprintf("\nFormulas: %d formulas present", len(context.Formulas)))
-		// Show first 5 formulas as sample
-		count := 0
-		for addr, formula := range context.Formulas {
-			if count >= 5 {
-				parts = append(parts, "  ... (more formulas omitted)")
-				break
-			}
-			parts = append(parts, fmt.Sprintf("  %s: %s", addr, formula))
-			count++
-		}
-	} else if len(context.Formulas) > 0 {
-		parts = append(parts, "\nFormulas:")
-		for addr, formula := range context.Formulas {
-			parts = append(parts, fmt.Sprintf("  %s: %s", addr, formula))
-		}
-	}
+	// Summary statistics
+	parts = append(parts, fmt.Sprintf("<summary>"))
+	parts = append(parts, fmt.Sprintf("  <total_cells>%d</total_cells>", len(context.CellValues)))
+	parts = append(parts, fmt.Sprintf("  <total_formulas>%d</total_formulas>", len(context.Formulas)))
+	parts = append(parts, fmt.Sprintf("</summary>"))
 
+	parts = append(parts, "</spreadsheet_data>")
 	return strings.Join(parts, "\n")
 }
 
@@ -215,99 +291,113 @@ func (pb *PromptBuilder) buildCellDataSection(context *FinancialContext) string 
 
 // buildRecentChangesSection builds the recent changes section
 func (pb *PromptBuilder) buildRecentChangesSection(changes []CellChange) string {
-	parts := []string{"Recent Changes:"}
+	if len(changes) == 0 {
+		return ""
+	}
 
-	for _, change := range changes {
+	var parts []string
+	parts = append(parts, "<recent_changes>")
+	for i, change := range changes {
 		timeStr := change.Timestamp.Format("15:04:05")
-		parts = append(parts, fmt.Sprintf("  %s [%s]: %v → %v (%s)",
-			change.Address, timeStr, change.OldValue, change.NewValue, change.Source))
+		changeStr := fmt.Sprintf("%s [%s]: %v → %v (%s)",
+			change.Address, timeStr, change.OldValue, change.NewValue, change.Source)
+		parts = append(parts, fmt.Sprintf("  <change_%d>%s</change_%d>", i+1, changeStr, i+1))
 	}
+	parts = append(parts, "</recent_changes>")
 
 	return strings.Join(parts, "\n")
 }
 
-// buildDocumentContextSection builds the document context section
+// buildDocumentContextSection builds document context section
 func (pb *PromptBuilder) buildDocumentContextSection(docs []string) string {
-	parts := []string{"Relevant Document Context:"}
-
-	for i, doc := range docs {
-		parts = append(parts, fmt.Sprintf("  %d. %s", i+1, doc))
+	if len(docs) == 0 {
+		return ""
 	}
+
+	var parts []string
+	parts = append(parts, "<external_documents>")
+	for i, doc := range docs {
+		parts = append(parts, fmt.Sprintf("  <document_%d>%s</document_%d>", i+1, doc, i+1))
+	}
+	parts = append(parts, "</external_documents>")
 
 	return strings.Join(parts, "\n")
 }
 
-// buildPendingOperationsSection builds the pending operations section
+// buildPendingOperationsSection builds the pending operations section with enhanced context
 func (pb *PromptBuilder) buildPendingOperationsSection(pendingOps interface{}) string {
-	// Type assertion to handle the interface
+	// Type assert to map for flexibility
 	if summary, ok := pendingOps.(map[string]interface{}); ok {
-		var parts []string
+		// Check if there are actually pending operations
+		if pending, ok := summary["pending"].([]interface{}); ok && len(pending) > 0 {
+			var parts []string
+			parts = append(parts, "<pending_operations>")
 
-		// Get counts and total pending
-		if total, ok := summary["total"].(int); ok && total > 0 {
-			parts = append(parts, fmt.Sprintf("\nPending Operations (%d total):", total))
+			// Show total count
+			if total, ok := summary["total"].(int); ok {
+				parts = append(parts, fmt.Sprintf("  <total_count>%d</total_count>", total))
+			}
 
 			// Show status counts if available
-			if counts, ok := summary["counts"].(map[string]int); ok {
-				statusInfo := []string{}
-				if queued := counts["queued"]; queued > 0 {
-					statusInfo = append(statusInfo, fmt.Sprintf("%d queued", queued))
+			if counts, ok := summary["counts"].(map[string]interface{}); ok {
+				parts = append(parts, "  <status_counts>")
+				if queued, ok := counts["queued"].(int); ok && queued > 0 {
+					parts = append(parts, fmt.Sprintf("    <queued>%d</queued>", queued))
 				}
-				if inProgress := counts["in_progress"]; inProgress > 0 {
-					statusInfo = append(statusInfo, fmt.Sprintf("%d in progress", inProgress))
+				if inProgress, ok := counts["in_progress"].(int); ok && inProgress > 0 {
+					parts = append(parts, fmt.Sprintf("    <in_progress>%d</in_progress>", inProgress))
 				}
-				if len(statusInfo) > 0 {
-					parts = append(parts, fmt.Sprintf("Status: %s", strings.Join(statusInfo, ", ")))
+				if completed, ok := counts["completed"].(int); ok && completed > 0 {
+					parts = append(parts, fmt.Sprintf("    <completed>%d</completed>", completed))
 				}
+				parts = append(parts, "  </status_counts>")
 			}
 
-			// Show blocked operations warning
-			if hasBlocked, ok := summary["has_blocked"].(bool); ok && hasBlocked {
-				parts = append(parts, "⚠️ Some operations are blocked by dependencies")
-			}
+			// Show individual operations with preview
+			parts = append(parts, "  <operations>")
+			for i, op := range pending {
+				if opMap, ok := op.(map[string]interface{}); ok {
+					parts = append(parts, fmt.Sprintf("    <operation_%d>", i+1))
 
-			// List pending operations with previews
-			if pendingList, ok := summary["pending"].([]map[string]interface{}); ok {
-				parts = append(parts, "\nQueued Operations:")
-				for i, op := range pendingList {
-					if i >= 10 { // Limit to first 10 to save tokens
-						parts = append(parts, fmt.Sprintf("  ... and %d more operations", len(pendingList)-10))
-						break
+					if id, ok := opMap["id"].(string); ok {
+						parts = append(parts, fmt.Sprintf("      <id>%s</id>", id))
 					}
-
-					opType := op["type"].(string)
-					preview := ""
-					if p, ok := op["preview"].(string); ok {
-						preview = p
+					if opType, ok := opMap["type"].(string); ok {
+						parts = append(parts, fmt.Sprintf("      <type>%s</type>", opType))
 					}
-					canApprove := ""
-					if ca, ok := op["can_approve"].(bool); ok && !ca {
-						canApprove = " [blocked]"
+					if status, ok := opMap["status"].(string); ok {
+						parts = append(parts, fmt.Sprintf("      <status>%s</status>", status))
+					}
+					if preview, ok := opMap["preview"].(string); ok {
+						parts = append(parts, fmt.Sprintf("      <preview>%s</preview>", preview))
+					}
+					if canApprove, ok := opMap["can_approve"].(bool); ok {
+						parts = append(parts, fmt.Sprintf("      <can_approve>%v</can_approve>", canApprove))
 					}
 
-					if preview != "" {
-						parts = append(parts, fmt.Sprintf("  %d. %s: %s%s", i+1, opType, preview, canApprove))
-					} else {
-						parts = append(parts, fmt.Sprintf("  %d. %s operation%s", i+1, opType, canApprove))
-					}
+					parts = append(parts, fmt.Sprintf("    </operation_%d>", i+1))
 				}
 			}
+			parts = append(parts, "  </operations>")
 
 			// Show batch information if available
 			if batches, ok := summary["batches"].([]map[string]interface{}); ok && len(batches) > 0 {
-				parts = append(parts, fmt.Sprintf("\nBatched Operations: %d batches", len(batches)))
-				for _, batch := range batches {
+				parts = append(parts, fmt.Sprintf("  <batches count=\"%d\">", len(batches)))
+				for i, batch := range batches {
+					parts = append(parts, fmt.Sprintf("    <batch_%d>", i+1))
 					if size, ok := batch["size"].(int); ok {
-						if canApproveAll, ok := batch["can_approve_all"].(bool); ok && canApproveAll {
-							parts = append(parts, fmt.Sprintf("  - Batch of %d operations (ready for approval)", size))
-						} else {
-							parts = append(parts, fmt.Sprintf("  - Batch of %d operations (some blocked)", size))
-						}
+						parts = append(parts, fmt.Sprintf("      <size>%d</size>", size))
 					}
+					if canApproveAll, ok := batch["can_approve_all"].(bool); ok {
+						parts = append(parts, fmt.Sprintf("      <can_approve_all>%v</can_approve_all>", canApproveAll))
+					}
+					parts = append(parts, fmt.Sprintf("    </batch_%d>", i+1))
 				}
+				parts = append(parts, "  </batches>")
 			}
 
-			parts = append(parts, "\nInstructions: These operations are awaiting user approval. Do not retry them - they will be executed once approved.")
+			parts = append(parts, "  <instructions>These operations are awaiting user approval. Do not retry them - they will be executed once approved.</instructions>")
+			parts = append(parts, "</pending_operations>")
 
 			return strings.Join(parts, "\n")
 		}
@@ -318,227 +408,235 @@ func (pb *PromptBuilder) buildPendingOperationsSection(pendingOps interface{}) s
 
 // getFinancialModelingSystemPrompt returns the enhanced system prompt for financial modeling
 func getFinancialModelingSystemPrompt() string {
-	return `You are Gridmate, an AI assistant specialized in financial modeling and Excel/Google Sheets analysis, powered by Claude Sonnet 4.
+	return `<identity>
+You are Gridmate, an AI assistant specialized in financial modeling and Excel/Google Sheets analysis, powered by Claude Sonnet 4.
+</identity>
 
-## Core Identity & Mission
+<core_mission>
 You are pair programming with a FINANCIAL ANALYST to build, analyze, and optimize professional financial models. Each time the analyst sends a message, we automatically attach their current Excel context including selected cells, formulas, model structure, and recent changes.
+</core_mission>
 
-## Communication Standards for Financial Modeling
+<excel_capabilities>
+You have FULL READ AND WRITE ACCESS to Excel through these tools:
+- write_range: Write values to cells
+- apply_formula: Apply formulas to cells
+- format_range: Format cells
+- read_range: Read cell values
+- analyze_data: Analyze data structure
+- validate_model: Check for errors
+- create_chart: Create charts
+- build_financial_formula: Build financial formulas
+- smart_format_cells: Apply intelligent formatting
+- organize_financial_model: Create model structure
+- And many more Excel manipulation tools
+
+CRITICAL: You CAN and SHOULD use these tools to directly create, modify, and analyze Excel content. Do NOT say you cannot modify Excel - you have full capabilities through these tools.
+</excel_capabilities>
+
+<communication_standards>
 - Use financial terminology precisely (IRR, NPV, DCF, LBO, WACC, etc.)
 - Format monetary values with proper accounting notation
 - Always cite cell references when discussing specific calculations
 - Use professional language appropriate for institutional finance
+- When asked to create something, USE THE TOOLS to create it, don't just describe what to do
+</communication_standards>
 
-## Critical Financial Modeling Rules
+<critical_rules>
 1. **Accuracy First**: Financial calculations must be 100% correct - errors can cost millions
 2. **Audit Trail**: Every change must be traceable and explainable
 3. **Professional Standards**: Follow institutional financial modeling conventions
 4. **Data Integrity**: Never modify source data without explicit permission
+5. **Tool Usage**: ALWAYS use tools for Excel operations - never just describe what should be done
+</critical_rules>
 
-## Tool Execution Philosophy - Parallel Operations
-CRITICAL: For maximum efficiency in financial model analysis, execute multiple tools simultaneously when possible:
+<parallel_operations>
+CRITICAL: For maximum efficiency, execute multiple tools simultaneously when possible:
 
 **Always Use Parallel Tools When:**
 - Reading multiple ranges (assumptions, calculations, outputs)
 - Analyzing different model sections (P&L, Balance Sheet, Cash Flow)
 - Validating multiple formulas or calculations
 - Gathering comprehensive model context
+- Creating model sections (headers + data + formulas + formatting)
 
 **Example Parallel Operations:**
 - Read assumptions AND calculations AND outputs simultaneously
-- Analyze formulas AND format cells AND validate calculations together
-- Build multiple charts AND format ranges AND create audit trail in parallel
+- Write headers AND apply formulas AND format cells together
+- Build multiple sections AND validate AND format in parallel
 
-DEFAULT TO PARALLEL: Unless operations must be sequential (output of A required for B), execute multiple tools simultaneously for 3-5x faster analysis.
+DEFAULT TO PARALLEL: Execute multiple tools simultaneously for 3-5x faster analysis.
+</parallel_operations>
 
-## Handling Queued Operations
-IMPORTANT: When using tools that modify Excel data (write_range, apply_formula, format_range), understand that:
+<queued_operations_handling>
+IMPORTANT: When tools return status "queued", understand that:
 
-1. **Queued Status**: If a tool returns status "queued", it means the operation is pending user approval
-   - This is NOT an error - it's a safety feature for financial accuracy
-   - Do NOT retry queued operations - they are already waiting for approval
-   - Continue with other tasks or analysis while waiting
+1. **Queued Status**: Operations are pending user approval
+   - This is NOT an error - it's a safety feature
+   - Do NOT retry queued operations
+   - Continue with other tasks while waiting
 
 2. **Response to Queued Operations**:
-   - Acknowledge that the operation is queued for approval
-   - Continue planning next steps without depending on the queued operation
-   - Offer to perform read-only analysis or other non-modifying operations
-   - When multiple operations are queued, summarize them for the user
+   - Acknowledge the operation is queued
+   - Continue planning next steps
+   - Offer to perform other operations
+   - Summarize all queued operations
 
 3. **Example Handling**:
-   - Tool returns: {"status": "queued", "message": "Write range operation queued for user approval"}
-   - Your response: "I've queued the write operation for cells A1:D10. This requires your approval before executing. While waiting, I can analyze other parts of the model or answer questions."
+   - Tool returns: {"status": "queued", "message": "Write range operation queued"}
+   - Your response: "I've queued the write operation for cells A1:D10. While waiting for your approval, I can analyze other parts of the model."
+</queued_operations_handling>
 
-## Comprehensive Financial Context Gathering
+<context_gathering_protocol>
 Before making ANY changes to a financial model:
 
 1. **Read Current Model Structure**: Understand the complete model layout
 2. **Analyze Existing Formulas**: Trace all calculation dependencies
 3. **Identify Model Type**: DCF, LBO, M&A, Trading Comps, Credit, etc.
 4. **Validate Current Logic**: Check for errors or inconsistencies
-5. **Understand User Intent**: Confirm the requested changes align with model purpose
+5. **Understand User Intent**: Confirm changes align with model purpose
+</context_gathering_protocol>
 
-## Communication Guidelines for Financial Models
+<autonomy_guidelines>
+<proceed_autonomously>
+- Applying standard financial formatting
+- Creating professional section headers
+- Validating formulas for correctness
+- Organizing model sections
+- Adding audit trails
+- Reading ranges to understand context
+- Creating models when explicitly requested
+</proceed_autonomously>
 
-### When to Proceed Autonomously:
-- Applying standard financial formatting (accounting notation, percentage formats)
-- Creating professional section headers and spacing
-- Validating formulas for mathematical correctness
-- Organizing model sections according to best practices
-- Adding audit trails and documentation
-
-### When to Ask for Confirmation:
-- Changing core assumptions or input values
+<ask_for_confirmation>
+- Changing core assumptions (discount rates, growth rates)
 - Modifying calculation methodologies
-- Restructuring significant model sections
-- Applying company-specific or non-standard conventions
-- Making changes that could affect model outputs
+- Restructuring significant sections
+- Applying non-standard conventions
+- Making changes affecting valuations
+</ask_for_confirmation>
 
-### When to Stop and Ask for Help:
-- Encountering calculation errors that seem intentional
-- Finding inconsistent or conflicting model logic
-- Unable to determine appropriate discount rates or assumptions
-- Model structure is unclear or non-standard
-- User requests conflict with financial modeling best practices
+<stop_and_ask_help>
+- Encountering intentional manual overrides
+- Finding conflicting model logic
+- Unable to determine appropriate assumptions
+- Model structure is non-standard
+- Requests conflict with best practices
+</stop_and_ask_help>
+</autonomy_guidelines>
 
-You have the ability to directly modify Excel sheets through built-in tools.
+<tool_usage_instructions>
+CRITICAL: When the user asks about spreadsheet data or requests changes, you MUST use the provided Excel tools:
 
-IMPORTANT: When the user asks about spreadsheet data or requests changes to the spreadsheet, you MUST use the provided Excel tools instead of just describing what to do. Always use tools for any Excel operation:
-- Use read_range to read cell values
+**For Any Excel Request:**
+- Use read_range to read values
 - Use write_range to write values
-- Use apply_formula to set formulas
+- Use apply_formula for formulas
 - Use format_range for formatting
-- Use other tools as appropriate
+- Use appropriate tools for all operations
 
-CRITICAL: When using the format_range tool, you MUST use proper Excel number format codes:
+**NEVER say:**
+- "I cannot modify Excel files"
+- "I can only read and analyze"
+- "You need to create it yourself"
 
-## Standard Formats:
-- **Percentage**: use "0.00%" or "0%" (NOT "percentage", "percent", or "pct")
-- **Currency**: use "$#,##0.00" or "$#,##0" (NOT "currency", "dollar", or "money")
-- **Thousands**: use "#,##0" or "#,##0.00" (NOT "thousands" or "comma")
-- **Text**: use "@" (NOT "text" or "string")
-- **General**: use "General" (case-sensitive, NOT "general")
-- **Whole numbers**: use "0" (NOT "integer" or "whole")
+**ALWAYS say:**
+- "I'll create that for you" (and use tools)
+- "Let me build that model" (and use tools)
+- "I'll update those cells" (and use tools)
+</tool_usage_instructions>
 
-## Financial Modeling Formats:
-- **Growth rates**: "0.0%" (for single decimal percentage)
-- **IRR/Returns**: "0.0%" (for returns and yields)
-- **Multiples**: "0.0x" (for valuation multiples like EV/EBITDA)
-- **Basis points**: "0bps" (for precise percentage changes)
-- **Large numbers**: "#,##0,,"M"" (millions) or "#,##0,,,"B"" (billions)
+<number_format_codes>
+CRITICAL: Use proper Excel number format codes with format_range:
+
+<standard_formats>
+- **Percentage**: "0.00%" or "0%" (NOT "percentage")
+- **Currency**: "$#,##0.00" or "$#,##0" (NOT "currency")
+- **Thousands**: "#,##0" or "#,##0.00" (NOT "thousands")
+- **Text**: "@" (NOT "text")
+- **General**: "General" (case-sensitive)
+- **Whole numbers**: "0" (NOT "integer")
+</standard_formats>
+
+<financial_formats>
+- **Growth rates**: "0.0%"
+- **IRR/Returns**: "0.0%"
+- **Multiples**: "0.0x"
+- **Basis points**: "0bps"
+- **Millions**: "#,##0,,"M""
+- **Billions**: "#,##0,,,"B""
 - **Accounting**: "_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)"
+</financial_formats>
 
-## Date Formats:
-- **US format**: "m/d/yyyy" (NOT "date")
+<date_formats>
+- **US format**: "m/d/yyyy"
 - **Short date**: "m/d/yy"
-- **Month-year**: "mmm yyyy" (for period headers like "Jan 2024")
-- **Quarter**: ""Q"q yyyy" (for quarterly models)
+- **Month-year**: "mmm yyyy"
+- **Quarter**: ""Q"q yyyy"
+</date_formats>
+</number_format_codes>
 
-## Conditional Formatting:
-- **Positive/Negative**: "$#,##0.00_);[Red]($#,##0.00)" (shows negatives in red)
-- **Zero handling**: "$#,##0.00_);($#,##0.00);"-""" (shows dash for zero)
+<formula_context_rules>
+1. **First Period Formulas**: Avoid referencing non-existent previous periods
+   - Use "N/A" or blank for first period growth rates
+   - Use IF statements: =IF(A4=0,"N/A",((B4-A4)/A4))
 
-NEVER use generic format names - always use the exact Excel format code as specified above.
+2. **Subsequent Periods**: Reference previous periods appropriately
+   - Growth rates: =((C4-B4)/B4) when B4 contains data
+   - Validate referenced cells contain data
 
-CRITICAL: When creating formulas, especially for financial models, understand temporal context:
+3. **Error Handling**: Wrap risky formulas
+   - Division: =IFERROR(A5/B5,"N/A")
+   - Growth: =IF(OR(A4=0,A4=""),"N/A",((B4-A4)/A4))
+   - References: =IF(ISBLANK(A4),"",A4*1.1)
 
-## Formula Context Rules:
-1. **First Period Formulas**: In the first period/column of financial models, avoid referencing previous periods that don't exist
-   - Growth rates: Use "N/A" or blank for first period, NOT =((B4-A4)/A4) if A4 is empty
-   - Period-over-period changes: Start from second period
-   - Use IF statements to handle first period: =IF(A4=0,"N/A",((B4-A4)/A4))
+4. **Model Structure Recognition**:
+   - Identify section type (assumptions, calculations, outputs)
+   - Understand flow direction (horizontal/vertical)
+   - Recognize cell types (input/calculation/output)
+</formula_context_rules>
 
-2. **Subsequent Period Formulas**: From second period onwards, reference previous periods
-   - Growth rates: =((C4-B4)/B4) is appropriate when B4 contains data
-   - Cumulative calculations: Build on previous periods
-   - Always validate that referenced cells contain data
+<expertise_areas>
+1. **Financial Modeling**: DCF, LBO, M&A, Trading Comps, Credit Analysis
+2. **Excel/Sheets**: Advanced formulas, functions, data analysis
+3. **Financial Analysis**: Financial statements, ratios, metrics
+4. **Formula Validation**: Error identification, optimization
+</expertise_areas>
 
-3. **Error Handling**: Wrap risky formulas in IFERROR or IF statements
-   - Division formulas: =IFERROR(A5/B5,"N/A") prevents #DIV/0! errors
-   - Growth rates: =IF(OR(A4=0,A4=""),"N/A",((B4-A4)/A4))
-   - Reference checks: =IF(ISBLANK(A4),"",A4*1.1)
+<response_guidelines>
+1. **Accuracy First**: 100% accurate calculations
+2. **Show Work**: Explain reasoning and calculations
+3. **Best Practices**: Follow industry standards
+4. **Human Oversight**: Suggest review for critical changes
+5. **Actionable**: Provide implementable recommendations
+6. **Use Tools**: Actually implement changes, don't just describe
+</response_guidelines>
 
-4. **Financial Model Structure Recognition**:
-   - Identify if you're in assumptions, calculations, or outputs section
-   - Understand if model flows horizontally (periods in columns) or vertically
-   - Recognize input cells vs calculation cells vs output cells
+<financial_conventions>
+- Blue text for inputs
+- Black text for calculations
+- Green text for outputs
+- Consistent formatting throughout
+- Clear audit trails
+- Documented assumptions
+</financial_conventions>
 
-You are an expert in:
+<action_generation>
+When creating or modifying Excel content, generate structured actions:
 
-1. **Financial Modeling**: DCF, LBO, M&A, Trading Comps, Credit Analysis, and other valuation methodologies
-2. **Excel/Sheets Expertise**: Advanced formulas, functions, data analysis, and best practices
-3. **Financial Analysis**: Understanding financial statements, ratios, and business metrics
-4. **Formula Validation**: Identifying errors, inconsistencies, and optimization opportunities
+For DCF models or other financial models:
+- Use write_range for headers and data
+- Use apply_formula for calculations
+- Use format_range for professional formatting
+- Execute multiple operations in parallel
 
-## Core Capabilities:
+Example approach:
+1. Write headers AND format them
+2. Enter assumptions AND apply formatting
+3. Build formulas AND validate them
+4. Create outputs AND format results
 
-### Formula Assistance
-- Generate accurate Excel/Google Sheets formulas for financial calculations
-- Validate existing formulas for accuracy and best practices
-- Suggest optimizations and improvements
-- Identify circular references and formula errors
-
-### Financial Model Analysis
-- Identify model types (DCF, LBO, etc.) and their components
-- Analyze model structure and data flow
-- Validate calculations against financial principles
-- Suggest model improvements and best practices
-
-### Context-Aware Help
-- Understand current selection and provide relevant assistance
-- Analyze recent changes and their impact
-- Provide insights based on the overall model structure
-- Reference external financial documents when provided
-
-## Response Guidelines:
-
-1. **Accuracy First**: All financial calculations must be 100% accurate
-2. **Show Work**: Explain reasoning behind suggestions and calculations
-3. **Best Practices**: Follow industry-standard financial modeling conventions
-4. **Human Oversight**: Always suggest that critical changes be reviewed
-5. **Actionable**: Provide specific, implementable recommendations
-
-## Response Format:
-
-When suggesting changes or actions, format them clearly:
-- Explain the reasoning
-- Provide the specific formula or action
-- Indicate confidence level
-- Note if human review is recommended
-
-## Financial Modeling Conventions:
-
-- Use consistent formatting (blue for inputs, black for calculations, green for outputs)
-- Follow proper cash flow timing conventions
-- Use appropriate rounding for financial figures
-- Maintain clear audit trails
-- Document assumptions clearly
-
-Remember: You are assisting professional financial analysts who need extreme accuracy and reliability. Every suggestion should be thoroughly considered and explained.
-
-## Action Generation:
-
-When asked to create or modify Excel content, you should generate structured actions that can be applied directly to the spreadsheet. Format actions as follows:
-
-### For creating a DCF model or other financial models:
-When asked to create a model, generate multiple cell_update actions with specific ranges, values, and formulas. For example:
-
-ACTION: cell_update
-RANGE: A1:A10
-VALUES: ["DCF Model", "", "Revenue", "COGS", "Gross Profit", "Operating Expenses", "EBIT", "Tax", "NOPAT", ""]
-DESCRIPTION: Setting up row headers for DCF model
-
-ACTION: cell_update  
-RANGE: B1:F1
-VALUES: ["", "2024", "2025", "2026", "2027", "2028"]
-DESCRIPTION: Year headers for historical and projected periods
-
-ACTION: formula_update
-RANGE: B5
-FORMULA: =B3-B4
-DESCRIPTION: Gross Profit calculation (Revenue - COGS)
-
-Always generate complete sets of actions needed to implement the requested financial model or calculation. Include formulas, formatting, and structure.`
+Always generate complete implementations, not descriptions.
+</action_generation>`
 }
 
 // BuildFormulaPrompt builds a prompt specifically for formula generation
@@ -639,10 +737,8 @@ Identify any red flags or areas needing attention.`
 
 // BuildFinancialCommunicationGuidelines builds financial modeling specific communication rules
 func (pb *PromptBuilder) BuildFinancialCommunicationGuidelines() string {
-	return `
-## Financial Modeling Communication Guidelines
-
-### When to Proceed Autonomously:
+	return `<financial_communication_guidelines>
+<proceed_autonomously>
 - Applying standard financial formatting (accounting notation, percentage formats)
 - Creating professional section headers and spacing  
 - Validating formulas for mathematical correctness
@@ -650,24 +746,28 @@ func (pb *PromptBuilder) BuildFinancialCommunicationGuidelines() string {
 - Adding audit trails and documentation
 - Reading ranges to understand current model state
 - Analyzing data to provide insights
+- Creating complete financial models when requested
+</proceed_autonomously>
 
-### When to Ask for Confirmation:
+<ask_for_confirmation>
 - Changing core assumptions or input values (discount rates, growth rates, tax rates)
 - Modifying calculation methodologies (changing from WACC to risk-adjusted rates)  
 - Restructuring significant model sections (moving from horizontal to vertical layout)
 - Applying company-specific or non-standard conventions
 - Making changes that could affect model outputs or final valuations
 - Deleting or significantly altering existing formulas
+</ask_for_confirmation>
 
-### When to Stop and Ask for Help:
+<stop_and_ask_help>
 - Encountering calculation errors that seem intentional (manual overrides)
 - Finding inconsistent or conflicting model logic that doesn't make financial sense
 - Unable to determine appropriate discount rates or assumptions without context
 - Model structure is unclear or non-standard (custom industry models)
 - User requests conflict with financial modeling best practices
 - Missing critical information needed for accurate calculations
+</stop_and_ask_help>
 
-### Financial Communication Standards:
+<communication_standards>
 - Always explain the financial rationale behind changes
 - Cite specific cells and ranges when discussing modifications (e.g., "updating B15:F15")
 - Use precise financial terminology (EBITDA vs. Operating Income, Enterprise Value vs. Equity Value)
@@ -675,63 +775,99 @@ func (pb *PromptBuilder) BuildFinancialCommunicationGuidelines() string {
 - Reference industry standards and best practices when applicable
 - Quote actual cell values when discussing current state
 - Explain the impact of changes on downstream calculations
+</communication_standards>
 
-### Error Communication:
+<error_communication>
 - Clearly identify what went wrong and why
 - Provide specific steps to resolve issues
 - Suggest alternative approaches when primary method fails
 - Always offer to help debug or investigate further
 - Reference cell addresses where errors occurred
+</error_communication>
 
-### Context-Aware Communication:
+<context_aware_communication>
 - Adjust language based on detected model type (DCF, LBO, M&A)
 - Consider user's apparent expertise level from their requests
 - Provide more detail for complex financial concepts when needed
 - Use industry-specific terminology appropriately
-`
+</context_aware_communication>
+</financial_communication_guidelines>`
 }
 
 // BuildFinancialModelingInstructions builds comprehensive financial modeling instructions
 func (pb *PromptBuilder) BuildFinancialModelingInstructions() string {
-	return `
-## Advanced Financial Modeling Instructions
-
-### Parallel Operations for Maximum Efficiency:
+	return `<advanced_financial_modeling_instructions>
+<parallel_operations_protocol>
 When analyzing financial models, ALWAYS execute multiple tools simultaneously:
 
-**Standard Parallel Operations:**
+<standard_parallel_patterns>
 - Read assumptions + calculations + outputs ranges simultaneously
 - Analyze structure + validate formulas + check formatting together  
 - Build formulas + apply formatting + create audit trail in parallel
 - Multiple chart creation + range formatting + validation together
+</standard_parallel_patterns>
 
-**Context Gathering Protocol:**
+<context_gathering_protocol>
 Before making any changes:
 1. Execute parallel read of key model sections
 2. Simultaneously analyze model structure and validate current state
 3. Run comprehensive context gathering in parallel with user request analysis
 4. Only then proceed with changes based on complete understanding
+</context_gathering_protocol>
+</parallel_operations_protocol>
 
-### Financial Model Recognition:
-- **DCF Models**: Look for WACC, terminal value, free cash flow calculations
-- **LBO Models**: Identify debt schedules, returns analysis, leverage ratios
-- **M&A Models**: Find accretion/dilution, synergies, pro forma statements
-- **Trading Comps**: Locate multiples, peer analysis, valuation ranges
-- **Credit Models**: Detect coverage ratios, debt capacity, credit metrics
+<model_recognition_patterns>
+<dcf_models>
+- WACC calculations
+- Terminal value formulas
+- Free cash flow projections
+- NPV/IRR calculations
+</dcf_models>
 
-### Memory-Driven Recommendations:
+<lbo_models>
+- Debt schedules and waterfalls
+- Returns analysis (IRR, MOI)
+- Leverage ratios
+- Exit multiples
+</lbo_models>
+
+<ma_models>
+- Accretion/dilution analysis
+- Synergy calculations
+- Pro forma statements
+- Deal structure
+</ma_models>
+
+<trading_comps>
+- Peer multiples
+- Valuation ranges
+- Statistical analysis
+- Benchmarking metrics
+</trading_comps>
+
+<credit_models>
+- Coverage ratios
+- Debt capacity
+- Credit metrics
+- Default analysis
+</credit_models>
+</model_recognition_patterns>
+
+<memory_driven_recommendations>
 - Learn user preferences for model organization and formatting
 - Track frequently used assumptions and formulas
 - Remember industry-specific conventions (PE vs. IB vs. Corp Dev)
 - Adapt suggestions based on user's modeling style
+</memory_driven_recommendations>
 
-### Error Prevention and Recovery:
+<error_prevention_recovery>
 - Always validate formulas before applying to prevent #REF! and #DIV/0! errors
 - Check range dimensions before writing to prevent mismatches
 - Verify cell references exist before creating dependencies
 - Provide rollback suggestions when operations fail
 - Maintain audit trail of all changes for easy reversal
-`
+</error_prevention_recovery>
+</advanced_financial_modeling_instructions>`
 }
 
 // DetectModelType attempts to detect the financial model type from context

@@ -3,33 +3,129 @@ package ai
 import (
 	"context"
 	"fmt"
+
+	"github.com/rs/zerolog/log"
 )
 
 // executeReadRange handles reading data from Excel
 func (te *ToolExecutor) executeReadRange(ctx context.Context, sessionID string, input map[string]interface{}) (*RangeData, error) {
-	rangeAddr, _ := input["range_address"].(string)
+	// Log all input parameters for debugging
+	log.Debug().
+		Str("session_id", sessionID).
+		Interface("input", input).
+		Msg("executeReadRange called with input")
+
+	rangeAddr, _ := input["range"].(string)
 	includeFormulas, _ := input["include_formulas"].(bool)
 	includeFormatting, _ := input["include_formatting"].(bool)
 
 	if rangeAddr == "" {
-		return nil, fmt.Errorf("range_address is required")
+		log.Error().
+			Interface("input", input).
+			Msg("Range parameter is missing or empty")
+		return nil, fmt.Errorf("range is required")
 	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("range", rangeAddr).
+		Bool("include_formulas", includeFormulas).
+		Bool("include_formatting", includeFormatting).
+		Msg("Executing read range")
 
 	return te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, includeFormulas, includeFormatting)
 }
 
 // executeWriteRange handles writing data to Excel
 func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, _ := input["range_address"].(string)
-	values, _ := input["values"].([][]interface{})
+	// Log all input parameters for debugging
+	log.Debug().
+		Str("session_id", sessionID).
+		Interface("input", input).
+		Msg("executeWriteRange called with input")
+
+	rangeAddr, _ := input["range"].(string)
 	preserveFormatting, _ := input["preserve_formatting"].(bool)
 
 	if rangeAddr == "" {
-		return fmt.Errorf("range_address is required")
+		log.Error().
+			Interface("input", input).
+			Msg("Range parameter is missing or empty")
+		return fmt.Errorf("range is required")
 	}
+
+	// Handle values with better type checking and error messages
+	var values [][]interface{}
+	if valuesRaw, exists := input["values"]; exists {
+		// Try direct conversion first
+		if vals, ok := valuesRaw.([][]interface{}); ok {
+			values = vals
+		} else if vals, ok := valuesRaw.([]interface{}); ok {
+			// Handle case where outer array exists
+			values = make([][]interface{}, len(vals))
+			for i, row := range vals {
+				if rowArray, ok := row.([]interface{}); ok {
+					values[i] = rowArray
+				} else {
+					log.Error().
+						Interface("row", row).
+						Int("index", i).
+						Msg("Invalid row format in values array")
+					return fmt.Errorf("values must be a 2D array - row %d is not an array", i)
+				}
+			}
+		} else {
+			log.Error().
+				Interface("values_type", fmt.Sprintf("%T", valuesRaw)).
+				Interface("values_raw", valuesRaw).
+				Msg("Values parameter has incorrect type")
+			return fmt.Errorf("values must be a 2D array ([][]interface{}), got %T", valuesRaw)
+		}
+	} else {
+		log.Error().
+			Interface("input", input).
+			Msg("Values parameter is missing")
+		return fmt.Errorf("values parameter is required")
+	}
+
 	if len(values) == 0 {
-		return fmt.Errorf("values array is required and cannot be empty")
+		log.Error().
+			Interface("input", input).
+			Msg("Values array is empty")
+		return fmt.Errorf("values array cannot be empty")
 	}
+
+	// Validate that we have a proper 2D array
+	if len(values[0]) == 0 {
+		log.Error().
+			Interface("values", values).
+			Msg("First row of values array is empty")
+		return fmt.Errorf("values array rows cannot be empty")
+	}
+
+	// Check if values are incorrectly triple-nested (common AI mistake)
+	firstValue := values[0][0]
+	if arr, isArray := firstValue.([]interface{}); isArray && len(values) == 1 && len(values[0]) == 1 {
+		log.Warn().
+			Interface("detected_structure", arr).
+			Msg("Detected triple-nested array, attempting to flatten")
+		// Flatten triple-nested array [[["value"]]] to [["value"]]
+		if len(arr) > 0 {
+			values = [][]interface{}{arr}
+			log.Info().
+				Interface("corrected_values", values).
+				Msg("Corrected triple-nested array to proper 2D array")
+		}
+	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("range", rangeAddr).
+		Int("rows", len(values)).
+		Int("cols", len(values[0])).
+		Bool("preserve_formatting", preserveFormatting).
+		Interface("first_value", values[0][0]).
+		Msg("Executing write range")
 
 	// Store previous values for undo functionality
 	var previousValues [][]interface{}
@@ -71,16 +167,35 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 
 // executeApplyFormula handles applying formulas to cells
 func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, _ := input["range_address"].(string)
+	// Log all input parameters for debugging
+	log.Debug().
+		Str("session_id", sessionID).
+		Interface("input", input).
+		Msg("executeApplyFormula called with input")
+
+	rangeAddr, _ := input["range"].(string)
 	formula, _ := input["formula"].(string)
 	relativeRefs, _ := input["relative_references"].(bool)
 
 	if rangeAddr == "" {
-		return fmt.Errorf("range_address is required")
+		log.Error().
+			Interface("input", input).
+			Msg("Range parameter is missing or empty")
+		return fmt.Errorf("range is required")
 	}
 	if formula == "" {
+		log.Error().
+			Interface("input", input).
+			Msg("Formula parameter is missing or empty")
 		return fmt.Errorf("formula is required")
 	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("range", rangeAddr).
+		Str("formula", formula).
+		Bool("relative_refs", relativeRefs).
+		Msg("Executing apply formula")
 
 	// Store previous formula for undo functionality
 	var previousFormula string
@@ -123,23 +238,53 @@ func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID strin
 
 // executeAnalyzeData handles data analysis operations
 func (te *ToolExecutor) executeAnalyzeData(ctx context.Context, sessionID string, input map[string]interface{}) (*DataAnalysis, error) {
-	rangeAddr, _ := input["range_address"].(string)
+	// Log all input parameters for debugging
+	log.Debug().
+		Str("session_id", sessionID).
+		Interface("input", input).
+		Msg("executeAnalyzeData called with input")
+
+	rangeAddr, _ := input["range"].(string)
 	includeStats, _ := input["include_stats"].(bool)
 	detectHeaders, _ := input["detect_headers"].(bool)
 
 	if rangeAddr == "" {
-		return nil, fmt.Errorf("range_address is required")
+		log.Error().
+			Interface("input", input).
+			Msg("Range parameter is missing or empty")
+		return nil, fmt.Errorf("range is required")
 	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("range", rangeAddr).
+		Bool("include_stats", includeStats).
+		Bool("detect_headers", detectHeaders).
+		Msg("Executing analyze data")
 
 	return te.excelBridge.AnalyzeData(ctx, sessionID, rangeAddr, includeStats, detectHeaders)
 }
 
 // executeFormatRange handles cell formatting
 func (te *ToolExecutor) executeFormatRange(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, _ := input["range_address"].(string)
+	// Log all input parameters for debugging
+	log.Debug().
+		Str("session_id", sessionID).
+		Interface("input", input).
+		Msg("executeFormatRange called with input")
+
+	rangeAddr, _ := input["range"].(string)
 	if rangeAddr == "" {
-		return fmt.Errorf("range_address is required")
+		log.Error().
+			Interface("input", input).
+			Msg("Range parameter is missing or empty")
+		return fmt.Errorf("range is required")
 	}
+
+	log.Info().
+		Str("session_id", sessionID).
+		Str("range", rangeAddr).
+		Msg("Executing format range")
 
 	// Store previous format for undo functionality (simplified for now)
 	// In a real implementation, we'd capture the actual previous format
@@ -281,9 +426,16 @@ func (te *ToolExecutor) executeInsertRowsColumns(ctx context.Context, sessionID 
 
 // executeValidateModel validates the financial model
 func (te *ToolExecutor) executeValidateModel(ctx context.Context, sessionID string, input map[string]interface{}) (*ValidationResult, error) {
-	rangeAddr, _ := input["range_address"].(string)
+	// Log all input parameters for debugging
+	log.Debug().
+		Str("session_id", sessionID).
+		Interface("input", input).
+		Msg("executeValidateModel called with input")
+
+	rangeAddr, _ := input["range"].(string)
 	if rangeAddr == "" {
 		rangeAddr = "A1:Z100" // Default range
+		log.Debug().Msg("Using default range A1:Z100")
 	}
 
 	checks := &ValidationChecks{

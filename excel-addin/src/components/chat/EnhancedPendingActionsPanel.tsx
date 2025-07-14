@@ -55,11 +55,17 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
   };
 
   // Get visual indicator for action status
-  const getStatusIcon = (action: PendingAction): string => {
-    if (!canApprove(action.id)) return '⏸️'; // Waiting for dependencies
-    if (action.batchId) return '🔗'; // Part of batch
-    if (action.priority && action.priority > 50) return '⚡'; // High priority
-    return '✅'; // Ready to approve
+  const getStatusIcon = (action: PendingAction): React.ReactNode => {
+    if (!canApprove(action.id)) {
+      return <div className="w-2 h-2 bg-yellow-500 rounded-full" title="Waiting for dependencies" />;
+    }
+    if (action.batchId) {
+      return <div className="w-2 h-2 bg-blue-500 rounded-full" title="Part of batch" />;
+    }
+    if (action.priority && action.priority > 50) {
+      return <div className="w-2 h-2 bg-purple-500 rounded-full" title="High priority" />;
+    }
+    return <div className="w-2 h-2 bg-green-500 rounded-full" title="Ready to approve" />;
   };
 
   // Get operation type display name
@@ -91,50 +97,63 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
   };
 
   return (
-    <div className="pending-actions-panel p-4 bg-gray-50 rounded-lg">
+    <div className="pending-actions-panel p-4">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">
-          Pending Operations 
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">
+            Pending Operations
+          </h3>
           {summary.total > 0 && (
-            <span className="text-sm font-normal text-gray-600 ml-2">
-              ({summary.counts.queued} queued, {summary.counts.completed} completed)
-            </span>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {summary.counts.queued} queued, {summary.counts.completed} completed
+            </p>
           )}
-        </h3>
+        </div>
         <div className="flex gap-2">
           {/* Undo/Redo buttons */}
           <button
             onClick={onUndo}
-            className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 
-                     disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+            className="p-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 
+                     disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed 
+                     transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
             disabled={!hasUndo}
             title="Undo last operation"
           >
-            ↶
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
           </button>
           <button
             onClick={onRedo}
-            className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 
-                     disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
+            className="p-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 
+                     disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed 
+                     transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
             disabled={!hasRedo}
             title="Redo last undone operation"
           >
-            ↷
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10h-10a8 8 0 00-8 8v2m18-10l-6 6m6-6l-6-6" />
+            </svg>
           </button>
           <div className="w-px bg-gray-300" />
           <button
             onClick={onApproveAllInOrder}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 
-                     flex items-center gap-2 text-sm font-medium
-                     disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
+                     flex items-center gap-2 text-sm font-semibold shadow-sm
+                     disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors
+                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             disabled={actions.length === 0 || summary.has_blocked}
           >
-            <span>✓</span> Approve All in Order
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Approve All in Order
           </button>
           <button
             onClick={onApproveAll}
-            className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 
-                     text-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 
+                     text-sm font-medium disabled:bg-gray-50 disabled:text-gray-400 
+                     disabled:cursor-not-allowed transition-colors"
             disabled={actions.length === 0 || summary.has_blocked}
           >
             Approve All
@@ -144,8 +163,11 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
 
       {/* Warning if operations are blocked */}
       {summary.has_blocked && (
-        <div className="mb-3 p-2 bg-orange-100 border border-orange-300 rounded text-sm text-orange-800">
-          ⚠️ Some operations are blocked by dependencies. They will execute once their dependencies complete.
+        <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800 flex items-start gap-2">
+          <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span>Some operations are blocked by dependencies. They will execute once their dependencies complete.</span>
         </div>
       )}
 
@@ -205,7 +227,7 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
 const OperationCard: React.FC<{
   action: PendingAction;
   canApprove: boolean;
-  statusIcon: string;
+  statusIcon: React.ReactNode;
   operationTypeDisplay: string;
   onApprove: () => void;
   onReject: () => void;
@@ -218,8 +240,8 @@ const OperationCard: React.FC<{
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg">{statusIcon}</span>
-            <span className="font-medium text-sm">{operationTypeDisplay}</span>
+            {statusIcon}
+            <span className="font-medium text-sm text-gray-900">{operationTypeDisplay}</span>
             {action.context && (
               <span className="text-xs text-gray-500">• {action.context}</span>
             )}
@@ -255,31 +277,34 @@ const OperationCard: React.FC<{
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-1 ml-2">
+        <div className="flex gap-2 ml-2">
           <button
             onClick={onApprove}
             disabled={!canApprove}
-            className={`px-3 py-1 rounded text-sm ${
+            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
               canApprove
-                ? 'bg-green-600 text-white hover:bg-green-700'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                ? 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
             }`}
           >
-            ✓
+            Approve
           </button>
           <button
             onClick={onReject}
-            className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+            className="px-3 py-1.5 bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 rounded-md text-sm font-medium transition-colors"
           >
-            ✗
+            Reject
           </button>
         </div>
       </div>
 
       {/* Dependency Info */}
       {!canApprove && action.dependencies && action.dependencies.length > 0 && (
-        <div className="mt-2 text-xs text-orange-600">
-          ⚠️ Waiting for {action.dependencies.length} dependent operation{action.dependencies.length > 1 ? 's' : ''} to complete
+        <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Waiting for {action.dependencies.length} dependent operation{action.dependencies.length > 1 ? 's' : ''} to complete
         </div>
       )}
 
@@ -302,7 +327,7 @@ const BatchedOperations: React.FC<{
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   canApprove: (id: string) => boolean;
-  getStatusIcon: (action: PendingAction) => string;
+  getStatusIcon: (action: PendingAction) => React.ReactNode;
   getOperationTypeDisplay: (type: string) => string;
 }> = ({ batchId, actions, expanded, onToggle, onApprove, onReject, canApprove, getStatusIcon, getOperationTypeDisplay }) => {
   return (
@@ -313,11 +338,14 @@ const BatchedOperations: React.FC<{
       >
         <div className="flex items-center justify-between">
           <span className="font-medium text-sm flex items-center gap-2">
-            <span>{expanded ? '▼' : '▶'}</span>
-            🔗 Batch: {batchId.slice(0, 8)}...
-            <span className="text-xs text-gray-600">({actions.length} operations)</span>
+            <svg className={`w-4 h-4 text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            <div className="w-2 h-2 bg-blue-500 rounded-full" />
+            <span className="text-gray-900">Batch: {batchId.slice(0, 8)}...</span>
+            <span className="text-xs text-gray-500">({actions.length} operations)</span>
           </span>
-          <span className="text-xs text-blue-600">
+          <span className="text-xs text-blue-600 font-medium">
             {actions.filter(a => canApprove(a.id)).length}/{actions.length} ready
           </span>
         </div>

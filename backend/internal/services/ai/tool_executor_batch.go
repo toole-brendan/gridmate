@@ -124,7 +124,7 @@ func (te *ToolExecutor) canBatchRelatedOperations(batch []ToolCall, newTool Tool
 
 // Helper methods for range analysis
 func (te *ToolExecutor) extractRange(input map[string]interface{}) string {
-	if rangeAddr, ok := input["range_address"].(string); ok {
+	if rangeAddr, ok := input["range"].(string); ok {
 		return rangeAddr
 	}
 	return ""

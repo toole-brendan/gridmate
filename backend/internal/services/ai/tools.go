@@ -46,7 +46,7 @@ func GetExcelTools() []ExcelTool {
 					},
 					"values": map[string]interface{}{
 						"type":        "array",
-						"description": "2D array of values to write. For single cell, use [[value]]",
+						"description": "2D array of values to write. IMPORTANT: Use exactly 2 levels of nesting. Examples: [[\"single value\"]] for A1, [[\"a\",\"b\",\"c\"]] for A1:C1, [[\"a\"],[\"b\"],[\"c\"]] for A1:A3, [[\"a\",\"b\"],[\"c\",\"d\"]] for A1:B2",
 						"items": map[string]interface{}{
 							"type": "array",
 							"items": map[string]interface{}{
@@ -298,7 +298,7 @@ func GetExcelTools() []ExcelTool {
 								"description": "Cell containing current period value",
 							},
 							"previous_period_cell": map[string]interface{}{
-								"type":        "string", 
+								"type":        "string",
 								"description": "Cell containing previous period value (for growth calculations)",
 							},
 							"numerator_cells": map[string]interface{}{
@@ -308,7 +308,7 @@ func GetExcelTools() []ExcelTool {
 							},
 							"denominator_cells": map[string]interface{}{
 								"type":        "array",
-								"description": "Cells for denominator in ratio calculations", 
+								"description": "Cells for denominator in ratio calculations",
 								"items":       map[string]interface{}{"type": "string"},
 							},
 							"range_cells": map[string]interface{}{
@@ -365,7 +365,7 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "smart_format_cells", 
+			Name:        "smart_format_cells",
 			Description: "Applies intelligent formatting to cells based on their content and role in financial models. Includes standard financial formatting, conditional formatting, and model styling best practices.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -393,9 +393,9 @@ func GetExcelTools() []ExcelTool {
 									"type":        "object",
 									"description": "Format to apply when condition is met",
 									"properties": map[string]interface{}{
-										"font_color": map[string]interface{}{"type": "string"},
+										"font_color":       map[string]interface{}{"type": "string"},
 										"background_color": map[string]interface{}{"type": "string"},
-										"font_style": map[string]interface{}{"type": "string", "enum": []string{"bold", "italic", "normal"}},
+										"font_style":       map[string]interface{}{"type": "string", "enum": []string{"bold", "italic", "normal"}},
 									},
 								},
 							},
@@ -430,7 +430,7 @@ func GetExcelTools() []ExcelTool {
 						"default":     true,
 					},
 					"create_documentation_sheet": map[string]interface{}{
-						"type":        "boolean", 
+						"type":        "boolean",
 						"description": "Whether to create a separate documentation worksheet",
 						"default":     false,
 					},
@@ -495,6 +495,6 @@ type ToolResult struct {
 	ToolUseID string                 `json:"tool_use_id"`
 	Content   interface{}            `json:"content"`
 	IsError   bool                   `json:"is_error,omitempty"`
-	Status    string                 `json:"status,omitempty"` // "success", "queued", "error"
+	Status    string                 `json:"status,omitempty"`  // "success", "queued", "error"
 	Details   map[string]interface{} `json:"details,omitempty"` // Operation-specific details
 }

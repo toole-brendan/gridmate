@@ -15,7 +15,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
-	
+
 	"github.com/gridmate/backend/internal/auth"
 	"github.com/gridmate/backend/internal/config"
 	"github.com/gridmate/backend/internal/database"
@@ -83,40 +83,57 @@ func main() {
 	excelBridge := services.NewExcelBridge(logger)
 	excelBridge.SetSessionManager(sessionManager)
 	if aiService != nil {
-		// Set the tool executor from the bridge to the main AI service
+		// Set the AI service on the bridge
 		excelBridge.SetAIService(aiService)
-		// Re-set the tool executor since SetAIService overwrites it
+
+		// Get components from bridge and wire them to AI service
 		toolExecutor := excelBridge.GetToolExecutor()
 		if toolExecutor != nil {
 			aiService.SetToolExecutor(toolExecutor)
 			logger.Info("Tool executor transferred to main AI service")
-			
-			// Initialize advanced AI components
+		}
+
+		// Wire context builder to AI service
+		contextBuilder := excelBridge.GetContextBuilder()
+		if contextBuilder != nil {
+			aiService.SetContextBuilder(contextBuilder)
+			logger.Info("Context builder transferred to main AI service")
+		}
+
+		// Wire queued operations registry to AI service
+		queuedOpsRegistry := excelBridge.GetQueuedOperationRegistry()
+		if queuedOpsRegistry != nil {
+			aiService.SetQueuedOperationRegistry(queuedOpsRegistry)
+			logger.Info("Queued operations registry transferred to main AI service")
+		}
+
+		// Initialize advanced AI components
+		if toolExecutor != nil {
 			logger.Info("Initializing advanced AI components (memory, context analyzer, orchestrator)")
-			
+
 			// Create financial memory repository and service
 			memoryRepo := repository.NewFinancialMemoryRepository(db.DB.DB)
 			memoryService := ai.NewFinancialMemoryService(db.DB.DB, memoryRepo)
-			
+
 			// Create model validator
 			modelValidator := ai.NewDefaultModelValidator(toolExecutor)
-			
+
 			// Create context analyzer
 			contextAnalyzer := ai.NewFinancialModelAnalyzer(toolExecutor, memoryService, modelValidator)
-			
+
 			// Create tool orchestrator
 			toolOrchestrator := ai.NewToolOrchestrator(toolExecutor, memoryService, contextAnalyzer)
-			
+
 			// Wire up advanced components to AI service
 			aiService.SetAdvancedComponents(memoryService, contextAnalyzer, toolOrchestrator)
-			
+
 			logger.Info("Advanced AI components successfully initialized and connected")
 		}
 	}
 
 	// Initialize SignalR bridge
 	signalRBridge := handlers.NewSignalRBridge("http://localhost:5000")
-	
+
 	// Set SignalR bridge in Excel bridge for tool requests
 	excelBridge.SetSignalRBridge(signalRBridge)
 
@@ -126,7 +143,7 @@ func main() {
 
 	// Initialize router
 	router := mux.NewRouter()
-	
+
 	// Add logging middleware
 	router.Use(loggingMiddleware(logger))
 
@@ -137,7 +154,6 @@ func main() {
 		sessionCount := sessionManager.GetSessionCount()
 		fmt.Fprintf(w, `{"status":"healthy","timestamp":"%s","session_count":%d}`, time.Now().UTC().Format(time.RFC3339), sessionCount)
 	}).Methods("GET")
-
 
 	// Chat API endpoints for SignalR bridge
 	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
@@ -178,7 +194,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			ctx := context.Background()
 			deleted, err := repos.Sessions.CleanupExpired(ctx)
@@ -219,10 +235,10 @@ func loggingMiddleware(logger *logrus.Logger) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			
+
 			// Call the next handler
 			next.ServeHTTP(w, r)
-			
+
 			// Log the request
 			logger.WithFields(logrus.Fields{
 				"method":   r.Method,

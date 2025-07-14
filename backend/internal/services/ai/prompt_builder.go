@@ -87,10 +87,10 @@ func (pb *PromptBuilder) BuildAnalysisPrompt(context *FinancialContext, analysis
 func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 	// For empty spreadsheets, provide minimal context
 	if context.ModelType == "Empty" {
-		return fmt.Sprintf("Workbook: %s\nWorksheet: %s\nThe spreadsheet is currently empty.", 
+		return fmt.Sprintf("Workbook: %s\nWorksheet: %s\nThe spreadsheet is currently empty.",
 			context.WorkbookName, context.WorksheetName)
 	}
-	
+
 	var parts []string
 
 	// Basic info - combine to save tokens
@@ -146,12 +146,12 @@ func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 func (pb *PromptBuilder) buildOptimizedCellDataSection(context *FinancialContext) string {
 	var parts []string
 	totalCells := len(context.CellValues) + len(context.Formulas)
-	
+
 	// If we have very few cells, include all
 	if totalCells <= 20 {
 		return pb.buildCellDataSection(context)
 	}
-	
+
 	// For larger contexts, summarize and show only key cells
 	if len(context.CellValues) > 20 {
 		parts = append(parts, fmt.Sprintf("Cell Data: %d cells with values", len(context.CellValues)))
@@ -166,7 +166,7 @@ func (pb *PromptBuilder) buildOptimizedCellDataSection(context *FinancialContext
 			count++
 		}
 	}
-	
+
 	if len(context.Formulas) > 10 {
 		parts = append(parts, fmt.Sprintf("\nFormulas: %d formulas present", len(context.Formulas)))
 		// Show first 5 formulas as sample
@@ -185,7 +185,7 @@ func (pb *PromptBuilder) buildOptimizedCellDataSection(context *FinancialContext
 			parts = append(parts, fmt.Sprintf("  %s: %s", addr, formula))
 		}
 	}
-	
+
 	return strings.Join(parts, "\n")
 }
 
@@ -240,20 +240,79 @@ func (pb *PromptBuilder) buildDocumentContextSection(docs []string) string {
 // buildPendingOperationsSection builds the pending operations section
 func (pb *PromptBuilder) buildPendingOperationsSection(pendingOps interface{}) string {
 	// Type assertion to handle the interface
-	if ops, ok := pendingOps.(map[string]interface{}); ok {
-		if pendingCount, ok := ops["pending_count"].(int); ok && pendingCount > 0 {
-			parts := []string{fmt.Sprintf("Pending Operations (%d queued):", pendingCount)}
-			
-			if pendingList, ok := ops["pending_operations"].([]string); ok {
-				for i, op := range pendingList {
-					parts = append(parts, fmt.Sprintf("  %d. %s", i+1, op))
+	if summary, ok := pendingOps.(map[string]interface{}); ok {
+		var parts []string
+
+		// Get counts and total pending
+		if total, ok := summary["total"].(int); ok && total > 0 {
+			parts = append(parts, fmt.Sprintf("\nPending Operations (%d total):", total))
+
+			// Show status counts if available
+			if counts, ok := summary["counts"].(map[string]int); ok {
+				statusInfo := []string{}
+				if queued := counts["queued"]; queued > 0 {
+					statusInfo = append(statusInfo, fmt.Sprintf("%d queued", queued))
+				}
+				if inProgress := counts["in_progress"]; inProgress > 0 {
+					statusInfo = append(statusInfo, fmt.Sprintf("%d in progress", inProgress))
+				}
+				if len(statusInfo) > 0 {
+					parts = append(parts, fmt.Sprintf("Status: %s", strings.Join(statusInfo, ", ")))
 				}
 			}
-			
+
+			// Show blocked operations warning
+			if hasBlocked, ok := summary["has_blocked"].(bool); ok && hasBlocked {
+				parts = append(parts, "⚠️ Some operations are blocked by dependencies")
+			}
+
+			// List pending operations with previews
+			if pendingList, ok := summary["pending"].([]map[string]interface{}); ok {
+				parts = append(parts, "\nQueued Operations:")
+				for i, op := range pendingList {
+					if i >= 10 { // Limit to first 10 to save tokens
+						parts = append(parts, fmt.Sprintf("  ... and %d more operations", len(pendingList)-10))
+						break
+					}
+
+					opType := op["type"].(string)
+					preview := ""
+					if p, ok := op["preview"].(string); ok {
+						preview = p
+					}
+					canApprove := ""
+					if ca, ok := op["can_approve"].(bool); ok && !ca {
+						canApprove = " [blocked]"
+					}
+
+					if preview != "" {
+						parts = append(parts, fmt.Sprintf("  %d. %s: %s%s", i+1, opType, preview, canApprove))
+					} else {
+						parts = append(parts, fmt.Sprintf("  %d. %s operation%s", i+1, opType, canApprove))
+					}
+				}
+			}
+
+			// Show batch information if available
+			if batches, ok := summary["batches"].([]map[string]interface{}); ok && len(batches) > 0 {
+				parts = append(parts, fmt.Sprintf("\nBatched Operations: %d batches", len(batches)))
+				for _, batch := range batches {
+					if size, ok := batch["size"].(int); ok {
+						if canApproveAll, ok := batch["can_approve_all"].(bool); ok && canApproveAll {
+							parts = append(parts, fmt.Sprintf("  - Batch of %d operations (ready for approval)", size))
+						} else {
+							parts = append(parts, fmt.Sprintf("  - Batch of %d operations (some blocked)", size))
+						}
+					}
+				}
+			}
+
+			parts = append(parts, "\nInstructions: These operations are awaiting user approval. Do not retry them - they will be executed once approved.")
+
 			return strings.Join(parts, "\n")
 		}
 	}
-	
+
 	return ""
 }
 

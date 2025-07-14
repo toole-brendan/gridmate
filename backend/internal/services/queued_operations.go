@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -205,19 +206,158 @@ func (r *QueuedOperationRegistry) GetBatchOperations(batchID string) []*QueuedOp
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	opIDs, exists := r.batchGroups[batchID]
+	operationIDs, exists := r.batchGroups[batchID]
 	if !exists {
 		return nil
 	}
 
-	var ops []*QueuedOperation
-	for _, id := range opIDs {
+	ops := make([]*QueuedOperation, 0, len(operationIDs))
+	for _, id := range operationIDs {
 		if op, exists := r.operations[id]; exists {
 			ops = append(ops, op)
 		}
 	}
 
 	return ops
+}
+
+// CanExecute checks if an operation can be executed based on its dependencies
+func (r *QueuedOperationRegistry) CanExecute(operationID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	op, exists := r.operations[operationID]
+	if !exists {
+		return false
+	}
+
+	// Can't execute if already completed or failed
+	if op.Status != StatusQueued {
+		return false
+	}
+
+	// Check if all dependencies are completed
+	for _, depID := range op.Dependencies {
+		depOp, exists := r.operations[depID]
+		if !exists {
+			// Dependency doesn't exist, can't execute
+			return false
+		}
+		if depOp.Status != StatusCompleted {
+			// Dependency not completed, can't execute
+			return false
+		}
+	}
+
+	return true
+}
+
+// GetOperationSummary returns a summary of pending operations for context refresh
+func (r *QueuedOperationRegistry) GetOperationSummary(ctx context.Context, sessionID string) map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Count operations by status
+	statusCounts := map[string]int{
+		"queued":      0,
+		"in_progress": 0,
+		"completed":   0,
+		"failed":      0,
+		"cancelled":   0,
+	}
+
+	// Collect pending operations with previews
+	pendingOps := []map[string]interface{}{}
+
+	for _, op := range r.operations {
+		if op.SessionID != sessionID {
+			continue
+		}
+
+		// Count by status
+		statusCounts[string(op.Status)]++
+
+		// Include only pending operations in the detailed list
+		if op.Status == StatusQueued || op.Status == StatusInProgress {
+			opSummary := map[string]interface{}{
+				"id":           op.ID,
+				"type":         op.Type,
+				"status":       op.Status,
+				"preview":      op.Preview,
+				"dependencies": op.Dependencies,
+				"can_approve":  r.CanExecute(op.ID),
+			}
+
+			// Add batch info if applicable
+			if op.BatchID != "" {
+				opSummary["batch_id"] = op.BatchID
+				opSummary["batch_size"] = len(r.batchGroups[op.BatchID])
+			}
+
+			pendingOps = append(pendingOps, opSummary)
+		}
+	}
+
+	// Build summary
+	summary := map[string]interface{}{
+		"counts":      statusCounts,
+		"pending":     pendingOps,
+		"total":       len(pendingOps),
+		"has_blocked": r.hasBlockedOperations(sessionID),
+	}
+
+	// Add batch information
+	batches := r.getSessionBatches(sessionID)
+	if len(batches) > 0 {
+		summary["batches"] = batches
+	}
+
+	log.Debug().
+		Str("session_id", sessionID).
+		Int("total_pending", len(pendingOps)).
+		Interface("status_counts", statusCounts).
+		Msg("Generated operation summary for context")
+
+	return summary
+}
+
+// hasBlockedOperations checks if there are operations blocked by dependencies
+func (r *QueuedOperationRegistry) hasBlockedOperations(sessionID string) bool {
+	for _, op := range r.operations {
+		if op.SessionID == sessionID && op.Status == StatusQueued && !r.CanExecute(op.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+// getSessionBatches returns batch information for a session
+func (r *QueuedOperationRegistry) getSessionBatches(sessionID string) []map[string]interface{} {
+	batches := []map[string]interface{}{}
+	processedBatches := map[string]bool{}
+
+	for _, op := range r.operations {
+		if op.SessionID == sessionID && op.BatchID != "" && !processedBatches[op.BatchID] {
+			processedBatches[op.BatchID] = true
+
+			batchOps := r.GetBatchOperations(op.BatchID)
+			readyCount := 0
+			for _, bOp := range batchOps {
+				if r.CanExecute(bOp.ID) {
+					readyCount++
+				}
+			}
+
+			batches = append(batches, map[string]interface{}{
+				"id":              op.BatchID,
+				"size":            len(batchOps),
+				"ready_count":     readyCount,
+				"can_approve_all": readyCount == len(batchOps),
+			})
+		}
+	}
+
+	return batches
 }
 
 // MarkOperationComplete marks an operation as completed

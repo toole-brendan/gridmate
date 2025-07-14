@@ -21,8 +21,31 @@ All Week 1 objectives have been successfully implemented:
    - Tool results now include preview information when operations are queued
    - Examples: "Write 'DCF Model' to A1:M1", "Apply formula '=SUM(A1:A10)' to B1"
 
-### 🔄 Next Steps: Week 2
-Ready to begin Week 2 objectives focusing on Context & Intelligence improvements.
+### 🔄 Week 2 IN PROGRESS (60%)
+Currently implementing Context & Intelligence improvements:
+
+1. **Dynamic Context Refresh** ✅
+   - Implemented `GetOperationSummary()` in QueuedOperationRegistry
+   - Added `CanExecute()` method for dependency checking
+   - Updated `buildPendingOperationsSection()` to show pending operations with previews
+   - RefreshContext already integrated in ProcessChatWithToolsAndHistory
+
+2. **Operation Batching Detection** ✅
+   - Implemented `DetectBatchableOperations()` method in ToolExecutor
+   - Created batch detection logic for same-type and related operations
+   - Integrated batch detection into `ProcessToolCalls()`
+   - Updated operation queueing to include batch ID and dependencies
+   - Batch operations automatically linked with dependencies
+
+3. **Inverse Operations for Undo** 🚧 (Next)
+   - Need to implement inverse operation generation
+   - Need to enhance UndoLastOperation to use inverses
+
+4. **Update System Prompts** 🚧 (Next)
+   - Need to ensure prompts include pending operations context
+
+### 🔄 Next Steps: Complete Week 2 and Week 3
+Ready to complete remaining Week 2 objectives and begin Week 3 UI enhancements.
 
 ## Core Issues Identified
 

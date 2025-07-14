@@ -283,15 +283,12 @@ func generateOperationPreview(toolName string, input map[string]interface{}) str
 
 // NewToolExecutor creates a new tool executor
 func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntelligence) *ToolExecutor {
-	te := &ToolExecutor{
+	return &ToolExecutor{
 		excelBridge:      bridge,
 		formulaValidator: formulaValidator,
+		modelDataCache:   make(map[string]*CachedModelData),
+		parallelWorkers:  4, // Configurable based on system
 	}
-
-	// Initialize performance optimizations
-	te.initializePerformanceOptimizations()
-
-	return te
 }
 
 // SetQueuedOperationRegistry sets the queued operation registry
@@ -353,20 +350,47 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 					"timestamp": time.Now().Format(time.RFC3339),
 				}
 
-				// Register in queued operations registry if available
-				if te.queuedOpsRegistry != nil {
-					// Generate preview for the operation
-					preview := generateOperationPreview("write_range", toolCall.Input)
+				// Queue the operation
+				preview = generateOperationPreview("write_range", toolCall.Input)
+				if preview == "" {
+					preview = "Write data to Excel range"
+				}
 
-					// Create a properly structured operation for the registry
+				// Extract batch information if present
+				var batchID string
+				var dependencies []string
+
+				if bid, ok := toolCall.Input["_batch_id"].(string); ok {
+					batchID = bid
+
+					// If this is not the first in the batch, add dependency on previous operation
+					if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok && batchIndex > 0 {
+						// Create dependency on the previous operation in the batch
+						prevOpID := fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex-1)
+						dependencies = append(dependencies, prevOpID)
+					}
+				}
+
+				// Create operation ID that includes batch index if in a batch
+				opID := toolCall.ID
+				if batchID != "" {
+					if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok {
+						opID = fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex)
+					}
+				}
+
+				// Register with queued operations if available
+				if te.queuedOpsRegistry != nil {
 					queuedOp := map[string]interface{}{
-						"ID":        toolCall.ID,
-						"SessionID": sessionID,
-						"Type":      "write_range",
-						"Input":     toolCall.Input,
-						"Preview":   preview,
-						"Context":   "Excel write operation requested by AI",
-						"Priority":  50, // Normal priority
+						"ID":           opID,
+						"SessionID":    sessionID,
+						"Type":         "write_range",
+						"Input":        toolCall.Input,
+						"Preview":      preview,
+						"Context":      "Excel write operation requested by AI",
+						"Priority":     50, // Normal priority
+						"BatchID":      batchID,
+						"Dependencies": dependencies,
 					}
 
 					// Try to queue the operation
@@ -420,15 +444,40 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 					// Generate preview for the operation
 					preview := generateOperationPreview("apply_formula", toolCall.Input)
 
+					// Extract batch information if present
+					var batchID string
+					var dependencies []string
+
+					if bid, ok := toolCall.Input["_batch_id"].(string); ok {
+						batchID = bid
+
+						// If this is not the first in the batch, add dependency on previous operation
+						if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok && batchIndex > 0 {
+							// Create dependency on the previous operation in the batch
+							prevOpID := fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex-1)
+							dependencies = append(dependencies, prevOpID)
+						}
+					}
+
+					// Create operation ID that includes batch index if in a batch
+					opID := toolCall.ID
+					if batchID != "" {
+						if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok {
+							opID = fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex)
+						}
+					}
+
 					// Create a properly structured operation for the registry
 					queuedOp := map[string]interface{}{
-						"ID":        toolCall.ID,
-						"SessionID": sessionID,
-						"Type":      "apply_formula",
-						"Input":     toolCall.Input,
-						"Preview":   preview,
-						"Context":   "Excel formula application requested by AI",
-						"Priority":  50, // Normal priority
+						"ID":           opID,
+						"SessionID":    sessionID,
+						"Type":         "apply_formula",
+						"Input":        toolCall.Input,
+						"Preview":      preview,
+						"Context":      "Excel formula application requested by AI",
+						"Priority":     50, // Normal priority
+						"BatchID":      batchID,
+						"Dependencies": dependencies,
 					}
 
 					// Try to queue the operation
@@ -484,15 +533,40 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 					// Generate preview for the operation
 					preview := generateOperationPreview("format_range", toolCall.Input)
 
+					// Extract batch information if present
+					var batchID string
+					var dependencies []string
+
+					if bid, ok := toolCall.Input["_batch_id"].(string); ok {
+						batchID = bid
+
+						// If this is not the first in the batch, add dependency on previous operation
+						if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok && batchIndex > 0 {
+							// Create dependency on the previous operation in the batch
+							prevOpID := fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex-1)
+							dependencies = append(dependencies, prevOpID)
+						}
+					}
+
+					// Create operation ID that includes batch index if in a batch
+					opID := toolCall.ID
+					if batchID != "" {
+						if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok {
+							opID = fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex)
+						}
+					}
+
 					// Create a properly structured operation for the registry
 					queuedOp := map[string]interface{}{
-						"ID":        toolCall.ID,
-						"SessionID": sessionID,
-						"Type":      "format_range",
-						"Input":     toolCall.Input,
-						"Preview":   preview,
-						"Context":   "Excel formatting requested by AI",
-						"Priority":  40, // Lower priority for formatting
+						"ID":           opID,
+						"SessionID":    sessionID,
+						"Type":         "format_range",
+						"Input":        toolCall.Input,
+						"Preview":      preview,
+						"Context":      "Excel formatting requested by AI",
+						"Priority":     40, // Lower priority for formatting
+						"BatchID":      batchID,
+						"Dependencies": dependencies,
 					}
 
 					// Try to queue the operation
@@ -840,249 +914,6 @@ func (te *ToolExecutor) ExecuteParallelFinancialAnalysis(ctx context.Context, se
 }
 
 // Helper functions to extract parameters and execute tools
-
-func (te *ToolExecutor) executeReadRange(ctx context.Context, sessionID string, input map[string]interface{}) (*RangeData, error) {
-	rangeAddr, ok := input["range"].(string)
-	if !ok {
-		return nil, fmt.Errorf("range parameter is required")
-	}
-
-	includeFormulas := true
-	if val, ok := input["include_formulas"].(bool); ok {
-		includeFormulas = val
-	}
-
-	includeFormatting := false
-	if val, ok := input["include_formatting"].(bool); ok {
-		includeFormatting = val
-	}
-
-	return te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, includeFormulas, includeFormatting)
-}
-
-func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, _ := input["range"].(string)
-	valuesRaw := input["values"]
-	preserveFormatting := true
-	if pf, ok := input["preserve_formatting"].(bool); ok {
-		preserveFormatting = pf
-	}
-
-	values, err := convertToValueArray(valuesRaw)
-	if err != nil {
-		return fmt.Errorf("invalid values format: %w", err)
-	}
-
-	// Cursor-style intelligent expansion: if writing a single value to a range,
-	// expand it to fill the entire range (like Cursor's multi-cursor editing)
-	expandedValues, err := expandValuesToMatchRange(rangeAddr, values)
-	if err != nil {
-		// Log warning but try original values
-		log.Warn().Err(err).
-			Str("range", rangeAddr).
-			Int("rows", len(values)).
-			Msg("Could not expand values to match range, using original dimensions")
-		expandedValues = values
-	}
-
-	return te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, expandedValues, preserveFormatting)
-}
-
-func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, ok := input["range"].(string)
-	if !ok {
-		return fmt.Errorf("range parameter is required")
-	}
-
-	formula, ok := input["formula"].(string)
-	if !ok {
-		return fmt.Errorf("formula parameter is required")
-	}
-
-	relativeRefs := true
-	if val, ok := input["relative_references"].(bool); ok {
-		relativeRefs = val
-	}
-
-	// PRE-VALIDATION: Validate formula before applying
-	if te.formulaValidator != nil {
-		if err := te.validateFormulaBeforeApplication(ctx, sessionID, formula, rangeAddr); err != nil {
-			log.Warn().
-				Str("session", sessionID).
-				Str("formula", formula).
-				Str("range", rangeAddr).
-				Err(err).
-				Msg("Formula validation failed, but proceeding with warning")
-
-			// For now, we log warnings but don't block execution
-			// This allows gradual rollout of validation while maintaining functionality
-		}
-	}
-
-	return te.excelBridge.ApplyFormula(ctx, sessionID, rangeAddr, formula, relativeRefs)
-}
-
-func (te *ToolExecutor) executeAnalyzeData(ctx context.Context, sessionID string, input map[string]interface{}) (*DataAnalysis, error) {
-	rangeAddr, ok := input["range"].(string)
-	if !ok {
-		return nil, fmt.Errorf("range parameter is required")
-	}
-
-	includeStats := true
-	if val, ok := input["include_statistics"].(bool); ok {
-		includeStats = val
-	}
-
-	detectHeaders := true
-	if val, ok := input["detect_headers"].(bool); ok {
-		detectHeaders = val
-	}
-
-	return te.excelBridge.AnalyzeData(ctx, sessionID, rangeAddr, includeStats, detectHeaders)
-}
-
-func (te *ToolExecutor) executeFormatRange(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	rangeAddr, ok := input["range"].(string)
-	if !ok {
-		return fmt.Errorf("range parameter is required")
-	}
-
-	format := &CellFormat{}
-
-	if numberFormat, ok := input["number_format"].(string); ok {
-		format.NumberFormat = numberFormat
-	}
-
-	if fontData, ok := input["font"].(map[string]interface{}); ok {
-		format.Font = &FontStyle{}
-		if bold, ok := fontData["bold"].(bool); ok {
-			format.Font.Bold = bold
-		}
-		if italic, ok := fontData["italic"].(bool); ok {
-			format.Font.Italic = italic
-		}
-		if size, ok := fontData["size"].(float64); ok {
-			format.Font.Size = size
-		}
-		if color, ok := fontData["color"].(string); ok {
-			format.Font.Color = color
-		}
-	}
-
-	if fillColor, ok := input["fill_color"].(string); ok {
-		format.FillColor = fillColor
-	}
-
-	if alignData, ok := input["alignment"].(map[string]interface{}); ok {
-		format.Alignment = &Alignment{}
-		if horizontal, ok := alignData["horizontal"].(string); ok {
-			format.Alignment.Horizontal = horizontal
-		}
-		if vertical, ok := alignData["vertical"].(string); ok {
-			format.Alignment.Vertical = vertical
-		}
-	}
-
-	return te.excelBridge.FormatRange(ctx, sessionID, rangeAddr, format)
-}
-
-func (te *ToolExecutor) executeCreateChart(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	config := &ChartConfig{}
-
-	dataRange, ok := input["data_range"].(string)
-	if !ok {
-		return fmt.Errorf("data_range parameter is required")
-	}
-	config.DataRange = dataRange
-
-	chartType, ok := input["chart_type"].(string)
-	if !ok {
-		return fmt.Errorf("chart_type parameter is required")
-	}
-	config.ChartType = chartType
-
-	if title, ok := input["title"].(string); ok {
-		config.Title = title
-	}
-
-	if position, ok := input["position"].(string); ok {
-		config.Position = position
-	}
-
-	config.IncludeLegend = true
-	if val, ok := input["include_legend"].(bool); ok {
-		config.IncludeLegend = val
-	}
-
-	return te.excelBridge.CreateChart(ctx, sessionID, config)
-}
-
-func (te *ToolExecutor) executeValidateModel(ctx context.Context, sessionID string, input map[string]interface{}) (*ValidationResult, error) {
-	rangeAddr := ""
-	if val, ok := input["range"].(string); ok {
-		rangeAddr = val
-	}
-
-	checks := &ValidationChecks{
-		CheckCircularRefs:       true,
-		CheckFormulaConsistency: true,
-		CheckErrors:             true,
-	}
-
-	if val, ok := input["check_circular_refs"].(bool); ok {
-		checks.CheckCircularRefs = val
-	}
-	if val, ok := input["check_formula_consistency"].(bool); ok {
-		checks.CheckFormulaConsistency = val
-	}
-	if val, ok := input["check_errors"].(bool); ok {
-		checks.CheckErrors = val
-	}
-
-	return te.excelBridge.ValidateModel(ctx, sessionID, rangeAddr, checks)
-}
-
-func (te *ToolExecutor) executeGetNamedRanges(ctx context.Context, sessionID string, input map[string]interface{}) ([]NamedRange, error) {
-	scope := "workbook"
-	if val, ok := input["scope"].(string); ok {
-		scope = val
-	}
-
-	return te.excelBridge.GetNamedRanges(ctx, sessionID, scope)
-}
-
-func (te *ToolExecutor) executeCreateNamedRange(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	name, ok := input["name"].(string)
-	if !ok {
-		return fmt.Errorf("name parameter is required")
-	}
-
-	rangeAddr, ok := input["range"].(string)
-	if !ok {
-		return fmt.Errorf("range parameter is required")
-	}
-
-	return te.excelBridge.CreateNamedRange(ctx, sessionID, name, rangeAddr)
-}
-
-func (te *ToolExecutor) executeInsertRowsColumns(ctx context.Context, sessionID string, input map[string]interface{}) error {
-	position, ok := input["position"].(string)
-	if !ok {
-		return fmt.Errorf("position parameter is required")
-	}
-
-	insertType, ok := input["type"].(string)
-	if !ok {
-		return fmt.Errorf("type parameter is required")
-	}
-
-	count := 1
-	if val, ok := input["count"].(float64); ok {
-		count = int(val)
-	}
-
-	return te.excelBridge.InsertRowsColumns(ctx, sessionID, position, count, insertType)
-}
 
 // convertToValueArray converts interface{} to [][]interface{}
 func convertToValueArray(valuesRaw interface{}) ([][]interface{}, error) {
@@ -3069,24 +2900,50 @@ func (te *ToolExecutor) getSectionType(section string) string {
 }
 
 func (te *ToolExecutor) estimateSectionSize(section string, modelType string) int {
-	// Base sizes that work for most financial models
-	switch section {
-	case "assumptions":
-		return 15 // Typical assumptions section
-	case "calculations":
-		if modelType == "dcf" {
-			return 25 // DCF needs more calculation rows
-		}
-		return 20 // Standard calculation section
-	case "outputs":
-		return 10 // Key outputs
-	case "summary":
-		return 8 // Executive summary
-	case "sensitivity", "scenarios":
-		return 12 // Sensitivity/scenario tables
-	default:
-		return 10 // Default section size
+	// Base sizes
+	baseSizes := map[string]int{
+		"headers":       2,
+		"timeline":      3,
+		"assumptions":   20,
+		"revenue":       10,
+		"costs":         15,
+		"calculations":  25,
+		"cash_flow":     15,
+		"balance_sheet": 20,
+		"outputs":       10,
+		"metrics":       15,
+		"valuation":     20,
+		"returns":       10,
+		"sensitivity":   15,
+		"debt_schedule": 20,
+		"scenarios":     10,
+		"summary":       5,
+		"charts":        0, // Charts don't need rows
 	}
+
+	// Adjustments based on model type
+	switch modelType {
+	case "DCF":
+		if section == "valuation" {
+			return 30 // More space for DCF valuation
+		}
+	case "LBO":
+		if section == "debt_schedule" {
+			return 30 // More space for debt schedules
+		}
+		if section == "returns" {
+			return 20 // More space for returns analysis
+		}
+	case "M&A":
+		if section == "calculations" {
+			return 35 // More space for synergies and adjustments
+		}
+	}
+
+	if size, ok := baseSizes[section]; ok {
+		return size
+	}
+	return 10 // Default size
 }
 
 // expandValuesToMatchRange expands a single value to fill the entire range

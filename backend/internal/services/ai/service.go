@@ -13,20 +13,20 @@ import (
 
 // Service represents the main AI service
 type Service struct {
-	provider         AIProvider
-	promptBuilder    *PromptBuilder
-	toolExecutor     *ToolExecutor
-	memoryService    *FinancialMemoryService
-	contextAnalyzer  *FinancialModelAnalyzer
-	toolOrchestrator *ToolOrchestrator
-	config           ServiceConfig
-	contextBuilder   interface{} // Will be set to excel.ContextBuilder
+	provider          AIProvider
+	promptBuilder     *PromptBuilder
+	toolExecutor      *ToolExecutor
+	memoryService     *FinancialMemoryService
+	contextAnalyzer   *FinancialModelAnalyzer
+	toolOrchestrator  *ToolOrchestrator
+	config            ServiceConfig
+	contextBuilder    interface{} // Will be set to excel.ContextBuilder
 	queuedOpsRegistry interface{} // Will be set to *services.QueuedOperationRegistry
 }
 
 // ServiceConfig holds configuration for the AI service
 type ServiceConfig struct {
-	Provider        string        `json:"provider"`         // "anthropic", "azure_openai"
+	Provider        string        `json:"provider"` // "anthropic", "azure_openai"
 	DefaultModel    string        `json:"default_model"`
 	StreamingMode   bool          `json:"streaming_mode"`
 	MaxTokens       int           `json:"max_tokens"`
@@ -280,12 +280,12 @@ func (s *Service) IsHealthy(ctx context.Context) error {
 // GetProviderInfo returns information about the current provider
 func (s *Service) GetProviderInfo() map[string]interface{} {
 	return map[string]interface{}{
-		"provider":         s.provider.GetProviderName(),
-		"model":           s.config.DefaultModel,
-		"streaming_mode":  s.config.StreamingMode,
-		"max_tokens":      s.config.MaxTokens,
-		"temperature":     s.config.Temperature,
-		"actions_enabled": s.config.EnableActions,
+		"provider":          s.provider.GetProviderName(),
+		"model":             s.config.DefaultModel,
+		"streaming_mode":    s.config.StreamingMode,
+		"max_tokens":        s.config.MaxTokens,
+		"temperature":       s.config.Temperature,
+		"actions_enabled":   s.config.EnableActions,
 		"embedding_enabled": s.config.EnableEmbedding,
 	}
 }
@@ -343,9 +343,9 @@ func getEnvOrDefault(key, defaultValue string) string {
 
 // ChatRequest represents a chat request from the client
 type ChatRequest struct {
-	Message string           `json:"message"`
+	Message string            `json:"message"`
 	Context *FinancialContext `json:"context,omitempty"`
-	Options *ChatOptions     `json:"options,omitempty"`
+	Options *ChatOptions      `json:"options,omitempty"`
 }
 
 // ChatOptions represents options for chat requests
@@ -354,7 +354,6 @@ type ChatOptions struct {
 	Temperature float32 `json:"temperature,omitempty"`
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 }
-
 
 // ProcessChatRequest processes a chat request from the client
 func (s *Service) ProcessChatRequest(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
@@ -426,16 +425,57 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 		return nil, fmt.Errorf("tool executor not configured")
 	}
 
+	// Detect batchable operations
+	batches := s.toolExecutor.DetectBatchableOperations(toolCalls)
+
+	log.Info().
+		Str("session_id", sessionID).
+		Int("total_tools", len(toolCalls)).
+		Int("batch_count", len(batches)).
+		Msg("Processing tool calls with batch detection")
+
 	results := make([]ToolResult, 0, len(toolCalls))
-	
-	for _, toolCall := range toolCalls {
-		result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall)
-		if err != nil {
-			log.Error().Err(err).Str("tool", toolCall.Name).Msg("Failed to execute tool")
-			// Add error result
-			results = append(results, *result)
+
+	// Process each batch
+	for batchIdx, batch := range batches {
+		if len(batch) > 1 {
+			// Multiple operations in this batch - queue them with dependencies
+			batchID := fmt.Sprintf("batch_%s_%d", sessionID, batchIdx)
+
+			log.Info().
+				Str("batch_id", batchID).
+				Int("operations", len(batch)).
+				Msg("Processing batch of operations")
+
+			// Execute operations in the batch
+			for i, toolCall := range batch {
+				// Add batch info to the tool call input
+				if toolCall.Input == nil {
+					toolCall.Input = make(map[string]interface{})
+				}
+				toolCall.Input["_batch_id"] = batchID
+				toolCall.Input["_batch_index"] = i
+				toolCall.Input["_batch_size"] = len(batch)
+
+				result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall)
+				if err != nil {
+					log.Error().Err(err).Str("tool", toolCall.Name).Msg("Failed to execute tool in batch")
+					// Add error result
+					results = append(results, *result)
+				} else {
+					results = append(results, *result)
+				}
+			}
 		} else {
-			results = append(results, *result)
+			// Single operation - execute normally
+			result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, batch[0])
+			if err != nil {
+				log.Error().Err(err).Str("tool", batch[0].Name).Msg("Failed to execute tool")
+				// Add error result
+				results = append(results, *result)
+			} else {
+				results = append(results, *result)
+			}
 		}
 	}
 
@@ -446,19 +486,19 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 // This reduces token usage by only including tools that are likely to be needed
 func (s *Service) selectRelevantTools(userMessage string, context *FinancialContext) []ExcelTool {
 	allTools := GetExcelTools()
-	
+
 	// Convert message to lowercase for easier matching
 	msgLower := strings.ToLower(userMessage)
-	
+
 	// Keywords that indicate read-only operations
 	readOnlyKeywords := []string{"what", "show", "tell", "explain", "analyze", "check", "find", "look", "see", "view", "get"}
-	
+
 	// Keywords that indicate write operations
 	writeKeywords := []string{"create", "make", "build", "add", "write", "insert", "generate", "set", "update", "change", "modify"}
-	
+
 	// Keywords for specific model types
 	modelKeywords := []string{"dcf", "lbo", "model", "valuation", "forecast", "projection"}
-	
+
 	// Check if this is a read-only request
 	isReadOnly := false
 	for _, keyword := range readOnlyKeywords {
@@ -467,7 +507,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 			break
 		}
 	}
-	
+
 	// Check if this is a write request
 	isWriteRequest := false
 	for _, keyword := range writeKeywords {
@@ -476,7 +516,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 			break
 		}
 	}
-	
+
 	// Check if this is a model creation request
 	isModelRequest := false
 	for _, keyword := range modelKeywords {
@@ -485,10 +525,10 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 			break
 		}
 	}
-	
+
 	// Build tool list based on request type
 	var selectedTools []ExcelTool
-	
+
 	// If the spreadsheet is empty and user wants to create something, include write tools
 	if context != nil && len(context.CellValues) == 0 && (isWriteRequest || isModelRequest) {
 		// For empty spreadsheet, include only essential tools for creation
@@ -522,7 +562,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 			}
 		}
 	}
-	
+
 	// If no tools were selected, include a minimal set
 	if len(selectedTools) == 0 {
 		for _, tool := range allTools {
@@ -532,7 +572,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 			}
 		}
 	}
-	
+
 	log.Info().
 		Str("message", userMessage).
 		Int("selected_tools", len(selectedTools)).
@@ -541,7 +581,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 		Bool("is_write_request", isWriteRequest).
 		Bool("is_model_request", isModelRequest).
 		Msg("Selected relevant tools based on user message")
-	
+
 	return selectedTools
 }
 
@@ -555,7 +595,7 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 
 	// Initial message processing
 	messages := []Message{{Role: "user", Content: userMessage}}
-	
+
 	// Add context if provided
 	if context != nil && context.ModelType == "" {
 		context.ModelType = s.promptBuilder.DetectModelType(context)
@@ -568,7 +608,7 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 
 	// Maximum rounds of tool use
 	maxRounds := 50
-	
+
 	for round := 0; round < maxRounds; round++ {
 		log.Info().
 			Int("round", round).
@@ -659,7 +699,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 
 	// Build messages array with history
 	messages := make([]Message, 0, len(chatHistory)+1)
-	
+
 	// Add chat history
 	for _, msg := range chatHistory {
 		messages = append(messages, Message{
@@ -667,10 +707,10 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Content: msg.Content,
 		})
 	}
-	
+
 	// Add current user message
 	messages = append(messages, Message{Role: "user", Content: userMessage})
-	
+
 	// Add context if provided
 	if context != nil && context.ModelType == "" {
 		context.ModelType = s.promptBuilder.DetectModelType(context)
@@ -683,13 +723,13 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 
 	// Maximum rounds of tool use
 	maxRounds := 50
-	
+
 	for round := 0; round < maxRounds; round++ {
 		log.Info().
 			Int("round", round).
 			Int("messages_count", len(messages)).
 			Msg("Starting tool use round")
-		
+
 		// Create completion request
 		request := &CompletionRequest{
 			Model:       s.config.DefaultModel,
@@ -751,7 +791,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 		log.Info().
 			Int("tool_calls_count", len(response.ToolCalls)).
 			Msg("Executing tool calls")
-		
+
 		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to execute tool calls")
@@ -764,7 +804,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			ToolResults: toolResults,
 		}
 		messages = append(messages, toolResultMsg)
-		
+
 		// Refresh context after tool execution to get latest state
 		if context != nil {
 			refreshedContext, err := s.RefreshContext(ctx, sessionID, context)
@@ -785,7 +825,7 @@ func (s *Service) SetAdvancedComponents(memoryService *FinancialMemoryService, c
 	s.memoryService = memoryService
 	s.contextAnalyzer = contextAnalyzer
 	s.toolOrchestrator = toolOrchestrator
-	
+
 	log.Info().
 		Bool("memory_service", memoryService != nil).
 		Bool("context_analyzer", contextAnalyzer != nil).
@@ -809,7 +849,7 @@ func (s *Service) RefreshContext(ctx context.Context, sessionID string, currentC
 	if s.contextBuilder == nil {
 		return currentContext, nil
 	}
-	
+
 	// Use type assertion to call BuildContext method
 	if builder, ok := s.contextBuilder.(interface {
 		BuildContext(context.Context, string) (*FinancialContext, error)
@@ -820,7 +860,7 @@ func (s *Service) RefreshContext(ctx context.Context, sessionID string, currentC
 			log.Error().Err(err).Msg("Failed to refresh context")
 			return currentContext, err
 		}
-		
+
 		// Add pending operations if registry is available
 		if s.queuedOpsRegistry != nil {
 			if registry, ok := s.queuedOpsRegistry.(interface {
@@ -829,15 +869,15 @@ func (s *Service) RefreshContext(ctx context.Context, sessionID string, currentC
 				newContext.PendingOperations = registry.GetOperationSummary(ctx, sessionID)
 			}
 		}
-		
+
 		log.Info().
 			Str("session_id", sessionID).
 			Bool("has_pending_ops", newContext.PendingOperations != nil).
 			Msg("Context refreshed successfully")
-			
+
 		return newContext, nil
 	}
-	
+
 	return currentContext, nil
 }
 
@@ -848,7 +888,7 @@ func (s *Service) ProcessIntelligentChatMessage(ctx context.Context, sessionID s
 		log.Info().
 			Str("session", sessionID).
 			Msg("Using intelligent tool orchestration for chat processing")
-			
+
 		// Use the tool orchestrator for intelligent processing
 		orchestrationResult, err := s.toolOrchestrator.ExecuteFinancialModelingRequest(ctx, sessionID, userMessage)
 		if err != nil {
@@ -856,7 +896,7 @@ func (s *Service) ProcessIntelligentChatMessage(ctx context.Context, sessionID s
 			// Fall back to standard processing
 			return s.ProcessChatMessage(ctx, userMessage, context)
 		}
-		
+
 		// Convert orchestration result to completion response
 		response := &CompletionResponse{
 			Content: fmt.Sprintf("Task completed successfully using intelligent orchestration. %d tools executed.", len(orchestrationResult.ToolResults)),
@@ -866,10 +906,10 @@ func (s *Service) ProcessIntelligentChatMessage(ctx context.Context, sessionID s
 				TotalTokens:      1500, // Estimated
 			},
 		}
-		
+
 		return response, nil
 	}
-	
+
 	// Fall back to standard processing if advanced components not available
 	return s.ProcessChatMessage(ctx, userMessage, context)
 }

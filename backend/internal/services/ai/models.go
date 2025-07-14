@@ -302,3 +302,57 @@ type ErrorResponse struct {
 	Retryable  bool
 	RetryAfter int // seconds
 }
+
+// SectionInfo represents information about a model section
+type SectionInfo struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Range       string `json:"range"`
+	Description string `json:"description"`
+	Purpose     string `json:"purpose"`
+}
+
+// RiskFactor represents an individual risk factor
+type RiskFactor struct {
+	Factor      string  `json:"factor"`
+	Impact      string  `json:"impact"`      // low, medium, high
+	Probability string  `json:"probability"` // low, medium, high
+	Description string  `json:"description"`
+}
+
+// ModelBackup represents a backup of model state for error recovery
+type ModelBackup struct {
+	SessionID    string     `json:"session_id"`
+	Range        string     `json:"range"`
+	Data         *RangeData `json:"data"`
+	BackupTime   time.Time  `json:"backup_time"`
+	BackupReason string     `json:"backup_reason"`
+}
+
+// ChangeRecord tracks individual changes for rollback capability
+type ChangeRecord struct {
+	Operation string      `json:"operation"`
+	Range     string      `json:"range"`
+	OldValue  interface{} `json:"old_value"`
+	NewValue  interface{} `json:"new_value"`
+	Timestamp time.Time   `json:"timestamp"`
+}
+
+// ValidationSummary provides comprehensive model validation results
+type ValidationSummary struct {
+	Range          string            `json:"range"`
+	ValidationTime time.Time         `json:"validation_time"`
+	TotalCells     int               `json:"total_cells"`
+	ErrorCells     []string          `json:"error_cells"`
+	WarnCells      []string          `json:"warn_cells"`
+	Issues         []ValidationIssue `json:"issues"`
+	OverallStatus  string            `json:"overall_status"`
+}
+
+// ValidationIssue represents a specific validation issue
+type ValidationIssue struct {
+	Cell        string `json:"cell"`
+	Type        string `json:"type"`
+	Severity    string `json:"severity"`
+	Description string `json:"description"`
+}

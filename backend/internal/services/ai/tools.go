@@ -443,6 +443,49 @@ func GetExcelTools() []ExcelTool {
 				"required": []string{"target_range", "documentation_type"},
 			},
 		},
+		{
+			Name:        "organize_financial_model",
+			Description: "Creates professional section organization for any financial model type with intelligent model detection, industry-specific templates, and professional standards. Features automatic model type detection, context-aware sections, and customizable professional formatting for Investment Banking, Private Equity, Hedge Funds, and Corporate environments.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"model_type": map[string]interface{}{
+						"type":        "string",
+						"description": "Type of financial model (dcf, lbo, merger, comps, credit, universal). If not provided, will auto-detect from model content.",
+						"enum":        []string{"dcf", "lbo", "merger", "m&a", "comps", "trading_comps", "credit", "universal"},
+					},
+					"sections": map[string]interface{}{
+						"type":        "array",
+						"description": "Array of section types to create. If not provided, will generate intelligent sections based on model type and context.",
+						"items": map[string]interface{}{
+							"type": "string",
+						},
+					},
+					"layout": map[string]interface{}{
+						"type":        "string",
+						"description": "Model layout orientation",
+						"enum":        []string{"horizontal", "vertical"},
+						"default":     "horizontal",
+					},
+					"analysis_range": map[string]interface{}{
+						"type":        "string",
+						"description": "Range to analyze for current model structure and intelligent detection",
+						"default":     "A1:Z100",
+					},
+					"professional_standards": map[string]interface{}{
+						"type":        "string",
+						"description": "Professional industry standards for formatting and organization",
+						"enum":        []string{"investment_banking", "private_equity", "hedge_fund", "corporate"},
+					},
+					"industry_context": map[string]interface{}{
+						"type":        "string",
+						"description": "Industry context for specialized sections and terminology",
+						"enum":        []string{"technology", "healthcare", "energy", "real_estate", "financial_services", "manufacturing"},
+					},
+				},
+				"required": []string{},
+			},
+		},
 	}
 }
 

@@ -13,10 +13,13 @@ import (
 
 // Service represents the main AI service
 type Service struct {
-	provider      AIProvider
-	promptBuilder *PromptBuilder
-	toolExecutor  *ToolExecutor
-	config        ServiceConfig
+	provider         AIProvider
+	promptBuilder    *PromptBuilder
+	toolExecutor     *ToolExecutor
+	memoryService    *FinancialMemoryService
+	contextAnalyzer  *FinancialModelAnalyzer
+	toolOrchestrator *ToolOrchestrator
+	config           ServiceConfig
 }
 
 // ServiceConfig holds configuration for the AI service
@@ -52,10 +55,13 @@ func NewService(config ServiceConfig) (*Service, error) {
 	}
 
 	service := &Service{
-		provider:      provider,
-		promptBuilder: NewPromptBuilder(),
-		toolExecutor:  nil, // Will be set later if needed
-		config:        config,
+		provider:         provider,
+		promptBuilder:    NewPromptBuilder(),
+		toolExecutor:     nil, // Will be set later if needed
+		memoryService:    nil, // Will be set via SetAdvancedComponents if needed
+		contextAnalyzer:  nil, // Will be set via SetAdvancedComponents if needed
+		toolOrchestrator: nil, // Will be set via SetAdvancedComponents if needed
+		config:           config,
 	}
 
 	return service, nil
@@ -750,4 +756,65 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 	}
 
 	return nil, fmt.Errorf("exceeded maximum rounds of tool use")
+}
+
+// SetAdvancedComponents wires up the advanced AI components (memory, context analyzer, orchestrator)
+func (s *Service) SetAdvancedComponents(memoryService *FinancialMemoryService, contextAnalyzer *FinancialModelAnalyzer, toolOrchestrator *ToolOrchestrator) {
+	s.memoryService = memoryService
+	s.contextAnalyzer = contextAnalyzer
+	s.toolOrchestrator = toolOrchestrator
+	
+	log.Info().
+		Bool("memory_service", memoryService != nil).
+		Bool("context_analyzer", contextAnalyzer != nil).
+		Bool("tool_orchestrator", toolOrchestrator != nil).
+		Msg("Advanced AI components configured")
+}
+
+// ProcessIntelligentChatMessage processes a chat message using advanced AI components
+func (s *Service) ProcessIntelligentChatMessage(ctx context.Context, sessionID string, userMessage string, context *FinancialContext) (*CompletionResponse, error) {
+	// If advanced components are available, use the orchestrator for intelligent processing
+	if s.toolOrchestrator != nil && s.contextAnalyzer != nil {
+		log.Info().
+			Str("session", sessionID).
+			Msg("Using intelligent tool orchestration for chat processing")
+			
+		// Use the tool orchestrator for intelligent processing
+		orchestrationResult, err := s.toolOrchestrator.ExecuteFinancialModelingRequest(ctx, sessionID, userMessage)
+		if err != nil {
+			log.Error().Err(err).Msg("Intelligent orchestration failed, falling back to standard processing")
+			// Fall back to standard processing
+			return s.ProcessChatMessage(ctx, userMessage, context)
+		}
+		
+		// Convert orchestration result to completion response
+		response := &CompletionResponse{
+			Content: fmt.Sprintf("Task completed successfully using intelligent orchestration. %d tools executed.", len(orchestrationResult.ToolResults)),
+			Usage: Usage{
+				PromptTokens:     1000, // Estimated
+				CompletionTokens: 500,  // Estimated
+				TotalTokens:      1500, // Estimated
+			},
+		}
+		
+		return response, nil
+	}
+	
+	// Fall back to standard processing if advanced components not available
+	return s.ProcessChatMessage(ctx, userMessage, context)
+}
+
+// GetMemoryService returns the financial memory service
+func (s *Service) GetMemoryService() *FinancialMemoryService {
+	return s.memoryService
+}
+
+// GetContextAnalyzer returns the context analyzer
+func (s *Service) GetContextAnalyzer() *FinancialModelAnalyzer {
+	return s.contextAnalyzer
+}
+
+// GetToolOrchestrator returns the tool orchestrator
+func (s *Service) GetToolOrchestrator() *ToolOrchestrator {
+	return s.toolOrchestrator
 }

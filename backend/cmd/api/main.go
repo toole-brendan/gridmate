@@ -92,6 +92,27 @@ func main() {
 		if toolExecutor != nil {
 			aiService.SetToolExecutor(toolExecutor)
 			logger.Info("Tool executor transferred to main AI service")
+			
+			// Initialize advanced AI components
+			logger.Info("Initializing advanced AI components (memory, context analyzer, orchestrator)")
+			
+			// Create financial memory repository and service
+			memoryRepo := repository.NewFinancialMemoryRepository(db)
+			memoryService := ai.NewFinancialMemoryService(db, memoryRepo)
+			
+			// Create model validator
+			modelValidator := ai.NewDefaultModelValidator(toolExecutor)
+			
+			// Create context analyzer
+			contextAnalyzer := ai.NewFinancialModelAnalyzer(toolExecutor, memoryService, modelValidator)
+			
+			// Create tool orchestrator
+			toolOrchestrator := ai.NewToolOrchestrator(toolExecutor, memoryService, contextAnalyzer)
+			
+			// Wire up advanced components to AI service
+			aiService.SetAdvancedComponents(memoryService, contextAnalyzer, toolOrchestrator)
+			
+			logger.Info("Advanced AI components successfully initialized and connected")
 		}
 	}
 

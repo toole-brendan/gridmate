@@ -15,7 +15,7 @@ import (
 type FinancialModelAnalyzer struct {
 	executor    *ToolExecutor
 	memory      *FinancialMemoryService
-	validator   *ModelValidator
+	validator   ModelValidator
 }
 
 // ModelAnalysisResult represents the result of comprehensive model analysis
@@ -77,7 +77,7 @@ type ModelValidator interface {
 }
 
 // NewFinancialModelAnalyzer creates a new financial model analyzer
-func NewFinancialModelAnalyzer(executor *ToolExecutor, memory *FinancialMemoryService, validator *ModelValidator) *FinancialModelAnalyzer {
+func NewFinancialModelAnalyzer(executor *ToolExecutor, memory *FinancialMemoryService, validator ModelValidator) *FinancialModelAnalyzer {
 	return &FinancialModelAnalyzer{
 		executor:  executor,
 		memory:    memory,

@@ -16,6 +16,11 @@ import (
 type ToolExecutor struct {
 	excelBridge       ExcelBridge
 	formulaValidator  *formula.FormulaIntelligence
+	// Performance optimization fields
+	modelDataCache    map[string]*CachedModelData
+	cacheMutex        sync.RWMutex
+	parallelWorkers   int
+	operationQueue    chan OperationRequest
 }
 
 // ExcelBridge interface for interacting with Excel
@@ -165,10 +170,15 @@ type FinancialPreferences struct {
 
 // NewToolExecutor creates a new tool executor
 func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntelligence) *ToolExecutor {
-	return &ToolExecutor{
+	te := &ToolExecutor{
 		excelBridge:      bridge,
 		formulaValidator: formulaValidator,
 	}
+	
+	// Initialize performance optimizations
+	te.initializePerformanceOptimizations()
+	
+	return te
 }
 
 // ExecuteTool executes a tool call and returns the result
@@ -1695,4 +1705,1054 @@ func (te *ToolExecutor) addCellComments(ctx context.Context, sessionID string, c
 		Msg("Cell comments generated (implementation pending)")
 	
 	return nil
+}
+
+// executeOrganizeFinancialModel implements universal financial model organization
+func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessionID string, input map[string]interface{}) (map[string]interface{}, error) {
+	log.Info().
+		Str("session", sessionID).
+		Msg("Starting financial model organization")
+
+	// Extract parameters with defaults
+	modelType, _ := input["model_type"].(string)
+	sections, _ := input["sections"].([]interface{})
+	layout, _ := input["layout"].(string)
+	if layout == "" {
+		layout = "horizontal" // Default layout
+	}
+	
+	analysisRange, _ := input["analysis_range"].(string)
+	if analysisRange == "" {
+		analysisRange = "A1:Z100" // Default scan range
+	}
+
+	// Advanced: Extract professional standards and industry context
+	professionalStandards, _ := input["professional_standards"].(string)
+	industryContext, _ := input["industry_context"].(string)
+
+	// Performance: Check cache first for recent reads
+	cacheKey := fmt.Sprintf("%s:%s", sessionID, analysisRange)
+	if cachedData := te.getCachedModelData(cacheKey); cachedData != nil {
+		log.Debug().
+			Str("cache_key", cacheKey).
+			Msg("Using cached model data for performance")
+		data = cachedData
+	} else {
+		// Read current model to understand structure
+		log.Debug().
+			Str("range", analysisRange).
+			Msg("Reading current model structure")
+			
+		data, err := te.excelBridge.ReadRange(ctx, sessionID, analysisRange, true, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read model for analysis: %w", err)
+		}
+		
+		// Cache the data for future use
+		te.cacheModelData(cacheKey, data)
+	}
+
+	// Advanced: Intelligent model type detection if not provided
+	if modelType == "" {
+		modelType = te.detectModelType(data)
+		log.Info().
+			Str("detected_model_type", modelType).
+			Msg("Automatically detected model type")
+	}
+
+	// Advanced: Generate intelligent sections based on model type and context
+	if len(sections) == 0 {
+		sections = te.generateIntelligentSections(modelType, professionalStandards, industryContext)
+		log.Info().
+			Interface("sections", sections).
+			Msg("Generated intelligent sections based on model type and context")
+	}
+
+	// Generate enhanced organization plan
+	organizationPlan := te.generateEnhancedOrganizationPlan(data, modelType, sections, layout, professionalStandards, industryContext)
+	
+	log.Info().
+		Int("sections", len(organizationPlan["sections"].([]interface{}))).
+		Str("layout", layout).
+		Msg("Generated organization plan")
+
+	// Enhanced: Create backup before applying changes
+	backupData, err := te.createModelBackup(ctx, sessionID, analysisRange)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to create backup - proceeding without backup")
+	}
+
+	// Apply organization changes with error recovery
+	err = te.applyModelOrganizationWithRecovery(ctx, sessionID, organizationPlan, backupData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply model organization: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status": "success",
+		"message": "Financial model organized successfully",
+		"organization_plan": organizationPlan,
+		"sections_created": len(organizationPlan["sections"].([]interface{})),
+		"layout": layout,
+		"model_type": modelType,
+	}, nil
+}
+
+// generateUniversalOrganizationPlan creates a universal organization plan for any financial model
+func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, modelType string, sections []interface{}, layout string) map[string]interface{} {
+	plan := map[string]interface{}{
+		"layout": layout,
+		"sections": []interface{}{},
+		"formatting": map[string]interface{}{},
+		"spacing": map[string]interface{}{},
+	}
+
+	// Universal sections that apply to all financial models
+	defaultSections := []string{"assumptions", "calculations", "outputs", "summary"}
+	if len(sections) == 0 {
+		sections = make([]interface{}, len(defaultSections))
+		for i, section := range defaultSections {
+			sections[i] = section
+		}
+	}
+
+	sectionPlans := []interface{}{}
+	currentRow := 2 // Start at row 2 to leave space for title
+
+	// Add model title section
+	titlePlan := map[string]interface{}{
+		"name": "title",
+		"type": "header",
+		"start_row": 1,
+		"header_range": fmt.Sprintf("A1:%s1", te.getLastColumn(layout)),
+		"header_text": te.getUniversalModelTitle(modelType),
+		"header_style": "title",
+		"spacing_after": 1,
+	}
+	sectionPlans = append(sectionPlans, titlePlan)
+	currentRow += 2
+
+	// Create plans for each section
+	for i, sectionInterface := range sections {
+		section := sectionInterface.(string)
+		
+		sectionPlan := map[string]interface{}{
+			"name": section,
+			"type": te.getSectionType(section),
+			"start_row": currentRow,
+			"header_style": "section_header",
+			"spacing_after": 2,
+		}
+
+		// Add section header
+		headerRange := fmt.Sprintf("A%d:%s%d", currentRow, te.getLastColumn(layout), currentRow)
+		sectionPlan["header_range"] = headerRange
+		sectionPlan["header_text"] = te.getUniversalSectionHeader(section)
+		
+		currentRow += 3 // Header + spacing
+
+		// Estimate section size based on type and model
+		sectionRows := te.estimateSectionSize(section, modelType)
+		sectionPlan["end_row"] = currentRow + sectionRows - 1
+		sectionPlan["content_range"] = fmt.Sprintf("A%d:%s%d", currentRow, te.getLastColumn(layout), currentRow + sectionRows - 1)
+		
+		currentRow += sectionRows + 2 // Content + spacing between sections
+		
+		sectionPlans = append(sectionPlans, sectionPlan)
+	}
+
+	plan["sections"] = sectionPlans
+	
+	// Add formatting specifications
+	plan["formatting"] = map[string]interface{}{
+		"title_format": map[string]interface{}{
+			"font_size": 16,
+			"bold": true,
+			"alignment": "center",
+			"fill_color": "#4472C4",
+			"font_color": "#FFFFFF",
+		},
+		"section_header_format": map[string]interface{}{
+			"font_size": 12,
+			"bold": true,
+			"alignment": "left",
+			"fill_color": "#D9E1F2",
+			"font_color": "#000000",
+		},
+		"input_format": map[string]interface{}{
+			"font_color": "#0066CC",
+			"fill_color": "#F0F8FF",
+		},
+		"calculation_format": map[string]interface{}{
+			"font_color": "#000000",
+		},
+		"output_format": map[string]interface{}{
+			"font_color": "#000000",
+			"bold": true,
+		},
+	}
+	
+	return plan
+}
+
+// detectModelType intelligently detects the financial model type from data
+func (te *ToolExecutor) detectModelType(data *RangeData) string {
+	if data == nil || data.Values == nil {
+		return "universal"
+	}
+
+	// Convert all values to lowercase strings for analysis
+	textContent := ""
+	for _, row := range data.Values {
+		for _, cell := range row {
+			if cell != nil {
+				textContent += strings.ToLower(fmt.Sprintf("%v ", cell))
+			}
+		}
+	}
+
+	log.Debug().
+		Str("text_sample", textContent[:min(200, len(textContent))]).
+		Msg("Analyzing text content for model type detection")
+
+	// DCF indicators
+	dcfKeywords := []string{"dcf", "wacc", "terminal", "perpetuity", "fcf", "free cash flow", "npv", "discount", "valuation"}
+	dcfScore := 0
+	for _, keyword := range dcfKeywords {
+		if strings.Contains(textContent, keyword) {
+			dcfScore++
+		}
+	}
+
+	// LBO indicators  
+	lboKeywords := []string{"lbo", "leverage", "debt", "equity", "irr", "moic", "returns", "sponsor", "management"}
+	lboScore := 0
+	for _, keyword := range lboKeywords {
+		if strings.Contains(textContent, keyword) {
+			lboScore++
+		}
+	}
+
+	// M&A indicators
+	maKeywords := []string{"merger", "acquisition", "synergies", "accretion", "dilution", "premium", "target"}
+	maScore := 0
+	for _, keyword := range maKeywords {
+		if strings.Contains(textContent, keyword) {
+			maScore++
+		}
+	}
+
+	// Trading Comps indicators
+	compsKeywords := []string{"comparable", "trading", "multiple", "ev/ebitda", "p/e", "peer", "median"}
+	compsScore := 0
+	for _, keyword := range compsKeywords {
+		if strings.Contains(textContent, keyword) {
+			compsScore++
+		}
+	}
+
+	// Determine model type based on highest score
+	maxScore := dcfScore
+	modelType := "dcf"
+	
+	if lboScore > maxScore {
+		maxScore = lboScore
+		modelType = "lbo"
+	}
+	if maScore > maxScore {
+		maxScore = maScore
+		modelType = "merger"
+	}
+	if compsScore > maxScore {
+		maxScore = compsScore
+		modelType = "comps"
+	}
+
+	// If no clear winner, return universal
+	if maxScore < 2 {
+		modelType = "universal"
+	}
+
+	log.Info().
+		Int("dcf_score", dcfScore).
+		Int("lbo_score", lboScore).
+		Int("ma_score", maScore).
+		Int("comps_score", compsScore).
+		Str("detected_type", modelType).
+		Msg("Model type detection completed")
+
+	return modelType
+}
+
+// generateIntelligentSections creates sections based on model type and professional context
+func (te *ToolExecutor) generateIntelligentSections(modelType, professionalStandards, industryContext string) []interface{} {
+	var sections []string
+
+	switch modelType {
+	case "dcf":
+		sections = []string{"company_overview", "assumptions", "financial_projections", "dcf_calculation", "sensitivity_analysis", "summary"}
+		if professionalStandards == "investment_banking" {
+			sections = append(sections, "football_field", "precedent_transactions")
+		}
+		
+	case "lbo":
+		sections = []string{"transaction_summary", "assumptions", "sources_uses", "debt_schedule", "cash_flow_projections", "returns_analysis", "sensitivity"}
+		if professionalStandards == "private_equity" {
+			sections = append(sections, "management_case", "downside_case")
+		}
+		
+	case "merger", "m&a":
+		sections = []string{"transaction_overview", "assumptions", "standalone_projections", "synergies", "pro_forma", "accretion_dilution", "sensitivity"}
+		
+	case "comps":
+		sections = []string{"peer_selection", "financial_data", "multiples_calculation", "analysis", "summary"}
+		
+	default: // universal
+		sections = []string{"assumptions", "calculations", "outputs", "summary"}
+	}
+
+	// Add industry-specific sections
+	if industryContext == "technology" {
+		sections = append(sections, "metrics", "unit_economics")
+	} else if industryContext == "real_estate" {
+		sections = append(sections, "property_details", "rental_analysis")
+	} else if industryContext == "energy" {
+		sections = append(sections, "commodity_assumptions", "production_forecasts")
+	}
+
+	// Convert to interface{} slice
+	result := make([]interface{}, len(sections))
+	for i, section := range sections {
+		result[i] = section
+	}
+
+	return result
+}
+
+// generateEnhancedOrganizationPlan creates enhanced organization with professional standards
+func (te *ToolExecutor) generateEnhancedOrganizationPlan(data *RangeData, modelType string, sections []interface{}, layout, professionalStandards, industryContext string) map[string]interface{} {
+	// Start with universal plan
+	plan := te.generateUniversalOrganizationPlan(data, modelType, sections, layout)
+
+	// Enhance with professional standards
+	if professionalStandards != "" {
+		plan["professional_standards"] = professionalStandards
+		plan = te.applyProfessionalStandards(plan, professionalStandards)
+	}
+
+	// Enhance with industry context  
+	if industryContext != "" {
+		plan["industry_context"] = industryContext
+		plan = te.applyIndustryContext(plan, industryContext)
+	}
+
+	// Add advanced features
+	plan["advanced_features"] = map[string]interface{}{
+		"intelligent_model_detection": modelType,
+		"context_aware_sections": true,
+		"professional_formatting": professionalStandards != "",
+		"industry_customization": industryContext != "",
+	}
+
+	return plan
+}
+
+// applyProfessionalStandards applies industry-specific professional standards
+func (te *ToolExecutor) applyProfessionalStandards(plan map[string]interface{}, standards string) map[string]interface{} {
+	formatting := plan["formatting"].(map[string]interface{})
+
+	switch standards {
+	case "investment_banking":
+		// IB standards: Conservative colors, traditional formatting
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#2E5090" // Conservative blue
+		formatting["section_header_format"].(map[string]interface{})["fill_color"] = "#B7C9E4" // Light blue
+		
+	case "private_equity":
+		// PE standards: Bold, professional
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#1B365D" // Dark blue
+		formatting["title_format"].(map[string]interface{})["font_size"] = 14 // Larger title
+		
+	case "hedge_fund":
+		// HF standards: Clean, minimal
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#333333" // Dark gray
+		formatting["section_header_format"].(map[string]interface{})["fill_color"] = "#E5E5E5" // Light gray
+		
+	case "corporate":
+		// Corporate standards: Company brand friendly
+		formatting["title_format"].(map[string]interface{})["fill_color"] = "#0078D4" // Microsoft blue
+		formatting["section_header_format"].(map[string]interface{})["fill_color"] = "#DEECF9" // Light blue
+	}
+
+	plan["formatting"] = formatting
+	return plan
+}
+
+// applyIndustryContext applies industry-specific customizations
+func (te *ToolExecutor) applyIndustryContext(plan map[string]interface{}, industry string) map[string]interface{} {
+	sections := plan["sections"].([]interface{})
+
+	// Add industry-specific formatting or section modifications
+	for i, sectionInterface := range sections {
+		section := sectionInterface.(map[string]interface{})
+		sectionName := section["name"].(string)
+
+		// Customize section names for industry context
+		switch industry {
+		case "technology":
+			if sectionName == "assumptions" {
+				section["header_text"] = "Key Technology Assumptions & Unit Economics"
+			}
+		case "real_estate":
+			if sectionName == "assumptions" {
+				section["header_text"] = "Property Assumptions & Market Data"
+			}
+		case "energy":
+			if sectionName == "assumptions" {
+				section["header_text"] = "Commodity & Production Assumptions"
+			}
+		}
+
+		sections[i] = section
+	}
+
+	plan["sections"] = sections
+	return plan
+}
+
+// Helper function for min
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// createModelBackup creates a backup of the current model state
+func (te *ToolExecutor) createModelBackup(ctx context.Context, sessionID string, analysisRange string) (*ModelBackup, error) {
+	log.Info().
+		Str("session", sessionID).
+		Str("range", analysisRange).
+		Msg("Creating model backup for error recovery")
+
+	// Read current state
+	data, err := te.excelBridge.ReadRange(ctx, sessionID, analysisRange, true, true) // Include formulas and formatting
+	if err != nil {
+		return nil, fmt.Errorf("failed to read model for backup: %w", err)
+	}
+
+	backup := &ModelBackup{
+		SessionID:    sessionID,
+		Range:        analysisRange,
+		Data:         data,
+		BackupTime:   time.Now(),
+		BackupReason: "model_organization",
+	}
+
+	log.Info().
+		Str("session", sessionID).
+		Time("backup_time", backup.BackupTime).
+		Msg("Model backup created successfully")
+
+	return backup, nil
+}
+
+// applyModelOrganizationWithRecovery applies organization with automatic error recovery
+func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, sessionID string, plan map[string]interface{}, backup *ModelBackup) error {
+	sections := plan["sections"].([]interface{})
+	formatting := plan["formatting"].(map[string]interface{})
+
+	log.Info().
+		Int("sections", len(sections)).
+		Msg("Applying model organization with error recovery")
+
+	// Track applied changes for rollback
+	appliedChanges := []ChangeRecord{}
+	
+	for i, sectionInterface := range sections {
+		section := sectionInterface.(map[string]interface{})
+		
+		// Apply section header with error tracking
+		if headerRange, ok := section["header_range"].(string); ok {
+			if headerText, ok := section["header_text"].(string); ok {
+				
+				// Record change for potential rollback
+				changeRecord := ChangeRecord{
+					Operation: "write_header",
+					Range:     headerRange,
+					OldValue:  nil, // Could read current value first if needed
+					NewValue:  headerText,
+					Timestamp: time.Now(),
+				}
+				
+				// Write header text with retry logic
+				err := te.writeWithRetry(ctx, sessionID, headerRange, [][]interface{}{{headerText}}, 3)
+				if err != nil {
+					log.Error().Err(err).
+						Str("range", headerRange).
+						Int("section_index", i).
+						Msg("Failed to write header - attempting recovery")
+					
+					// Attempt to rollback changes
+					rollbackErr := te.rollbackChanges(ctx, sessionID, appliedChanges, backup)
+					if rollbackErr != nil {
+						log.Error().Err(rollbackErr).Msg("Rollback failed")
+						return fmt.Errorf("failed to write header and rollback failed: %w", err)
+					}
+					return fmt.Errorf("failed to write header, changes rolled back: %w", err)
+				}
+				appliedChanges = append(appliedChanges, changeRecord)
+
+				// Apply header formatting with retry logic
+				headerStyle := section["header_style"].(string)
+				formatStyle := "section_header_format"
+				if headerStyle == "title" {
+					formatStyle = "title_format"
+				}
+				
+				if formatData, ok := formatting[formatStyle].(map[string]interface{}); ok {
+					formatInput := map[string]interface{}{
+						"range": headerRange,
+						"style_type": headerStyle,
+					}
+					
+					// Add format properties
+					for key, value := range formatData {
+						formatInput[key] = value
+					}
+					
+					_, err = te.executeSmartFormatCellsWithRetry(ctx, sessionID, formatInput, 3)
+					if err != nil {
+						log.Error().Err(err).
+							Str("range", headerRange).
+							Msg("Failed to format header - continuing with next section")
+						// Continue with other sections rather than failing completely
+					} else {
+						// Record formatting change
+						formatChangeRecord := ChangeRecord{
+							Operation: "format_cells",
+							Range:     headerRange,
+							OldValue:  nil,
+							NewValue:  formatInput,
+							Timestamp: time.Now(),
+						}
+						appliedChanges = append(appliedChanges, formatChangeRecord)
+					}
+				}
+			}
+		}
+	}
+
+	log.Info().
+		Int("applied_changes", len(appliedChanges)).
+		Msg("Model organization applied successfully")
+
+	return nil
+}
+
+// writeWithRetry performs write operations with retry logic
+func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, targetRange string, values [][]interface{}, maxRetries int) error {
+	var lastErr error
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := te.excelBridge.WriteRange(ctx, sessionID, targetRange, values)
+		if err == nil {
+			if attempt > 1 {
+				log.Info().
+					Int("attempt", attempt).
+					Str("range", targetRange).
+					Msg("Write succeeded after retry")
+			}
+			return nil
+		}
+		
+		lastErr = err
+		log.Warn().
+			Err(err).
+			Int("attempt", attempt).
+			Int("max_retries", maxRetries).
+			Str("range", targetRange).
+			Msg("Write failed, retrying")
+		
+		if attempt < maxRetries {
+			// Exponential backoff
+			backoffTime := time.Duration(attempt*500) * time.Millisecond
+			time.Sleep(backoffTime)
+		}
+	}
+	
+	return fmt.Errorf("write failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// executeSmartFormatCellsWithRetry performs formatting with retry logic
+func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, sessionID string, input map[string]interface{}, maxRetries int) (map[string]interface{}, error) {
+	var lastErr error
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		result, err := te.executeSmartFormatCells(ctx, sessionID, input)
+		if err == nil {
+			if attempt > 1 {
+				log.Info().
+					Int("attempt", attempt).
+					Str("range", input["range"].(string)).
+					Msg("Format succeeded after retry")
+			}
+			return result, nil
+		}
+		
+		lastErr = err
+		log.Warn().
+			Err(err).
+			Int("attempt", attempt).
+			Int("max_retries", maxRetries).
+			Interface("input", input).
+			Msg("Format failed, retrying")
+		
+		if attempt < maxRetries {
+			// Exponential backoff
+			backoffTime := time.Duration(attempt*300) * time.Millisecond
+			time.Sleep(backoffTime)
+		}
+	}
+	
+	return nil, fmt.Errorf("format failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// rollbackChanges attempts to rollback applied changes using backup data
+func (te *ToolExecutor) rollbackChanges(ctx context.Context, sessionID string, changes []ChangeRecord, backup *ModelBackup) error {
+	if backup == nil {
+		return fmt.Errorf("no backup available for rollback")
+	}
+
+	log.Warn().
+		Int("changes_to_rollback", len(changes)).
+		Str("session", sessionID).
+		Msg("Attempting to rollback changes")
+
+	// Simple rollback: restore entire range from backup
+	if backup.Data != nil && backup.Data.Values != nil {
+		err := te.excelBridge.WriteRange(ctx, sessionID, backup.Range, backup.Data.Values)
+		if err != nil {
+			return fmt.Errorf("failed to restore values from backup: %w", err)
+		}
+		
+		log.Info().
+			Str("range", backup.Range).
+			Msg("Successfully restored values from backup")
+	}
+
+	// TODO: More sophisticated rollback could restore individual changes in reverse order
+	// For now, we restore the entire range which is safer but less precise
+
+	return nil
+}
+
+// Validation enhancement for better error detection
+func (te *ToolExecutor) validateModelIntegrity(ctx context.Context, sessionID string, targetRange string) (*ValidationSummary, error) {
+	log.Info().
+		Str("session", sessionID).
+		Str("range", targetRange).
+		Msg("Validating model integrity")
+
+	// Read current model state
+	data, err := te.excelBridge.ReadRange(ctx, sessionID, targetRange, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read model for validation: %w", err)
+	}
+
+	validation := &ValidationSummary{
+		Range:           targetRange,
+		ValidationTime:  time.Now(),
+		TotalCells:      0,
+		ErrorCells:      []string{},
+		WarnCells:       []string{},
+		Issues:          []ValidationIssue{},
+		OverallStatus:   "healthy",
+	}
+
+	// Count cells and detect issues
+	if data.Values != nil {
+		for i, row := range data.Values {
+			for j, cell := range row {
+				validation.TotalCells++
+				cellAddr := fmt.Sprintf("%s%d", string(rune('A'+j)), i+1)
+				
+				if cell != nil {
+					cellStr := fmt.Sprintf("%v", cell)
+					
+					// Check for Excel errors
+					if strings.Contains(cellStr, "#") {
+						validation.ErrorCells = append(validation.ErrorCells, cellAddr)
+						validation.Issues = append(validation.Issues, ValidationIssue{
+							Cell:        cellAddr,
+							Type:        "formula_error",
+							Severity:    "error",
+							Description: fmt.Sprintf("Excel error in cell: %s", cellStr),
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// Determine overall status
+	if len(validation.ErrorCells) > 0 {
+		validation.OverallStatus = "errors_detected"
+	} else if len(validation.WarnCells) > 0 {
+		validation.OverallStatus = "warnings"
+	}
+
+	log.Info().
+		Int("total_cells", validation.TotalCells).
+		Int("error_cells", len(validation.ErrorCells)).
+		Int("warning_cells", len(validation.WarnCells)).
+		Str("status", validation.OverallStatus).
+		Msg("Model integrity validation completed")
+
+	return validation, nil
+}
+
+// Performance optimization types and methods
+
+// CachedModelData represents cached model data with expiration
+type CachedModelData struct {
+	Data       *RangeData `json:"data"`
+	CacheTime  time.Time  `json:"cache_time"`
+	Expiration time.Time  `json:"expiration"`
+	AccessCount int       `json:"access_count"`
+}
+
+// OperationRequest represents a queued operation for parallel processing
+type OperationRequest struct {
+	ID        string                 `json:"id"`
+	Operation string                 `json:"operation"`
+	SessionID string                 `json:"session_id"`
+	Input     map[string]interface{} `json:"input"`
+	Result    chan OperationResult   `json:"-"`
+	Context   context.Context        `json:"-"`
+}
+
+// OperationResult represents the result of a parallel operation
+type OperationResult struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data"`
+	Error   error       `json:"error"`
+}
+
+// getCachedModelData retrieves cached model data if valid
+func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
+	te.cacheMutex.RLock()
+	defer te.cacheMutex.RUnlock()
+	
+	if te.modelDataCache == nil {
+		return nil
+	}
+	
+	cached, exists := te.modelDataCache[cacheKey]
+	if !exists {
+		return nil
+	}
+	
+	// Check if cache is expired (5 minutes TTL)
+	if time.Now().After(cached.Expiration) {
+		// Remove expired cache entry (defer to avoid deadlock)
+		go func() {
+			te.cacheMutex.Lock()
+			delete(te.modelDataCache, cacheKey)
+			te.cacheMutex.Unlock()
+		}()
+		return nil
+	}
+	
+	// Update access count
+	cached.AccessCount++
+	
+	log.Debug().
+		Str("cache_key", cacheKey).
+		Int("access_count", cached.AccessCount).
+		Time("cached_at", cached.CacheTime).
+		Msg("Cache hit for model data")
+		
+	return cached.Data
+}
+
+// cacheModelData stores model data in cache with TTL
+func (te *ToolExecutor) cacheModelData(cacheKey string, data *RangeData) {
+	te.cacheMutex.Lock()
+	defer te.cacheMutex.Unlock()
+	
+	if te.modelDataCache == nil {
+		te.modelDataCache = make(map[string]*CachedModelData)
+	}
+	
+	// Cache with 5-minute TTL for balance of performance vs freshness
+	te.modelDataCache[cacheKey] = &CachedModelData{
+		Data:       data,
+		CacheTime:  time.Now(),
+		Expiration: time.Now().Add(5 * time.Minute),
+		AccessCount: 1,
+	}
+	
+	log.Debug().
+		Str("cache_key", cacheKey).
+		Time("expiration", time.Now().Add(5 * time.Minute)).
+		Msg("Cached model data")
+		
+	// Clean up old cache entries (max 100 entries)
+	if len(te.modelDataCache) > 100 {
+		te.cleanupCache()
+	}
+}
+
+// cleanupCache removes expired and least accessed cache entries
+func (te *ToolExecutor) cleanupCache() {
+	// Remove expired entries first
+	now := time.Now()
+	for key, cached := range te.modelDataCache {
+		if now.After(cached.Expiration) {
+			delete(te.modelDataCache, key)
+		}
+	}
+	
+	// If still too many entries, remove least accessed
+	if len(te.modelDataCache) > 100 {
+		// Simple LRU: remove entries with lowest access count
+		minAccess := int(^uint(0) >> 1) // Max int
+		var keyToRemove string
+		
+		for key, cached := range te.modelDataCache {
+			if cached.AccessCount < minAccess {
+				minAccess = cached.AccessCount
+				keyToRemove = key
+			}
+		}
+		
+		if keyToRemove != "" {
+			delete(te.modelDataCache, keyToRemove)
+		}
+	}
+	
+	log.Debug().
+		Int("cache_size", len(te.modelDataCache)).
+		Msg("Cache cleanup completed")
+}
+
+// ExecuteParallelOperations executes multiple operations in parallel for performance
+func (te *ToolExecutor) ExecuteParallelOperations(ctx context.Context, operations []OperationRequest) ([]OperationResult, error) {
+	if len(operations) == 0 {
+		return []OperationResult{}, nil
+	}
+	
+	log.Info().
+		Int("operation_count", len(operations)).
+		Msg("Starting parallel operation execution")
+	
+	startTime := time.Now()
+	results := make([]OperationResult, len(operations))
+	
+	// Use goroutines for parallel execution
+	var wg sync.WaitGroup
+	for i, op := range operations {
+		wg.Add(1)
+		go func(index int, operation OperationRequest) {
+			defer wg.Done()
+			
+			// Execute the operation
+			result, err := te.executeOperation(operation.Context, operation)
+			
+			results[index] = OperationResult{
+				Success: err == nil,
+				Data:    result,
+				Error:   err,
+			}
+		}(i, op)
+	}
+	
+	// Wait for all operations to complete
+	wg.Wait()
+	
+	duration := time.Since(startTime)
+	successCount := 0
+	for _, result := range results {
+		if result.Success {
+			successCount++
+		}
+	}
+	
+	log.Info().
+		Int("total_operations", len(operations)).
+		Int("successful_operations", successCount).
+		Dur("duration", duration).
+		Float64("avg_duration_per_op", float64(duration.Milliseconds())/float64(len(operations))).
+		Msg("Parallel operation execution completed")
+	
+	return results, nil
+}
+
+// executeOperation executes a single operation (helper for parallel execution)
+func (te *ToolExecutor) executeOperation(ctx context.Context, op OperationRequest) (interface{}, error) {
+	switch op.Operation {
+	case "read_range":
+		rangeAddr, _ := op.Input["range"].(string)
+		includeFormulas, _ := op.Input["include_formulas"].(bool)
+		includeFormatting, _ := op.Input["include_formatting"].(bool)
+		return te.excelBridge.ReadRange(ctx, op.SessionID, rangeAddr, includeFormulas, includeFormatting)
+		
+	case "analyze_data":
+		rangeAddr, _ := op.Input["range"].(string)
+		includeStats, _ := op.Input["include_stats"].(bool)
+		detectHeaders, _ := op.Input["detect_headers"].(bool)
+		return te.excelBridge.AnalyzeData(ctx, op.SessionID, rangeAddr, includeStats, detectHeaders)
+		
+	case "smart_format":
+		return te.executeSmartFormatCells(ctx, op.SessionID, op.Input)
+		
+	case "build_formula":
+		return te.executeBuildFinancialFormula(ctx, op.SessionID, op.Input)
+		
+	default:
+		return nil, fmt.Errorf("unsupported parallel operation: %s", op.Operation)
+	}
+}
+
+// initializePerformanceOptimizations sets up performance features
+func (te *ToolExecutor) initializePerformanceOptimizations() {
+	te.modelDataCache = make(map[string]*CachedModelData)
+	te.parallelWorkers = 4 // Default worker count
+	te.operationQueue = make(chan OperationRequest, 100) // Buffered queue
+	
+	log.Info().
+		Int("parallel_workers", te.parallelWorkers).
+		Int("queue_buffer", 100).
+		Msg("Performance optimizations initialized")
+}
+
+// applyModelOrganization applies the organization plan to the Excel model
+func (te *ToolExecutor) applyModelOrganization(ctx context.Context, sessionID string, plan map[string]interface{}) error {
+	sections := plan["sections"].([]interface{})
+	formatting := plan["formatting"].(map[string]interface{})
+
+	log.Info().
+		Int("sections", len(sections)).
+		Msg("Applying model organization")
+
+	for _, sectionInterface := range sections {
+		section := sectionInterface.(map[string]interface{})
+		
+		// Apply section header
+		if headerRange, ok := section["header_range"].(string); ok {
+			if headerText, ok := section["header_text"].(string); ok {
+				// Write header text
+				err := te.excelBridge.WriteRange(ctx, sessionID, headerRange, [][]interface{}{{headerText}})
+				if err != nil {
+					log.Error().Err(err).Str("range", headerRange).Msg("Failed to write header")
+					continue
+				}
+
+				// Apply header formatting
+				headerStyle := section["header_style"].(string)
+				formatStyle := "section_header_format"
+				if headerStyle == "title" {
+					formatStyle = "title_format"
+				}
+				
+				if formatData, ok := formatting[formatStyle].(map[string]interface{}); ok {
+					formatInput := map[string]interface{}{
+						"range": headerRange,
+						"style_type": headerStyle,
+					}
+					
+					// Add format properties
+					for key, value := range formatData {
+						formatInput[key] = value
+					}
+					
+					_, err = te.executeSmartFormatCells(ctx, sessionID, formatInput)
+					if err != nil {
+						log.Error().Err(err).Str("range", headerRange).Msg("Failed to format header")
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// Helper methods for organization
+
+func (te *ToolExecutor) getLastColumn(layout string) string {
+	if layout == "vertical" {
+		return "D" // Smaller width for vertical layouts
+	}
+	return "M" // Standard width for horizontal layouts
+}
+
+func (te *ToolExecutor) getUniversalModelTitle(modelType string) string {
+	switch modelType {
+	case "dcf":
+		return "Discounted Cash Flow Model"
+	case "lbo":
+		return "Leveraged Buyout Model"
+	case "merger", "m&a":
+		return "Merger & Acquisition Model"
+	case "comps", "trading_comps":
+		return "Trading Comparables Analysis"
+	case "credit":
+		return "Credit Analysis Model"
+	default:
+		return "Financial Model"
+	}
+}
+
+func (te *ToolExecutor) getUniversalSectionHeader(section string) string {
+	switch section {
+	case "assumptions":
+		return "Key Assumptions & Inputs"
+	case "calculations":
+		return "Financial Calculations"
+	case "outputs":
+		return "Key Outputs & Results"
+	case "summary":
+		return "Executive Summary"
+	case "sensitivity":
+		return "Sensitivity Analysis"
+	case "scenarios":
+		return "Scenario Analysis"
+	default:
+		return strings.Title(section)
+	}
+}
+
+func (te *ToolExecutor) getSectionType(section string) string {
+	switch section {
+	case "assumptions":
+		return "input"
+	case "calculations":
+		return "calculation"
+	case "outputs", "summary":
+		return "output"
+	default:
+		return "general"
+	}
+}
+
+func (te *ToolExecutor) estimateSectionSize(section string, modelType string) int {
+	// Base sizes that work for most financial models
+	switch section {
+	case "assumptions":
+		return 15 // Typical assumptions section
+	case "calculations":
+		if modelType == "dcf" {
+			return 25 // DCF needs more calculation rows
+		}
+		return 20 // Standard calculation section
+	case "outputs":
+		return 10 // Key outputs
+	case "summary":
+		return 8 // Executive summary
+	case "sensitivity", "scenarios":
+		return 12 // Sensitivity/scenario tables
+	default:
+		return 10 // Default section size
+	}
 }

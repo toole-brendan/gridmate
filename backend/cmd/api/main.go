@@ -20,11 +20,13 @@ import (
 	"github.com/gridmate/backend/internal/config"
 	"github.com/gridmate/backend/internal/database"
 	"github.com/gridmate/backend/internal/handlers"
+	"github.com/gridmate/backend/internal/middleware"
 	"github.com/gridmate/backend/internal/repository"
 	"github.com/gridmate/backend/internal/routes"
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/services/documents"
+	"github.com/gridmate/backend/pkg/logger"
 )
 
 func main() {
@@ -33,10 +35,8 @@ func main() {
 		log.Println("No .env file found")
 	}
 
-	// Initialize logger
-	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{})
-	logger.SetLevel(getLogLevel())
+	// Initialize logger using factory
+	logger := logger.NewDefaultLogger()
 
 	// Load configuration
 	cfg, err := config.Load()
@@ -144,8 +144,9 @@ func main() {
 	// Initialize router
 	router := mux.NewRouter()
 
-	// Add logging middleware
-	router.Use(loggingMiddleware(logger))
+	// Initialize logging middleware
+	loggingMiddleware := middleware.NewLoggingMiddleware(logger)
+	router.Use(loggingMiddleware.Middleware)
 
 	// Health check endpoint
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

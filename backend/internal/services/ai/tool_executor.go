@@ -161,6 +161,49 @@ type FinancialPreferences struct {
 	Industry           string             `json:"industry"` // PE, HF, IB, Corp
 }
 
+// EnhancedError provides Cursor-style helpful error messages with suggestions
+type EnhancedError struct {
+	Message    string   `json:"message"`
+	Context    string   `json:"context"`
+	Suggestion string   `json:"suggestion"`
+	RelatedOps []string `json:"related_ops,omitempty"`
+}
+
+// Error implements the error interface
+func (e *EnhancedError) Error() string {
+	if e.Suggestion != "" {
+		return fmt.Sprintf("%s\nContext: %s\nSuggestion: %s", e.Message, e.Context, e.Suggestion)
+	}
+	return fmt.Sprintf("%s\nContext: %s", e.Message, e.Context)
+}
+
+// newEnhancedError creates a new enhanced error with context and suggestions
+func newEnhancedError(message string, context string, suggestion string, relatedOps ...string) *EnhancedError {
+	return &EnhancedError{
+		Message:    message,
+		Context:    context,
+		Suggestion: suggestion,
+		RelatedOps: relatedOps,
+	}
+}
+
+// formatToolError formats an error for inclusion in a ToolResult
+func formatToolError(err error) map[string]interface{} {
+	if enhancedErr, ok := err.(*EnhancedError); ok {
+		result := map[string]interface{}{
+			"error":      enhancedErr.Message,
+			"context":    enhancedErr.Context,
+			"suggestion": enhancedErr.Suggestion,
+		}
+		if len(enhancedErr.RelatedOps) > 0 {
+			result["related_operations"] = enhancedErr.RelatedOps
+		}
+		return result
+	}
+	// For regular errors, just return the error message
+	return map[string]interface{}{"error": err.Error()}
+}
+
 // NewToolExecutor creates a new tool executor
 func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntelligence) *ToolExecutor {
 	te := &ToolExecutor{
@@ -202,7 +245,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		if err != nil {
 			result.IsError = true
 			result.Status = "error"
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Status = "success"
@@ -249,7 +292,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			}
 			result.IsError = true
 			result.Status = "error"
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Status = "success"
@@ -297,7 +340,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			}
 			result.IsError = true
 			result.Status = "error"
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = map[string]string{"status": "success", "message": "Formula applied successfully"}
@@ -306,7 +349,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeAnalyzeData(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
@@ -347,7 +390,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			}
 			result.IsError = true
 			result.Status = "error"
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Status = "success"
@@ -362,7 +405,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		err := te.executeCreateChart(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = map[string]string{"status": "success", "message": "Chart created successfully"}
@@ -371,7 +414,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeValidateModel(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
@@ -380,7 +423,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeGetNamedRanges(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
@@ -389,7 +432,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		err := te.executeCreateNamedRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = map[string]string{"status": "success", "message": "Named range created successfully"}
@@ -398,7 +441,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		err := te.executeInsertRowsColumns(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = map[string]string{"status": "success", "message": "Rows/columns inserted successfully"}
@@ -407,7 +450,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeBuildFinancialFormula(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
@@ -416,7 +459,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeAnalyzeModelStructure(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
@@ -425,7 +468,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		err := te.executeSmartFormatCells(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = map[string]string{"status": "success", "message": "Smart formatting applied successfully"}
@@ -434,7 +477,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeCreateAuditTrail(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
@@ -443,14 +486,19 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		content, err := te.executeOrganizeFinancialModel(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
-			result.Content = map[string]string{"error": err.Error()}
+			result.Content = formatToolError(err)
 			return result, nil
 		}
 		result.Content = content
 
 	default:
 		result.IsError = true
-		result.Content = map[string]string{"error": fmt.Sprintf("Unknown tool: %s", toolCall.Name)}
+		unknownToolErr := newEnhancedError(
+			fmt.Sprintf("Unknown tool: %s", toolCall.Name),
+			"The requested tool is not available in the Excel integration",
+			"Available tools include: read_range, write_range, apply_formula, analyze_data, format_range, create_chart, validate_model, and more",
+		)
+		result.Content = formatToolError(unknownToolErr)
 	}
 
 	// Log tool execution completion
@@ -929,7 +977,11 @@ func convertToValueArray(valuesRaw interface{}) ([][]interface{}, error) {
 				Str("input", strValues).
 				Err(err).
 				Msg("AI sent values as JSON string instead of array - attempting to parse")
-			return nil, fmt.Errorf("failed to parse string values: %w", err)
+			return nil, newEnhancedError(
+				"Failed to parse values from JSON string",
+				fmt.Sprintf("AI sent values as string: %s", strValues),
+				"Ensure values are sent as a proper 2D array, e.g. [[\"A1\"], [\"A2\"]] not as a JSON string",
+			)
 		}
 		return values, nil
 	}
@@ -2957,8 +3009,13 @@ func expandValuesToMatchRange(rangeAddr string, values [][]interface{}) ([][]int
 		return values, nil
 	}
 
-	return nil, fmt.Errorf("values dimensions (%dx%d) don't match range dimensions (%dx%d)",
-		len(values), len(values[0]), neededRows, neededCols)
+	return nil, newEnhancedError(
+		fmt.Sprintf("Dimension mismatch: provided %dx%d, expected %dx%d",
+			len(values), len(values[0]), neededRows, neededCols),
+		fmt.Sprintf("Trying to write to range %s which needs %dx%d values",
+			rangeAddr, neededRows, neededCols),
+		"The values will be automatically expanded if single cell, otherwise ensure your data matches the target range dimensions",
+	)
 }
 
 // parseCell extracts column and row from a cell reference (e.g., "A1" -> 0, 0)

@@ -468,9 +468,30 @@ export class ExcelService {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
       const excelRange = worksheet.getRange(range)
       
-      excelRange.values = values
+      // Validate and clean values before writing
+      const cleanedValues = values.map((row: any[]) =>
+        row.map((cell: any) => {
+          // Convert undefined/null to empty string
+          if (cell === undefined || cell === null) {
+            return ''
+          }
+          // Ensure numbers are properly typed
+          if (typeof cell === 'string' && !isNaN(Number(cell)) && cell !== '') {
+            return Number(cell)
+          }
+          return cell
+        })
+      )
       
-      await context.sync()
+      console.log(`✍️ Writing to range ${range}:`, cleanedValues)
+      
+      try {
+        excelRange.values = cleanedValues
+        await context.sync()
+      } catch (error) {
+        console.error(`❌ Failed to write to range ${range}:`, error)
+        throw new Error(`Failed to write values: ${error.message}`)
+      }
       
       return {
         message: 'Range written successfully',
@@ -552,7 +573,34 @@ export class ExcelService {
       const excelRange = worksheet.getRange(range)
       
       if (number_format) {
-        excelRange.numberFormat = number_format
+        // Map common format names to Excel format codes
+        const formatMap: { [key: string]: string } = {
+          'general': 'General',
+          'number': '0.00',
+          'currency': '$#,##0.00',
+          'accounting': '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)',
+          'percentage': '0.00%',
+          'percent': '0.00%',
+          'date': 'm/d/yyyy',
+          'short date': 'm/d/yy',
+          'long date': 'mmmm d, yyyy',
+          'time': 'h:mm:ss AM/PM',
+          'text': '@',
+          'scientific': '0.00E+00',
+          'fraction': '# ?/?'
+        }
+        
+        // Check if it's a common format name, otherwise use as-is
+        const actualFormat = formatMap[number_format.toLowerCase()] || number_format
+        
+        console.log(`🎨 Format mapping: "${number_format}" -> "${actualFormat}"`)
+        
+        try {
+          excelRange.numberFormat = actualFormat
+        } catch (error) {
+          console.error(`❌ Failed to apply number format "${actualFormat}":`, error)
+          throw new Error(`Invalid number format: ${number_format}`)
+        }
       }
       
       if (font) {

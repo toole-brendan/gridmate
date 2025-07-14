@@ -104,6 +104,7 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		err = h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
 			"content": response.Content,
 			"actions": response.Actions,
+			"isFinal": response.IsFinal,
 		})
 		if err != nil {
 			h.logger.WithError(err).Error("Failed to send response via SignalR")
@@ -125,6 +126,7 @@ type SignalRToolResponse struct {
 	Result    interface{} `json:"result"`
 	Error     string      `json:"error"`
 	Timestamp time.Time   `json:"timestamp"`
+	Queued    bool        `json:"queued"` // Indicates tool is queued for approval
 }
 
 // HandleSignalRToolResponse processes tool responses from SignalR
@@ -159,7 +161,17 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 		if req.Error != "" {
 			toolErr = fmt.Errorf("%s", req.Error)
 		}
-		hub.HandleToolResponse(req.SessionID, req.RequestID, req.Result, toolErr)
+		
+		// If tool is queued, return a special result to continue processing
+		if req.Queued {
+			// Return a special result that indicates the tool is queued
+			hub.HandleToolResponse(req.SessionID, req.RequestID, map[string]interface{}{
+				"status": "queued",
+				"message": "Tool queued for user approval",
+			}, nil)
+		} else {
+			hub.HandleToolResponse(req.SessionID, req.RequestID, req.Result, toolErr)
+		}
 		
 		h.logger.WithFields(logrus.Fields{
 			"request_id": req.RequestID,

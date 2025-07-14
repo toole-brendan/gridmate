@@ -59,10 +59,12 @@ type ChatMessage struct {
 
 // ChatResponse represents the AI's response to a chat message
 type ChatResponse struct {
-	Content     string                 `json:"content"`
-	Suggestions []string               `json:"suggestions,omitempty"`
-	Actions     []ProposedAction       `json:"actions,omitempty"`
-	SessionID   string                 `json:"sessionId"`
+	Content      string                 `json:"content"`
+	Suggestions  []string               `json:"suggestions,omitempty"`
+	Actions      []ProposedAction       `json:"actions,omitempty"`
+	SessionID    string                 `json:"sessionId"`
+	IsFinal      bool                   `json:"isFinal,omitempty"`
+	HasMoreTools bool                   `json:"hasMoreTools,omitempty"`
 }
 
 // ProposedAction represents an action the AI wants to perform

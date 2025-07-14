@@ -91,11 +91,23 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			Str("client_id", clientID).
 			Str("request_id", requestID).
 			Bool("has_error", err != nil).
+			Interface("response", response).
 			Msg("Tool handler received response")
 			
 		if err != nil {
 			errChan <- err
 		} else {
+			// Check if the response indicates the tool is queued
+			if respMap, ok := response.(map[string]interface{}); ok {
+				if status, ok := respMap["status"].(string); ok && status == "queued" {
+					log.Info().
+						Str("session_id", sessionID).
+						Str("request_id", requestID).
+						Msg("Tool is queued for user approval, continuing to wait")
+					// Don't send to channels, keep waiting for the actual execution result
+					return
+				}
+			}
 			respChan <- response
 		}
 	}

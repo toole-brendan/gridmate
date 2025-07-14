@@ -613,9 +613,10 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 			Str("response_content", response.Content).
 			Msg("Received AI response")
 
-		// If no tool calls, return the response
+		// If no tool calls, return the response as final
 		if len(response.ToolCalls) == 0 {
 			log.Info().Msg("No tool calls in response, returning final answer")
+			response.IsFinal = true
 			return response, nil
 		}
 
@@ -732,6 +733,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 		// If no tool calls, we're done
 		if len(response.ToolCalls) == 0 {
 			log.Info().Msg("No tool calls in response, returning final answer")
+			response.IsFinal = true
 			return response, nil
 		}
 

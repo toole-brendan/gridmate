@@ -216,6 +216,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 	var content string
 	var suggestions []string
 	var actions []websocket.ProposedAction
+	var aiResponse *ai.CompletionResponse // Track AI response for IsFinal flag
 	
 	if eb.aiService != nil {
 		eb.logger.Info("AI service is available, processing message")
@@ -265,20 +266,20 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 		// Process chat message with AI and history
 		ctx := context.Background()
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
-		response, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
+		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
 		if err != nil {
 			eb.logger.WithError(err).Error("AI processing failed")
 			content = "I encountered an error processing your request. Please try again."
 		} else {
-			content = response.Content
+			content = aiResponse.Content
 			// Add AI response to history
 			eb.chatHistory.AddMessage(session.ID, "assistant", content)
 			
 			// Convert AI actions to websocket actions
-			actions = eb.convertAIActions(response.Actions)
+			actions = eb.convertAIActions(aiResponse.Actions)
 			
 			// Only detect additional actions if no tools were used
-			if len(response.ToolCalls) == 0 {
+			if len(aiResponse.ToolCalls) == 0 {
 				if additionalActions := eb.detectRequestedActions(message.Content, msgContext); len(additionalActions) > 0 {
 					actions = append(actions, additionalActions...)
 				}
@@ -295,11 +296,18 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 		}
 	}
 	
+	// Determine if response is final (based on AI response if available)
+	isFinal := false
+	if aiResponse != nil && aiResponse.IsFinal {
+		isFinal = true
+	}
+	
 	response := &websocket.ChatResponse{
 		Content:     content,
 		Suggestions: suggestions,
 		Actions:     actions,
 		SessionID:   session.ID,
+		IsFinal:     isFinal,
 	}
 	
 	// Update session activity

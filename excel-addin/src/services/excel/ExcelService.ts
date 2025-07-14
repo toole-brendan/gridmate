@@ -135,7 +135,7 @@ export class ExcelService {
       includeAllSheets = false,
       maxCellsPerSheet = 10000,
       includeFormulas = true,
-      includeFormatting = false
+      // includeFormatting = false
     } = options
 
     return Excel.run(async (context: any) => {
@@ -533,7 +533,7 @@ export class ExcelService {
   }
 
   private async toolWriteRange(input: any): Promise<any> {
-    const { range, values, preserve_formatting = true } = input
+    const { range, values /*, preserve_formatting = true*/ } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
@@ -561,7 +561,7 @@ export class ExcelService {
         await context.sync()
       } catch (error) {
         console.error(`❌ Failed to write to range ${range}:`, error)
-        throw new Error(`Failed to write values: ${error.message}`)
+        throw new Error(`Failed to write values: ${(error as Error).message}`)
       }
       
       return {
@@ -612,13 +612,13 @@ export class ExcelService {
         }
       } catch (error) {
         console.error('❌ Formula application error:', error)
-        throw new Error(`Failed to apply formula "${formula}" to range "${range}": ${error.message}`)
+        throw new Error(`Failed to apply formula "${formula}" to range "${range}": ${(error as Error).message}`)
       }
     })
   }
 
   private async toolAnalyzeData(input: any): Promise<DataAnalysis> {
-    const { range, detect_headers = true, include_statistics = true } = input
+    const { range, detect_headers = true /*, include_statistics = true*/ } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
@@ -642,11 +642,11 @@ export class ExcelService {
         // Analyze data types
         for (let col = 0; col < excelRange.columnCount; col++) {
           let columnType = 'mixed'
-          const values = excelRange.values.slice(detect_headers ? 1 : 0).map(row => row[col])
+          const values = excelRange.values.slice(detect_headers ? 1 : 0).map((row: any) => row[col])
           
-          if (values.every(v => typeof v === 'number')) {
+          if (values.every((v: any) => typeof v === 'number')) {
             columnType = 'number'
-          } else if (values.every(v => typeof v === 'string')) {
+          } else if (values.every((v: any) => typeof v === 'string')) {
             columnType = 'string'
           }
           
@@ -848,7 +848,7 @@ export class ExcelService {
   }
 
   private async toolValidateModel(input: any): Promise<ValidationResult> {
-    const { range, check_circular_refs = true, check_errors = true, check_formula_consistency = true } = input
+    const { range, /*check_circular_refs = true,*/ check_errors = true /*, check_formula_consistency = true*/ } = input
     
     return Excel.run(async (context: any) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet()
@@ -949,5 +949,13 @@ export class ExcelService {
         status: 'success'
       }
     })
+  }
+
+  async writeRange(range: string, values: any[][]): Promise<any> {
+    return this.toolWriteRange({ range, values })
+  }
+
+  async applyFormula(range: string, formula: string): Promise<any> {
+    return this.toolApplyFormula({ range, formula })
   }
 }

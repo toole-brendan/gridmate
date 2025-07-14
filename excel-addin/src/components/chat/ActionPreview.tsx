@@ -7,6 +7,8 @@ export interface PendingAction {
   parameters: any
   description: string
   timestamp: Date
+  status?: 'pending' | 'executing' | 'completed' | 'failed'
+  error?: string
 }
 
 interface ActionPreviewProps {

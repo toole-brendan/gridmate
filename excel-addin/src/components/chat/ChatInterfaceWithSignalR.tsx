@@ -1,10 +1,12 @@
+/// <reference types="@types/office-js" />
 import React, { useState, useEffect, useRef } from 'react'
 import { ChatInterface } from './ChatInterface'
 import { ChatMessage } from '../../types/chat'
 import { SignalRClient } from '../../services/signalr/SignalRClient'
-import { ActionPreview, PendingAction, BatchActionPreview } from './ActionPreview'
+import { PendingAction } from './ActionPreview'
+import { PendingActionsPanel } from './PendingActionsPanel'
 import { ExcelService } from '../../services/excel/ExcelService'
-import { AutonomyModeSelector, AutonomyMode } from './AutonomyModeSelector'
+import { AutonomyMode } from './AutonomyModeSelector'
 import { CompactAutonomySelector } from './CompactAutonomySelector'
 import { checkToolSafety, AuditLogger } from '../../utils/safetyChecks'
 
@@ -16,14 +18,15 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+  const [, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([])
-  const [currentPreviewId, setCurrentPreviewId] = useState<string | null>(null)
+  // const [, setCurrentPreviewId] = useState<string | null>(null)
   const signalRClient = useRef<SignalRClient | null>(globalSignalRClient)
   const sessionIdRef = useRef<string>(globalSessionId)
   const [lastToolRequest, setLastToolRequest] = useState<string>('')
   const [toolError, setToolError] = useState<string>('')
-  const [signalRLog, setSignalRLog] = useState<string[]>([])
+  // const [signalRLog, setSignalRLog] = useState<string[]>([])
+  const [aiIsGenerating, setAiIsGenerating] = useState(false)
   
   // Autonomy mode state - load from localStorage
   const [autonomyMode, setAutonomyMode] = useState<AutonomyMode>(() => {
@@ -31,12 +34,13 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     return (saved as AutonomyMode) || 'agent-default'
   })
   const [isProcessingAction, setIsProcessingAction] = useState(false)
-  const [toolRequestQueue, setToolRequestQueue] = useState<Map<string, any>>(new Map())
+  const toolRequestQueue = useRef<Map<string, any>>(new Map())
   
   // Helper to add to message log
   const addToLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
-    setSignalRLog(prev => [...prev.slice(-10), `[${timestamp}] ${message}`])
+    // setSignalRLog(prev => [...prev.slice(-10), `[${timestamp}] ${message}`])
+    console.log(`[${timestamp}] ${message}`)
   }
   
   // Handle autonomy mode changes
@@ -118,6 +122,15 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       console.log('✅ SignalR reconnected')
       addToLog('✅ SignalR reconnected')
       setConnectionStatus('connected')
+      
+      // Add a success message to inform the user
+      const reconnectMsg: ChatMessage = {
+        id: `reconnect_${Date.now()}`,
+        role: 'system',
+        content: '✅ Connection restored. Ready to continue.',
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, reconnectMsg])
     })
 
     signalRClient.current.on('message', (data: any) => {
@@ -160,7 +173,7 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
 
   // Subscribe to Excel selection changes
   useEffect(() => {
-    if (!Office?.context?.document || !signalRClient.current) return
+    if (!(window as any).Office?.context?.document || !signalRClient.current) return
 
     const handleSelectionChange = async () => {
       try {
@@ -186,11 +199,11 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     }
 
     // Register event handler
-    Office.context.document.addHandlerAsync(
-      Office.EventType.DocumentSelectionChanged,
+    (window as any).Office.context.document.addHandlerAsync(
+      (window as any).Office.EventType.DocumentSelectionChanged,
       handleSelectionChange,
       (result: any) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
+        if (result.status === (window as any).Office.AsyncResultStatus.Succeeded) {
           console.log('✅ Selection change handler registered')
         } else {
           console.error('❌ Failed to register selection handler:', result.error)
@@ -200,8 +213,8 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
 
     // Cleanup
     return () => {
-      Office.context.document.removeHandlerAsync(
-        Office.EventType.DocumentSelectionChanged,
+      (window as any).Office.context.document.removeHandlerAsync(
+        (window as any).Office.EventType.DocumentSelectionChanged,
         { handler: handleSelectionChange }
       )
     }
@@ -253,10 +266,28 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       }
       
       // Store the full tool request for later execution
-      toolRequestQueue.set(toolRequest.request_id, toolRequest)
-      setPendingActions(prev => [...prev, pendingAction])
+      toolRequestQueue.current.set(toolRequest.request_id, toolRequest)
+      setPendingActions(prev => {
+        const newPending = [...prev, pendingAction]
+        console.log('📋 New pending actions:', newPending)
+        console.log('📋 Pending actions count:', newPending.length)
+        return newPending
+      })
       
       addToLog(`⏳ Queued tool for approval: ${toolRequest.request_id}`)
+      console.log('✅ Tool request queued, current pending count:', pendingActions.length + 1)
+      
+      // Send a "queued" response so backend can continue sending more tools
+      await signalRClient.current?.send({
+        type: 'tool_response',
+        data: {
+          request_id: toolRequest.request_id,
+          result: { status: 'queued', message: 'Tool queued for user approval' },
+          error: null,
+          queued: true  // Special flag to indicate this is queued, not executed
+        }
+      })
+      
       return
     }
     
@@ -284,7 +315,7 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         timestamp: new Date()
       }
       
-      toolRequestQueue.set(request_id, toolRequest)
+      toolRequestQueue.current.set(request_id, toolRequest)
       setPendingActions(prev => [...prev, pendingAction])
       addToLog(`⚠️ High-risk operation queued for approval: ${request_id}`)
       return
@@ -321,7 +352,13 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
       
     } catch (error) {
       console.error('❌ Tool execution failed:', error)
-      setToolError(error.message)
+      const errorMessage = (error as Error).message
+      setToolError(errorMessage)
+      
+      // Check if it's a network-related error
+      const isNetworkError = errorMessage.toLowerCase().includes('network') || 
+                           errorMessage.toLowerCase().includes('connection') ||
+                           errorMessage.toLowerCase().includes('offline')
       
       // Log failed execution
       AuditLogger.logToolExecution({
@@ -330,9 +367,26 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         parameters: input,
         autonomyMode: autonomyMode,
         result: 'failure',
-        error: error.message,
+        error: errorMessage,
         sessionId: sessionIdRef.current
       })
+      
+      // If it's a network error and we're disconnected, queue the tool for retry
+      if (isNetworkError && !signalRClient.current?.isConnected()) {
+        console.log('📶 Network error detected, will retry when reconnected')
+        
+        // Add a system message to inform the user
+        const errorMsg: ChatMessage = {
+          id: `error_${Date.now()}`,
+          role: 'system',
+          content: `⚠️ Network disconnection detected. Tool "${tool}" will be retried when connection is restored.`,
+          timestamp: new Date()
+        }
+        setMessages(prev => [...prev, errorMsg])
+        
+        // Don't send error response yet, wait for reconnection
+        return
+      }
       
       // Send error response
       await signalRClient.current?.send({
@@ -340,7 +394,7 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         data: {
           request_id: toolRequest.request_id,
           result: null,
-          error: error.message
+          error: errorMessage
         }
       })
     }
@@ -376,6 +430,16 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     
     setMessages(prev => [...prev, aiMessage])
     setIsLoading(false)
+    
+    // Check if this is the final response from AI (no more tool calls expected)
+    if (response.isFinal) {
+      setAiIsGenerating(false)
+      console.log('🎯 AI finished generating - isFinal flag is true')
+    } else if (response.content || response.message) {
+      // Fallback: If we receive content but no isFinal flag, assume it's done
+      setAiIsGenerating(false)
+      console.log('🎯 AI finished generating - received final response (fallback)')
+    }
   }
 
   const handleSendMessage = async (content?: string) => {
@@ -397,6 +461,8 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     setMessages(prev => [...prev, userMessage])
     setInput('')
     setIsLoading(true)
+    setAiIsGenerating(true)  // AI starts generating
+    setPendingActions([])  // Clear any previous pending actions
 
     try {
       // Collect Excel context before sending
@@ -417,8 +483,8 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
         console.log('📊 Collected comprehensive Excel context:', {
           worksheet: excelContext.worksheet,
           selection: excelContext.selection,
-          selectedCells: excelContext.selectedData?.rowCount * excelContext.selectedData?.colCount || 0,
-          nearbyCells: excelContext.nearbyData?.rowCount * excelContext.nearbyData?.colCount || 0
+          selectedCells: (excelContext.selectedData?.rowCount || 0) * (excelContext.selectedData?.colCount || 0),
+          nearbyCells: (excelContext.nearbyData?.rowCount || 0) * (excelContext.nearbyData?.colCount || 0)
         })
       } catch (contextError) {
         console.warn('Failed to collect Excel context:', contextError)
@@ -457,33 +523,57 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     }
   }
 
-  const handleActionPreview = (action: any) => {
-    console.log('Preview action:', action)
-    setPendingActions([...pendingActions, action])
-    setCurrentPreviewId(action.id)
-  }
+  // const _handleActionPreview = (action: any) => {
+  //   console.log('Preview action:', action)
+  //   setPendingActions([...pendingActions, action])
+  //   setCurrentPreviewId(action.id)
+  // }
 
   const handleActionApprove = async (actionId: string) => {
     console.log('Approve action:', actionId)
     const action = pendingActions.find(a => a.id === actionId)
-    const toolRequest = toolRequestQueue.get(actionId)
+    const toolRequest = toolRequestQueue.current.get(actionId)
     
     if (action && toolRequest) {
       setIsProcessingAction(true)
       
-      // Execute the approved tool request
-      await executeToolRequest(toolRequest)
+      // Update action status to executing
+      setPendingActions(prev => 
+        prev.map(a => a.id === actionId ? { ...a, status: 'executing' } : a)
+      )
       
-      // Remove from pending actions and queue
-      setPendingActions(pendingActions.filter(a => a.id !== actionId))
-      toolRequestQueue.delete(actionId)
+      try {
+        // Execute the approved tool request
+        await executeToolRequest(toolRequest)
+        
+        // Update status to completed
+        setPendingActions(prev => 
+          prev.map(a => a.id === actionId ? { ...a, status: 'completed' } : a)
+        )
+        
+        // Remove after a short delay to show the completed status
+        setTimeout(() => {
+          setPendingActions(prev => prev.filter(a => a.id !== actionId))
+          toolRequestQueue.current.delete(actionId)
+        }, 2000)
+      } catch (error) {
+        // Update status to failed
+        setPendingActions(prev => 
+          prev.map(a => a.id === actionId ? { 
+            ...a, 
+            status: 'failed', 
+            error: (error as Error).message 
+          } : a)
+        )
+      }
+      
       setIsProcessingAction(false)
     }
   }
 
   const handleActionReject = async (actionId: string) => {
     console.log('Reject action:', actionId)
-    const toolRequest = toolRequestQueue.get(actionId)
+    const toolRequest = toolRequestQueue.current.get(actionId)
     
     if (toolRequest) {
       const { tool, request_id, ...input } = toolRequest
@@ -513,27 +603,52 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
     
     // Remove from pending actions and queue
     setPendingActions(pendingActions.filter(a => a.id !== actionId))
-    toolRequestQueue.delete(actionId)
+    toolRequestQueue.current.delete(actionId)
   }
   
   const handleApproveAll = async () => {
     setIsProcessingAction(true)
     
+    // Mark all actions as executing
+    setPendingActions(prev => 
+      prev.map(a => ({ ...a, status: 'executing' as const }))
+    )
+    
     for (const action of pendingActions) {
-      const toolRequest = toolRequestQueue.get(action.id)
+      const toolRequest = toolRequestQueue.current.get(action.id)
       if (toolRequest) {
-        await executeToolRequest(toolRequest)
-        toolRequestQueue.delete(action.id)
+        try {
+          await executeToolRequest(toolRequest)
+          
+          // Update to completed
+          setPendingActions(prev => 
+            prev.map(a => a.id === action.id ? { ...a, status: 'completed' as const } : a)
+          )
+        } catch (error) {
+          // Update to failed
+          setPendingActions(prev => 
+            prev.map(a => a.id === action.id ? { 
+              ...a, 
+              status: 'failed' as const, 
+              error: (error as Error).message 
+            } : a)
+          )
+        }
+        toolRequestQueue.current.delete(action.id)
       }
     }
     
-    setPendingActions([])
+    // Clear all actions after a delay to show final statuses
+    setTimeout(() => {
+      setPendingActions([])
+    }, 2000)
+    
     setIsProcessingAction(false)
   }
   
   const handleRejectAll = async () => {
     for (const action of pendingActions) {
-      const toolRequest = toolRequestQueue.get(action.id)
+      const toolRequest = toolRequestQueue.current.get(action.id)
       if (toolRequest) {
         await signalRClient.current?.send({
           type: 'tool_response',
@@ -543,63 +658,55 @@ export const ChatInterfaceWithSignalR: React.FC = () => {
             error: 'Tool execution rejected by user'
           }
         })
-        toolRequestQueue.delete(action.id)
+        toolRequestQueue.current.delete(action.id)
       }
     }
     
     setPendingActions([])
   }
 
-  const testSignalR = async () => {
-    if (signalRClient.current?.isConnected()) {
-      try {
-        await signalRClient.current.send({
-          id: Date.now().toString(),
-          type: 'test',
-          timestamp: new Date().toISOString(),
-          data: { message: 'Test from Excel add-in' }
-        })
-        addToLog('→ Sent test message')
-      } catch (error) {
-        console.error('Test failed:', error)
-        addToLog(`❌ Test failed: ${error.message}`)
-      }
-    } else {
-      console.warn('SignalR not connected')
-      addToLog('⚠️ SignalR not connected')
-    }
-  }
+  // const _testSignalR = async () => {
+  //   if (signalRClient.current?.isConnected()) {
+  //     try {
+  //       await signalRClient.current.send({
+  //         id: Date.now().toString(),
+  //         type: 'test',
+  //         timestamp: new Date().toISOString(),
+  //         data: { message: 'Test from Excel add-in' }
+  //       })
+  //       addToLog('→ Sent test message')
+  //     } catch (error) {
+  //       console.error('Test failed:', error)
+  //       addToLog(`❌ Test failed: ${(error as Error).message}`)
+  //     }
+  //   } else {
+  //     console.warn('SignalR not connected')
+  //     addToLog('⚠️ SignalR not connected')
+  //   }
+  // }
 
-  const reconnect = async () => {
-    addToLog('🔄 Manual reconnect initiated')
-    if (signalRClient.current) {
-      await signalRClient.current.disconnect()
-      await signalRClient.current.connect('dev-token-123')
-    }
-  }
+  // const _reconnect = async () => {
+  //   addToLog('🔄 Manual reconnect initiated')
+  //   if (signalRClient.current) {
+  //     await signalRClient.current.disconnect()
+  //     await signalRClient.current.connect('dev-token-123')
+  //   }
+  // }
 
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Pending Actions */}
       {pendingActions.length > 0 && (
-        <div style={{ 
-          padding: '12px 16px', 
-          backgroundColor: '#f9fafb',
-          borderBottom: '1px solid #e5e7eb',
-          flexShrink: 0,
-          maxHeight: '200px',
-          overflowY: 'auto'
-        }}>
-          <BatchActionPreview
-            actions={pendingActions}
-            onApproveAll={handleApproveAll}
-            onRejectAll={handleRejectAll}
-            onApproveOne={handleActionApprove}
-            onRejectOne={handleActionReject}
-            isProcessing={isProcessingAction}
-          />
-        </div>
+        <PendingActionsPanel
+          actions={pendingActions}
+          onApproveAll={handleApproveAll}
+          onRejectAll={handleRejectAll}
+          onApproveOne={handleActionApprove}
+          onRejectOne={handleActionReject}
+          isProcessing={isProcessingAction}
+          aiIsGenerating={aiIsGenerating}
+        />
       )}
       
       {/* Main Chat Interface */}

@@ -45,6 +45,7 @@ type CompletionResponse struct {
 	Created  time.Time  `json:"created"`
 	Actions  []Action   `json:"actions,omitempty"` // Parsed suggested actions
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"` // Tool calls requested by the AI
+	IsFinal   bool       `json:"is_final,omitempty"` // Indicates if this is the final response (no more tool calls expected)
 }
 
 // CompletionChunk represents a streaming chunk

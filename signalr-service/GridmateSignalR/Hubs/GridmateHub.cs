@@ -138,7 +138,7 @@ namespace GridmateSignalR.Hubs
         }
 
         // Handle tool responses from Excel add-in
-        public async Task SendToolResponse(string requestId, object result, string error = null)
+        public async Task SendToolResponse(string requestId, object result, string error = null, bool queued = false)
         {
             _logger.LogInformation($"Tool response for request {requestId}");
             
@@ -161,6 +161,7 @@ namespace GridmateSignalR.Hubs
                     requestId,
                     result,
                     error,
+                    queued,
                     timestamp = DateTime.UtcNow
                 });
 

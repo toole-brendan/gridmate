@@ -4,30 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/gridmate/backend/internal/services/ai"
-	"github.com/gridmate/backend/internal/websocket"
 )
 
 // BridgeImpl implements the ExcelBridge interface for AI tool execution
 type BridgeImpl struct {
-	hub *websocket.Hub
 	getClientID func(sessionID string) string
 	signalRBridge interface{}
 	logger zerolog.Logger
+	// Tool handlers for managing async responses
+	toolHandlers map[string]map[string]func(interface{}, error)
+	handlerMutex sync.RWMutex
+	// Response queue for handling late-arriving responses
+	responseQueue map[string]*queuedResponse
+	queueMutex    sync.RWMutex
+}
+
+// queuedResponse represents a response waiting for a handler
+type queuedResponse struct {
+	response  interface{}
+	err       error
+	timestamp time.Time
 }
 
 // NewBridgeImpl creates a new Excel bridge implementation
-func NewBridgeImpl(hub *websocket.Hub) *BridgeImpl {
-	return &BridgeImpl{
-		hub: hub,
+func NewBridgeImpl() *BridgeImpl {
+	b := &BridgeImpl{
 		logger: log.With().Str("component", "excel_bridge").Logger(),
+		toolHandlers: make(map[string]map[string]func(interface{}, error)),
+		responseQueue: make(map[string]*queuedResponse),
 	}
+	// Start cleanup routine for stale queued responses
+	go b.cleanupQueuedResponses()
+	return b
 }
 
 // SetClientIDResolver sets a function to resolve session ID to client ID
@@ -106,8 +121,8 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 	}
 	
 	// Register with both sessionID and clientID to handle reconnections
-	b.hub.RegisterToolHandler(sessionID, requestID, handler)
-	b.hub.RegisterToolHandler(clientID, requestID, handler)
+	b.RegisterToolHandler(sessionID, requestID, handler)
+	b.RegisterToolHandler(clientID, requestID, handler)
 	
 	// Create a cleanup function that will only be called when we get a final response
 	cleanup := func() {
@@ -116,8 +131,8 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			Str("client_id", clientID).
 			Str("request_id", requestID).
 			Msg("Unregistering tool handler after final response")
-		b.hub.UnregisterToolHandler(sessionID, requestID)
-		b.hub.UnregisterToolHandler(clientID, requestID)
+		b.UnregisterToolHandler(sessionID, requestID)
+		b.UnregisterToolHandler(clientID, requestID)
 	}
 	
 	// Set up a timeout cleanup in case we never get a response
@@ -130,127 +145,68 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		cleanup()
 	})
 
-	// Check if this is a SignalR session (they have the same sessionID and clientID)
-	if sessionID == clientID && strings.HasPrefix(sessionID, "session_") {
-		// This is a SignalR session, use SignalR bridge to send tool request
-		if b.signalRBridge != nil {
-			log.Info().
-				Str("session_id", sessionID).
-				Str("request_id", requestID).
-				Msg("Sending tool request via SignalR bridge")
-			
-			// Send tool request via SignalR
-			// Cast to the interface with SendToolRequest method
-			type signalRBridge interface {
-				SendToolRequest(sessionID string, toolRequest interface{}) error
-			}
-			
-			if bridge, ok := b.signalRBridge.(signalRBridge); ok {
-				if err := bridge.SendToolRequest(sessionID, request); err != nil {
-					return nil, fmt.Errorf("failed to send tool request via SignalR: %w", err)
-				}
-			} else {
-				return nil, fmt.Errorf("SignalR bridge does not implement SendToolRequest method")
-			}
-			
-			// Wait for response with timeout
-			select {
-			case response := <-respChan:
-				// Check if this is a queued response
-				if respMap, ok := response.(map[string]interface{}); ok {
-					if status, ok := respMap["status"].(string); ok && status == "queued" {
-						// For queued responses, DON'T cleanup handlers - we need them for the actual response
-						log.Info().
-							Str("session_id", sessionID).
-							Str("request_id", requestID).
-							Msg("Tool queued for user approval - keeping handler active")
-						// Cancel the timeout timer since we got a response
-						timeoutTimer.Stop()
-						// Don't cleanup - keep handlers active for the actual response
-						return map[string]interface{}{
-							"status": "queued",
-							"message": "Tool execution queued for user approval",
-						}, nil
-					}
-				}
-				// This is a final response, cleanup handlers
-				timeoutTimer.Stop()
-				cleanup()
-				return response, nil
-			case err := <-errChan:
-				timeoutTimer.Stop()
-				cleanup()
-				return nil, err
-			case <-time.After(30 * time.Second):
-				// Don't cleanup here - the 5 minute timer will handle it
-				return nil, fmt.Errorf("tool request timeout after 30 seconds")
-			case <-ctx.Done():
-				timeoutTimer.Stop()
-				cleanup()
-				return nil, ctx.Err()
-			}
-		} else {
-			log.Warn().
-				Str("session_id", sessionID).
-				Msg("SignalR bridge not initialized")
-			return nil, fmt.Errorf("SignalR bridge not available")
-		}
-	}
-
-	// Send request to client
-	message, err := websocket.NewMessage(websocket.MessageTypeToolRequest, request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create message: %w", err)
-	}
-
-	log.Info().
-		Str("session_id", sessionID).
-		Str("client_id", clientID).
-		Str("request_id", requestID).
-		Interface("request", request).
-		Msg("Sending tool request via WebSocket")
-
-	if err := b.hub.SendToSession(clientID, *message); err != nil {
-		return nil, fmt.Errorf("failed to send tool request: %w", err)
-	}
-
-	// Wait for response with timeout
-	log.Debug().
-		Str("session_id", sessionID).
-		Str("client_id", clientID).
-		Str("request_id", requestID).
-		Msg("Waiting for tool response...")
-		
-	select {
-	case response := <-respChan:
+	// Always use SignalR for tool requests
+	if b.signalRBridge != nil {
 		log.Info().
 			Str("session_id", sessionID).
-			Str("client_id", clientID).
 			Str("request_id", requestID).
-			Msg("Tool request completed successfully")
-		return response, nil
-	case err := <-errChan:
-		log.Error().
-			Str("session_id", sessionID).
-			Str("client_id", clientID).
-			Str("request_id", requestID).
-			Err(err).
-			Msg("Tool request failed with error")
-		return nil, err
-	case <-ctx.Done():
+			Msg("Sending tool request via SignalR bridge")
+		
+		// Send tool request via SignalR
+		// Cast to the interface with SendToolRequest method
+		type signalRBridge interface {
+			SendToolRequest(sessionID string, toolRequest interface{}) error
+		}
+		
+		if bridge, ok := b.signalRBridge.(signalRBridge); ok {
+			if err := bridge.SendToolRequest(sessionID, request); err != nil {
+				return nil, fmt.Errorf("failed to send tool request via SignalR: %w", err)
+			}
+		} else {
+			return nil, fmt.Errorf("SignalR bridge does not implement SendToolRequest method")
+		}
+		
+		// Wait for response with timeout
+		select {
+		case response := <-respChan:
+			// Check if this is a queued response
+			if respMap, ok := response.(map[string]interface{}); ok {
+				if status, ok := respMap["status"].(string); ok && status == "queued" {
+					// For queued responses, DON'T cleanup handlers - we need them for the actual response
+					log.Info().
+						Str("session_id", sessionID).
+						Str("request_id", requestID).
+						Msg("Tool queued for user approval - keeping handler active")
+					// Cancel the timeout timer since we got a response
+					timeoutTimer.Stop()
+					// Don't cleanup - keep handlers active for the actual response
+					return map[string]interface{}{
+						"status": "queued",
+						"message": "Tool execution queued for user approval",
+					}, nil
+				}
+			}
+			// This is a final response, cleanup handlers
+			timeoutTimer.Stop()
+			cleanup()
+			return response, nil
+		case err := <-errChan:
+			timeoutTimer.Stop()
+			cleanup()
+			return nil, err
+		case <-time.After(30 * time.Second):
+			// Don't cleanup here - the 5 minute timer will handle it
+			return nil, fmt.Errorf("tool request timeout after 30 seconds")
+		case <-ctx.Done():
+			timeoutTimer.Stop()
+			cleanup()
+			return nil, ctx.Err()
+		}
+	} else {
 		log.Warn().
 			Str("session_id", sessionID).
-			Str("client_id", clientID).
-			Str("request_id", requestID).
-			Msg("Tool request cancelled by context")
-		return nil, ctx.Err()
-	case <-time.After(120 * time.Second):
-		log.Error().
-			Str("session_id", sessionID).
-			Str("client_id", clientID).
-			Str("request_id", requestID).
-			Msg("Tool request timed out after 120 seconds")
-		return nil, fmt.Errorf("tool request timeout")
+			Msg("SignalR bridge not initialized")
+		return nil, fmt.Errorf("SignalR bridge not available")
 	}
 }
 
@@ -558,4 +514,102 @@ func (b *BridgeImpl) InsertRowsColumns(ctx context.Context, sessionID string, po
 	}
 	
 	return nil
+}
+
+// RegisterToolHandler registers a handler for tool responses
+func (b *BridgeImpl) RegisterToolHandler(sessionID, requestID string, handler func(interface{}, error)) {
+	b.handlerMutex.Lock()
+	defer b.handlerMutex.Unlock()
+	
+	if b.toolHandlers[sessionID] == nil {
+		b.toolHandlers[sessionID] = make(map[string]func(interface{}, error))
+	}
+	b.toolHandlers[sessionID][requestID] = handler
+	
+	// Check if there's a queued response waiting for this handler
+	b.queueMutex.Lock()
+	defer b.queueMutex.Unlock()
+	
+	queueKey := sessionID + ":" + requestID
+	if queued, ok := b.responseQueue[queueKey]; ok {
+		// Response arrived before handler, deliver it now
+		b.logger.Info().
+			Str("session_id", sessionID).
+			Str("request_id", requestID).
+			Msg("Delivering queued response to newly registered handler")
+		
+		// Deliver response asynchronously to avoid deadlock
+		go handler(queued.response, queued.err)
+		
+		// Remove from queue
+		delete(b.responseQueue, queueKey)
+	}
+}
+
+// UnregisterToolHandler removes a tool handler
+func (b *BridgeImpl) UnregisterToolHandler(sessionID, requestID string) {
+	b.handlerMutex.Lock()
+	defer b.handlerMutex.Unlock()
+	
+	if handlers, ok := b.toolHandlers[sessionID]; ok {
+		delete(handlers, requestID)
+		if len(handlers) == 0 {
+			delete(b.toolHandlers, sessionID)
+		}
+	}
+}
+
+// HandleToolResponse handles incoming tool responses from SignalR
+func (b *BridgeImpl) HandleToolResponse(sessionID, requestID string, response interface{}, err error) {
+	b.handlerMutex.RLock()
+	
+	// Try to find handler by sessionID first
+	if handlers, ok := b.toolHandlers[sessionID]; ok {
+		if handler, ok := handlers[requestID]; ok {
+			b.handlerMutex.RUnlock()
+			handler(response, err)
+			return
+		}
+	}
+	b.handlerMutex.RUnlock()
+	
+	// No handler found - queue the response
+	b.queueMutex.Lock()
+	defer b.queueMutex.Unlock()
+	
+	queueKey := sessionID + ":" + requestID
+	b.responseQueue[queueKey] = &queuedResponse{
+		response:  response,
+		err:       err,
+		timestamp: time.Now(),
+	}
+	
+	b.logger.Warn().
+		Str("session_id", sessionID).
+		Str("request_id", requestID).
+		Msg("No handler found for tool response - queuing for later delivery")
+}
+
+// cleanupQueuedResponses removes stale queued responses
+func (b *BridgeImpl) cleanupQueuedResponses() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		b.queueMutex.Lock()
+		
+		now := time.Now()
+		for key, queued := range b.responseQueue {
+			// Remove responses older than 5 minutes
+			if now.Sub(queued.timestamp) > 5*time.Minute {
+				b.logger.Debug().
+					Str("key", key).
+					Dur("age", now.Sub(queued.timestamp)).
+					Msg("Removing stale queued response")
+				delete(b.responseQueue, key)
+			}
+		}
+		
+		b.queueMutex.Unlock()
+	}
 }

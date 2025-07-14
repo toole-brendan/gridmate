@@ -11,13 +11,11 @@ import (
 	"github.com/gridmate/backend/internal/services/chat"
 	"github.com/gridmate/backend/internal/services/excel"
 	"github.com/gridmate/backend/internal/services/formula"
-	"github.com/gridmate/backend/internal/websocket"
 	"github.com/sirupsen/logrus"
 )
 
 // ExcelBridge implements the Excel integration service
 type ExcelBridge struct {
-	hub           *websocket.Hub
 	logger        *logrus.Logger
 	
 	// Cache for spreadsheet data
@@ -49,16 +47,16 @@ type ExcelBridge struct {
 type ExcelSession struct {
 	ID            string
 	UserID        string
-	ClientID      string  // WebSocket client ID for routing messages
+	ClientID      string  // SignalR client ID for routing messages
 	ActiveSheet   string
-	Selection     websocket.SelectionChanged
+	Selection     SelectionChanged
 	Context       map[string]interface{}
 	LastActivity  time.Time
 }
 
 
 // NewExcelBridge creates a new Excel bridge service
-func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
+func NewExcelBridge(logger *logrus.Logger) *ExcelBridge {
 	// Initialize AI service
 	aiService, err := ai.NewServiceFromEnv()
 	if err != nil {
@@ -69,7 +67,6 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	}
 
 	bridge := &ExcelBridge{
-		hub:        hub,
 		logger:     logger,
 		cellCache:  make(map[string]interface{}),
 		rangeCache: make(map[string][][]interface{}),
@@ -79,7 +76,7 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	}
 	
 	// Create Excel bridge implementation for tool executor
-	excelBridgeImpl := excel.NewBridgeImpl(hub)
+	excelBridgeImpl := excel.NewBridgeImpl()
 	bridge.excelBridgeImpl = excelBridgeImpl
 	
 	// Set client ID resolver
@@ -133,8 +130,6 @@ func NewExcelBridge(hub *websocket.Hub, logger *logrus.Logger) *ExcelBridge {
 	// Create context builder
 	bridge.contextBuilder = excel.NewContextBuilder(excelBridgeImpl)
 	
-	// Set the bridge in the hub
-	hub.SetExcelBridge(bridge)
 	
 	// Start session cleanup routine
 	go bridge.cleanupSessions()
@@ -195,7 +190,7 @@ func (eb *ExcelBridge) UpdateSignalRSessionSelection(sessionID, selection, works
 	defer eb.sessionMutex.Unlock()
 	
 	if session, exists := eb.sessions[sessionID]; exists {
-		session.Selection = websocket.SelectionChanged{
+		session.Selection = SelectionChanged{
 			SelectedRange: selection,
 			SelectedCell:  "", // Not provided in SignalR update
 		}
@@ -229,13 +224,14 @@ func (eb *ExcelBridge) SetSignalRBridge(bridge interface{}) {
 	}
 }
 
-// GetHub returns the WebSocket hub
-func (eb *ExcelBridge) GetHub() *websocket.Hub {
-	return eb.hub
+// GetBridgeImpl returns the Excel bridge implementation
+func (eb *ExcelBridge) GetBridgeImpl() *excel.BridgeImpl {
+	return eb.excelBridgeImpl
 }
 
+
 // ProcessChatMessage processes a chat message from a client
-func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.ChatMessage) (*websocket.ChatResponse, error) {
+func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) (*ChatResponse, error) {
 	// Get or create session
 	session := eb.getOrCreateSession(clientID, message.SessionID)
 	
@@ -245,7 +241,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 	// Process with AI if available
 	var content string
 	var suggestions []string
-	var actions []websocket.ProposedAction
+	var actions []ProposedAction
 	var aiResponse *ai.CompletionResponse // Track AI response for IsFinal flag
 	
 	if eb.aiService != nil {
@@ -332,7 +328,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message websocket.Cha
 		isFinal = true
 	}
 	
-	response := &websocket.ChatResponse{
+	response := &ChatResponse{
 		Content:     content,
 		Suggestions: suggestions,
 		Actions:     actions,
@@ -379,7 +375,7 @@ func (eb *ExcelBridge) GetRangeValues(sheet, rangeAddr string) ([][]interface{},
 }
 
 // UpdateCell updates a cell value and notifies subscribers
-func (eb *ExcelBridge) UpdateCell(update websocket.CellUpdate) error {
+func (eb *ExcelBridge) UpdateCell(update CellUpdate) error {
 	key := fmt.Sprintf("%s!%s", update.Sheet, update.Cell)
 	
 	// Update cache
@@ -387,14 +383,14 @@ func (eb *ExcelBridge) UpdateCell(update websocket.CellUpdate) error {
 	eb.cellCache[key] = update.Value
 	eb.cacheMutex.Unlock()
 	
-	// Broadcast update to subscribers
-	eb.hub.BroadcastToAll(websocket.MessageTypeCellValueUpdate, update)
+	// Broadcast update to subscribers via SignalR
+	// TODO: Implement SignalR broadcast if needed
 	
 	return nil
 }
 
 // UpdateRange updates range values and notifies subscribers
-func (eb *ExcelBridge) UpdateRange(rangeData websocket.RangeData) error {
+func (eb *ExcelBridge) UpdateRange(rangeData RangeData) error {
 	key := fmt.Sprintf("%s!%s", rangeData.Sheet, rangeData.Range)
 	
 	// Update cache
@@ -402,8 +398,8 @@ func (eb *ExcelBridge) UpdateRange(rangeData websocket.RangeData) error {
 	eb.rangeCache[key] = rangeData.Values
 	eb.cacheMutex.Unlock()
 	
-	// Broadcast update to subscribers
-	eb.hub.BroadcastToAll(websocket.MessageTypeRangeDataUpdate, rangeData)
+	// Broadcast update to subscribers via SignalR
+	// TODO: Implement SignalR broadcast if needed
 	
 	return nil
 }
@@ -523,12 +519,12 @@ func (eb *ExcelBridge) generateFallbackSuggestions(context map[string]interface{
 	return suggestions[:4] // Return top 4 suggestions
 }
 
-func (eb *ExcelBridge) detectRequestedActions(message string, context map[string]interface{}) []websocket.ProposedAction {
-	var actions []websocket.ProposedAction
+func (eb *ExcelBridge) detectRequestedActions(message string, context map[string]interface{}) []ProposedAction {
+	var actions []ProposedAction
 	
 	// Detect formula creation requests
 	if contains(message, []string{"create formula", "write formula", "sum", "average", "calculate"}) {
-		action := websocket.ProposedAction{
+		action := ProposedAction{
 			ID:          generateActionID(),
 			Type:        "create_formula",
 			Description: "Create a formula based on your request",
@@ -541,7 +537,7 @@ func (eb *ExcelBridge) detectRequestedActions(message string, context map[string
 	
 	// Detect formatting requests
 	if contains(message, []string{"format", "color", "bold", "currency", "percentage"}) {
-		action := websocket.ProposedAction{
+		action := ProposedAction{
 			ID:          generateActionID(),
 			Type:        "format_cells",
 			Description: "Apply formatting to selected cells",
@@ -611,8 +607,8 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		context.WorksheetName = session.ActiveSheet
 	}
 
-	// Extract selection information - handle both websocket.SelectionChanged and string formats
-	if selection, ok := additionalContext["selection"].(websocket.SelectionChanged); ok {
+	// Extract selection information - handle both SelectionChanged and string formats
+	if selection, ok := additionalContext["selection"].(SelectionChanged); ok {
 		if selection.SelectedRange != "" {
 			context.SelectedRange = selection.SelectedRange
 		} else if selection.SelectedCell != "" {
@@ -717,12 +713,12 @@ func (eb *ExcelBridge) addCachedDataToFinancialContext(context *ai.FinancialCont
 	}
 }
 
-// convertAIActions converts AI actions to websocket actions
-func (eb *ExcelBridge) convertAIActions(aiActions []ai.Action) []websocket.ProposedAction {
-	actions := make([]websocket.ProposedAction, len(aiActions))
+// convertAIActions converts AI actions to proposed actions
+func (eb *ExcelBridge) convertAIActions(aiActions []ai.Action) []ProposedAction {
+	actions := make([]ProposedAction, len(aiActions))
 	
 	for i, aiAction := range aiActions {
-		actions[i] = websocket.ProposedAction{
+		actions[i] = ProposedAction{
 			ID:          generateActionID(),
 			Type:        aiAction.Type,
 			Description: aiAction.Description,
@@ -772,7 +768,7 @@ func (eb *ExcelBridge) detectModelType(context *ai.FinancialContext) string {
 }
 
 // ApplyChanges applies the approved changes from a preview
-func (eb *ExcelBridge) ApplyChanges(ctx context.Context, userID, previewID string, changeIDs []string) (*websocket.ApplyChangesResponse, error) {
+func (eb *ExcelBridge) ApplyChanges(ctx context.Context, userID, previewID string, changeIDs []string) (*ApplyChangesResponse, error) {
 	// In a real implementation, this would:
 	// 1. Retrieve the preview from storage
 	// 2. Validate that the user has permission
@@ -780,7 +776,7 @@ func (eb *ExcelBridge) ApplyChanges(ctx context.Context, userID, previewID strin
 	// 4. Create a backup point
 	// 5. Update the audit trail
 	
-	response := &websocket.ApplyChangesResponse{
+	response := &ApplyChangesResponse{
 		Success:      true,
 		AppliedCount: len(changeIDs),
 		FailedCount:  0,

@@ -9,7 +9,6 @@ import (
 	
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/documents"
-	"github.com/gridmate/backend/internal/websocket"
 )
 
 // ChatHandler handles AI chat requests with Excel and document context
@@ -45,7 +44,7 @@ type ChatRequest struct {
 type ExcelContext struct {
 	Workbook      string                   `json:"workbook,omitempty"`
 	Worksheet     string                   `json:"worksheet,omitempty"`
-	Selection     websocket.SelectionChanged `json:"selection,omitempty"`
+	Selection     services.SelectionChanged `json:"selection,omitempty"`
 	CellValues    map[string]interface{}   `json:"cell_values,omitempty"`
 	Formulas      map[string]string        `json:"formulas,omitempty"`
 	VisibleRange  string                   `json:"visible_range,omitempty"`
@@ -55,7 +54,7 @@ type ExcelContext struct {
 type ChatResponse struct {
 	Message      string                    `json:"message"`
 	Suggestions  []string                  `json:"suggestions,omitempty"`
-	Actions      []websocket.ProposedAction `json:"actions,omitempty"`
+	Actions      []services.ProposedAction `json:"actions,omitempty"`
 	DocumentRefs []DocumentReference       `json:"document_refs,omitempty"`
 	SessionID    string                    `json:"session_id"`
 }
@@ -132,7 +131,7 @@ func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create chat message for Excel bridge
-	chatMsg := websocket.ChatMessage{
+	chatMsg := services.ChatMessage{
 		Content:   req.Message,
 		Context:   context,
 		SessionID: req.SessionID,
@@ -227,7 +226,7 @@ func (h *ChatHandler) SuggestFormula(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process through Excel bridge
-	chatMsg := websocket.ChatMessage{
+	chatMsg := services.ChatMessage{
 		Content: prompt,
 		Context: context,
 	}

@@ -11,7 +11,6 @@ type SessionType string
 
 const (
 	SessionTypeSignalR   SessionType = "signalr"
-	SessionTypeWebSocket SessionType = "websocket"
 	SessionTypeAPI       SessionType = "api"
 )
 

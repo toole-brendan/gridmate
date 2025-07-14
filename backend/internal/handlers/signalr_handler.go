@@ -9,7 +9,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/gridmate/backend/internal/services"
-	"github.com/gridmate/backend/internal/websocket"
 )
 
 // SignalRHandler handles requests from the SignalR bridge
@@ -76,13 +75,13 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		// Create a mock Excel session for SignalR clients
 		h.excelBridge.CreateSignalRSession(req.SessionID)
 		
-		// Create websocket chat message with Excel context
+		// Create chat message with Excel context
 		excelContext := req.ExcelContext
 		if excelContext == nil {
 			excelContext = make(map[string]interface{})
 		}
 		
-		chatMsg := websocket.ChatMessage{
+		chatMsg := services.ChatMessage{
 			Content:      req.Content,
 			SessionID:    req.SessionID,
 			Context:      excelContext,
@@ -148,14 +147,9 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 		"has_error":  req.Error != "",
 	}).Info("Received tool response from SignalR")
 
-	// Route tool response to the waiting handler through the WebSocket hub
-	// Get the hub from the Excel bridge
-	hub := h.excelBridge.GetHub()
-	if hub != nil {
-		// Find the session ID from the request ID
-		// For SignalR, we need to handle tool responses by request ID
-		// The hub should have registered handlers for both session ID and request ID
-		
+	// Route tool response to the waiting handler through the Excel bridge implementation
+	// Get the bridge implementation from the Excel bridge
+	if bridgeImpl := h.excelBridge.GetBridgeImpl(); bridgeImpl != nil {
 		// Handle the tool response
 		var toolErr error
 		if req.Error != "" {
@@ -165,12 +159,12 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 		// If tool is queued, return a special result to continue processing
 		if req.Queued {
 			// Return a special result that indicates the tool is queued
-			hub.HandleToolResponse(req.SessionID, req.RequestID, map[string]interface{}{
+			bridgeImpl.HandleToolResponse(req.SessionID, req.RequestID, map[string]interface{}{
 				"status": "queued",
 				"message": "Tool queued for user approval",
 			}, nil)
 		} else {
-			hub.HandleToolResponse(req.SessionID, req.RequestID, req.Result, toolErr)
+			bridgeImpl.HandleToolResponse(req.SessionID, req.RequestID, req.Result, toolErr)
 		}
 		
 		h.logger.WithFields(logrus.Fields{
@@ -178,7 +172,7 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 			"session_id": req.SessionID,
 		}).Info("Tool response routed to handler")
 	} else {
-		h.logger.Error("WebSocket hub not available")
+		h.logger.Error("Excel bridge implementation not available")
 	}
 
 	// Return success

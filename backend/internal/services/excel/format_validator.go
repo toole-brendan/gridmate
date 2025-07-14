@@ -71,7 +71,11 @@ func (fv *FormatValidator) validateNumberFormat(format string) error {
 }
 
 func (fv *FormatValidator) validateFont(font *ai.FontStyle) error {
-	if font.Size < 1 || font.Size > 409 {
+	// Set default font size if not specified (0)
+	if font.Size == 0 {
+		font.Size = 11 // Excel default font size
+	} else if font.Size < 1 || font.Size > 409 {
+		// Only validate size if it was explicitly set
 		return fmt.Errorf("font size must be between 1 and 409, got %f", font.Size)
 	}
 	

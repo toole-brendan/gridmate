@@ -32,7 +32,8 @@
       "Bash(find:*)",
       "Bash(go run:*)",
       "Bash(go build:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

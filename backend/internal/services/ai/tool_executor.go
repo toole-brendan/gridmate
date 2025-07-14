@@ -810,7 +810,22 @@ func (te *ToolExecutor) executeInsertRowsColumns(ctx context.Context, sessionID 
 
 // convertToValueArray converts interface{} to [][]interface{}
 func convertToValueArray(valuesRaw interface{}) ([][]interface{}, error) {
-	// Handle JSON array conversion
+	// Check if values is a string (JSON string from AI)
+	if strValues, ok := valuesRaw.(string); ok {
+		// Parse the JSON string into array
+		var values [][]interface{}
+		if err := json.Unmarshal([]byte(strValues), &values); err != nil {
+			// Log warning when AI sends string-wrapped arrays
+			log.Warn().
+				Str("input", strValues).
+				Err(err).
+				Msg("AI sent values as JSON string instead of array - attempting to parse")
+			return nil, fmt.Errorf("failed to parse string values: %w", err)
+		}
+		return values, nil
+	}
+	
+	// Handle normal array conversion
 	jsonBytes, err := json.Marshal(valuesRaw)
 	if err != nil {
 		return nil, err
@@ -2276,6 +2291,14 @@ func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, ta
 			return nil
 		}
 		
+		// Check if operation is queued - don't retry in this case
+		if err.Error() == "Tool execution queued for user approval" {
+			log.Info().
+				Str("range", targetRange).
+				Msg("Write operation queued for user approval - not retrying")
+			return err
+		}
+		
 		lastErr = err
 		log.Warn().
 			Err(err).
@@ -2308,6 +2331,14 @@ func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, se
 					Msg("Format succeeded after retry")
 			}
 			return nil
+		}
+		
+		// Check if operation is queued - don't retry in this case
+		if err.Error() == "Tool execution queued for user approval" {
+			log.Info().
+				Str("range", input["range"].(string)).
+				Msg("Format operation queued for user approval - not retrying")
+			return err
 		}
 		
 		lastErr = err

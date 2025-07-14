@@ -25,7 +25,6 @@ import (
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/services/documents"
-	"github.com/gridmate/backend/internal/websocket"
 )
 
 func main() {
@@ -66,11 +65,6 @@ func main() {
 	// Initialize session manager
 	sessionManager := services.NewSessionManager(logger)
 
-	// Initialize WebSocket hub
-	wsHub := websocket.NewHub(logger)
-	go wsHub.Run()
-	defer wsHub.Stop()
-
 	// Initialize AI service
 	aiService, err := ai.NewServiceFromEnv()
 	if err != nil {
@@ -86,7 +80,7 @@ func main() {
 	}
 
 	// Initialize Excel bridge service
-	excelBridge := services.NewExcelBridge(wsHub, logger)
+	excelBridge := services.NewExcelBridge(logger)
 	excelBridge.SetSessionManager(sessionManager)
 	if aiService != nil {
 		// Set the tool executor from the bridge to the main AI service
@@ -127,7 +121,6 @@ func main() {
 	excelBridge.SetSignalRBridge(signalRBridge)
 
 	// Initialize handlers
-	wsHandler := handlers.NewWebSocketHandler(wsHub, logger)
 	signalRHandler := handlers.NewSignalRHandler(excelBridge, signalRBridge, logger)
 	metricsHandler := handlers.NewMetricsHandler(sessionManager, logger)
 
@@ -145,9 +138,6 @@ func main() {
 		fmt.Fprintf(w, `{"status":"healthy","timestamp":"%s","session_count":%d}`, time.Now().UTC().Format(time.RFC3339), sessionCount)
 	}).Methods("GET")
 
-	// WebSocket endpoint
-	router.HandleFunc("/ws", wsHandler.HandleWebSocket)
-	router.HandleFunc("/ws/status", wsHandler.GetStatus).Methods("GET")
 
 	// Chat API endpoints for SignalR bridge
 	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
@@ -166,7 +156,7 @@ func main() {
 
 	// Configure CORS
 	corsOptions := cors.New(cors.Options{
-		AllowedOrigins:   getEnvAsSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "https://localhost:3000", "ws://localhost:3000", "wss://localhost:3000"}),
+		AllowedOrigins:   getEnvAsSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "https://localhost:3000"}),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With", "Upgrade", "Connection"},
 		ExposedHeaders:   []string{"Content-Length", "Content-Type"},

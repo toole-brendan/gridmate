@@ -232,7 +232,7 @@ func (fma *FinancialModelAnalyzer) gatherParallelContext(ctx context.Context, se
 
 func (fma *FinancialModelAnalyzer) analyzeStructure(ctx context.Context, sessionID string) (*ModelStructure, error) {
 	// Use the existing analyze_model_structure tool
-	result, err := fma.executor.ExecuteTool(ctx, sessionID, ToolCall{
+	_, err := fma.executor.ExecuteTool(ctx, sessionID, ToolCall{
 		ID:   "analyze_structure",
 		Name: "analyze_model_structure",
 		Input: map[string]interface{}{
@@ -245,19 +245,19 @@ func (fma *FinancialModelAnalyzer) analyzeStructure(ctx context.Context, session
 		return nil, err
 	}
 
-	// Convert result to ModelStructure
+	// Convert result to ModelStructure using correct fields
 	// This is a simplified conversion - in real implementation, would parse the actual result
 	return &ModelStructure{
-		TimeOrientation: "horizontal",
-		InputSections: []Section{
-			{Name: "Assumptions", Range: "A1:C20", SectionType: "input"},
-		},
-		CalculationSections: []Section{
-			{Name: "Financial Statements", Range: "E1:M50", SectionType: "calculation"},
-		},
-		OutputSections: []Section{
-			{Name: "Valuation", Range: "O1:S30", SectionType: "output"},
-		},
+		DataDirection:   "horizontal",
+		TimeOrientation: "columns",
+		PeriodColumns:   []string{"B", "C", "D", "E", "F"},
+		LabelColumns:    []string{"A"},
+		FirstDataCell:   "B3",
+		CellRoles:       map[string]string{},
+		ModelSections:   map[string]CellRange{},
+		KeyCells:        map[string]string{},
+		Dependencies:    []CellDependency{},
+		PeriodHeaders:   []PeriodInfo{},
 	}, nil
 }
 

@@ -97,8 +97,8 @@ func main() {
 			logger.Info("Initializing advanced AI components (memory, context analyzer, orchestrator)")
 			
 			// Create financial memory repository and service
-			memoryRepo := repository.NewFinancialMemoryRepository(db)
-			memoryService := ai.NewFinancialMemoryService(db, memoryRepo)
+			memoryRepo := repository.NewFinancialMemoryRepository(db.DB.DB)
+			memoryService := ai.NewFinancialMemoryService(db.DB.DB, memoryRepo)
 			
 			// Create model validator
 			modelValidator := ai.NewDefaultModelValidator(toolExecutor)

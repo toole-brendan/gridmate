@@ -3,8 +3,7 @@ package ai
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -141,7 +140,7 @@ func (fms *FinancialMemoryService) SuggestToolsBasedOnMemory(ctx context.Context
 		}
 
 		// If user frequently validates models
-		if validatePref, ok := preferences.ValidationPreferences["auto_validate"].(bool); ok {
+		if validatePref, ok := preferences.ValidationPreferences["auto_validate"]; ok {
 			if validatePref && (modelContext.ValidationStatus == nil || !modelContext.ValidationStatus.IsValid) {
 				suggestedTools = append(suggestedTools, "validate_model")
 			}
@@ -176,7 +175,7 @@ func (fms *FinancialMemoryService) generateIntelligentToolSuggestions(preference
 	}
 
 	// Suggest validation tools for validation-focused users
-	if validateFreq, ok := preferences.ValidationPreferences["validation_frequency"].(float64); ok && validateFreq > 0.5 {
+	if validateFreq, ok := preferences.ValidationPreferences["validation_frequency"]; ok && validateFreq {
 		suggestions = append(suggestions, "validate_model")
 	}
 

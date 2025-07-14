@@ -489,14 +489,6 @@ func GetExcelTools() []ExcelTool {
 	}
 }
 
-// ToolCall represents a request to execute a tool
-type ToolCall struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Input map[string]interface{} `json:"input"`
-}
-
 // ToolResult represents the result of executing a tool
 type ToolResult struct {
 	Type      string      `json:"type"`

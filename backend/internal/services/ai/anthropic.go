@@ -513,7 +513,6 @@ func (a *AnthropicProvider) convertFromAnthropicResponse(resp *anthropicResponse
 			content.WriteString(c.Text)
 		case "tool_use":
 			toolCalls = append(toolCalls, ToolCall{
-				Type:  "tool_use",
 				ID:    c.ID,
 				Name:  c.Name,
 				Input: c.Input,

@@ -349,10 +349,3 @@ type ValidationSummary struct {
 	OverallStatus  string            `json:"overall_status"`
 }
 
-// ValidationIssue represents a specific validation issue
-type ValidationIssue struct {
-	Cell        string `json:"cell"`
-	Type        string `json:"type"`
-	Severity    string `json:"severity"`
-	Description string `json:"description"`
-}

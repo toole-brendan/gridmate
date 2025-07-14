@@ -142,16 +142,6 @@ type FinancialModelContext struct {
 	UserPreferences  *FinancialPreferences     `json:"user_preferences,omitempty"`
 }
 
-// ModelStructure represents the detected structure of a financial model
-type ModelStructure struct {
-	InputSections      []Section `json:"input_sections"`
-	CalculationSections []Section `json:"calculation_sections"`
-	OutputSections     []Section `json:"output_sections"`
-	TimeOrientation    string    `json:"time_orientation"` // horizontal/vertical
-	PeriodColumns      []string  `json:"period_columns"`
-	KeyMetrics         []string  `json:"key_metrics"`
-}
-
 // Section represents a section of a financial model
 type Section struct {
 	Name        string `json:"name"`
@@ -1732,6 +1722,9 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 
 	// Performance: Check cache first for recent reads
 	cacheKey := fmt.Sprintf("%s:%s", sessionID, analysisRange)
+	var data *RangeData
+	var err error
+	
 	if cachedData := te.getCachedModelData(cacheKey); cachedData != nil {
 		log.Debug().
 			Str("cache_key", cacheKey).
@@ -1743,7 +1736,7 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 			Str("range", analysisRange).
 			Msg("Reading current model structure")
 			
-		data, err := te.excelBridge.ReadRange(ctx, sessionID, analysisRange, true, false)
+		data, err = te.excelBridge.ReadRange(ctx, sessionID, analysisRange, true, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read model for analysis: %w", err)
 		}
@@ -1833,7 +1826,7 @@ func (te *ToolExecutor) generateUniversalOrganizationPlan(data *RangeData, model
 	currentRow += 2
 
 	// Create plans for each section
-	for i, sectionInterface := range sections {
+	for _, sectionInterface := range sections {
 		section := sectionInterface.(string)
 		
 		sectionPlan := map[string]interface{}{
@@ -2185,7 +2178,7 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 				}
 				
 				// Write header text with retry logic
-				err := te.writeWithRetry(ctx, sessionID, headerRange, [][]interface{}{{headerText}}, 3)
+				err := te.writeWithRetry(ctx, sessionID, headerRange, [][]interface{}{{headerText}}, false, 3)
 				if err != nil {
 					log.Error().Err(err).
 						Str("range", headerRange).
@@ -2220,7 +2213,7 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 						formatInput[key] = value
 					}
 					
-					_, err = te.executeSmartFormatCellsWithRetry(ctx, sessionID, formatInput, 3)
+					err = te.executeSmartFormatCellsWithRetry(ctx, sessionID, formatInput, 3)
 					if err != nil {
 						log.Error().Err(err).
 							Str("range", headerRange).
@@ -2250,11 +2243,11 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 }
 
 // writeWithRetry performs write operations with retry logic
-func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, targetRange string, values [][]interface{}, maxRetries int) error {
+func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, targetRange string, values [][]interface{}, preserveFormatting bool, maxRetries int) error {
 	var lastErr error
 	
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := te.excelBridge.WriteRange(ctx, sessionID, targetRange, values)
+		err := te.excelBridge.WriteRange(ctx, sessionID, targetRange, values, preserveFormatting)
 		if err == nil {
 			if attempt > 1 {
 				log.Info().
@@ -2284,11 +2277,11 @@ func (te *ToolExecutor) writeWithRetry(ctx context.Context, sessionID string, ta
 }
 
 // executeSmartFormatCellsWithRetry performs formatting with retry logic
-func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, sessionID string, input map[string]interface{}, maxRetries int) (map[string]interface{}, error) {
+func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, sessionID string, input map[string]interface{}, maxRetries int) error {
 	var lastErr error
 	
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		result, err := te.executeSmartFormatCells(ctx, sessionID, input)
+		err := te.executeSmartFormatCells(ctx, sessionID, input)
 		if err == nil {
 			if attempt > 1 {
 				log.Info().
@@ -2296,7 +2289,7 @@ func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, se
 					Str("range", input["range"].(string)).
 					Msg("Format succeeded after retry")
 			}
-			return result, nil
+			return nil
 		}
 		
 		lastErr = err
@@ -2314,7 +2307,7 @@ func (te *ToolExecutor) executeSmartFormatCellsWithRetry(ctx context.Context, se
 		}
 	}
 	
-	return nil, fmt.Errorf("format failed after %d attempts: %w", maxRetries, lastErr)
+	return fmt.Errorf("format failed after %d attempts: %w", maxRetries, lastErr)
 }
 
 // rollbackChanges attempts to rollback applied changes using backup data
@@ -2330,7 +2323,7 @@ func (te *ToolExecutor) rollbackChanges(ctx context.Context, sessionID string, c
 
 	// Simple rollback: restore entire range from backup
 	if backup.Data != nil && backup.Data.Values != nil {
-		err := te.excelBridge.WriteRange(ctx, sessionID, backup.Range, backup.Data.Values)
+		err := te.excelBridge.WriteRange(ctx, sessionID, backup.Range, backup.Data.Values, false)
 		if err != nil {
 			return fmt.Errorf("failed to restore values from backup: %w", err)
 		}
@@ -2383,9 +2376,9 @@ func (te *ToolExecutor) validateModelIntegrity(ctx context.Context, sessionID st
 					if strings.Contains(cellStr, "#") {
 						validation.ErrorCells = append(validation.ErrorCells, cellAddr)
 						validation.Issues = append(validation.Issues, ValidationIssue{
-							Cell:        cellAddr,
-							Type:        "formula_error",
-							Severity:    "error",
+							Location:    cellAddr,
+							Type:        "Error",
+							Category:    "Formula",
 							Description: fmt.Sprintf("Excel error in cell: %s", cellStr),
 						})
 					}
@@ -2604,7 +2597,8 @@ func (te *ToolExecutor) executeOperation(ctx context.Context, op OperationReques
 		return te.excelBridge.AnalyzeData(ctx, op.SessionID, rangeAddr, includeStats, detectHeaders)
 		
 	case "smart_format":
-		return te.executeSmartFormatCells(ctx, op.SessionID, op.Input)
+		err := te.executeSmartFormatCells(ctx, op.SessionID, op.Input)
+		return map[string]interface{}{"success": err == nil}, err
 		
 	case "build_formula":
 		return te.executeBuildFinancialFormula(ctx, op.SessionID, op.Input)
@@ -2642,7 +2636,7 @@ func (te *ToolExecutor) applyModelOrganization(ctx context.Context, sessionID st
 		if headerRange, ok := section["header_range"].(string); ok {
 			if headerText, ok := section["header_text"].(string); ok {
 				// Write header text
-				err := te.excelBridge.WriteRange(ctx, sessionID, headerRange, [][]interface{}{{headerText}})
+				err := te.excelBridge.WriteRange(ctx, sessionID, headerRange, [][]interface{}{{headerText}}, false)
 				if err != nil {
 					log.Error().Err(err).Str("range", headerRange).Msg("Failed to write header")
 					continue
@@ -2666,7 +2660,7 @@ func (te *ToolExecutor) applyModelOrganization(ctx context.Context, sessionID st
 						formatInput[key] = value
 					}
 					
-					_, err = te.executeSmartFormatCells(ctx, sessionID, formatInput)
+					err = te.executeSmartFormatCells(ctx, sessionID, formatInput)
 					if err != nil {
 						log.Error().Err(err).Str("range", headerRange).Msg("Failed to format header")
 					}

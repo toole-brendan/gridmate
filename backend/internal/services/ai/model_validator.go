@@ -1,7 +1,7 @@
 package ai
 
 import (
-	"context"
+	"fmt"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -25,17 +25,19 @@ func (v *DefaultModelValidator) ValidateModel(context *ComprehensiveContext) (*V
 
 	result := &ValidationResult{
 		IsValid: true,
-		Errors:  []string{},
-		Warnings: []string{},
-		Score:   100.0,
-		Details: make(map[string]interface{}),
+		Errors:  []CellError{},
+		CircularRefs: []string{},
+		InconsistentFormulas: []string{},
 	}
 
 	// Check for basic model structure
 	if context.Structure == nil {
-		result.Errors = append(result.Errors, "Model structure not available")
+		result.Errors = append(result.Errors, CellError{
+			Cell: "Model",
+			ErrorType: "structure",
+			Message: "Model structure not available",
+		})
 		result.IsValid = false
-		result.Score -= 20
 	}
 
 	// Check for formula issues
@@ -43,10 +45,15 @@ func (v *DefaultModelValidator) ValidateModel(context *ComprehensiveContext) (*V
 		formulaMap := make(map[string]string)
 		
 		// Convert formulas to map for validation
-		for addr, formula := range context.Formulas {
-			if formula != nil {
-				if formulaStr, ok := formula.(string); ok && formulaStr != "" {
-					formulaMap[addr] = formulaStr
+		if context.Formulas.Formulas != nil {
+			for i, row := range context.Formulas.Formulas {
+				for j, formula := range row {
+					if formula != nil {
+						if formulaStr, ok := formula.(string); ok && formulaStr != "" {
+							cellAddr := fmt.Sprintf("%s%d", string(rune('A'+j)), i+1)
+							formulaMap[cellAddr] = formulaStr
+						}
+					}
 				}
 			}
 		}
@@ -55,46 +62,35 @@ func (v *DefaultModelValidator) ValidateModel(context *ComprehensiveContext) (*V
 		formulaErrors, err := v.ValidateFormulas(formulaMap)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to validate formulas")
-			result.Warnings = append(result.Warnings, "Formula validation failed")
-			result.Score -= 10
 		} else if len(formulaErrors) > 0 {
-			result.Errors = append(result.Errors, formulaErrors...)
-			result.Score -= float64(len(formulaErrors)) * 5
+			for _, errMsg := range formulaErrors {
+				result.Errors = append(result.Errors, CellError{
+					Cell: "Formula",
+					ErrorType: "formula_error",
+					Message: errMsg,
+				})
+			}
 		}
 
 		// Check circular references
 		circularErrors, err := v.CheckCircularReferences(formulaMap)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to check circular references")
-			result.Warnings = append(result.Warnings, "Circular reference check failed")
-			result.Score -= 5
 		} else if len(circularErrors) > 0 {
-			result.Errors = append(result.Errors, circularErrors...)
+			result.CircularRefs = circularErrors
 			result.IsValid = false
-			result.Score -= float64(len(circularErrors)) * 15
 		}
 	}
 
-	// Check data integrity
-	if context.Values == nil {
-		result.Warnings = append(result.Warnings, "No cell values available for validation")
-		result.Score -= 5
-	}
-
-	// Set final validity
-	if result.Score < 50 {
+	// Set final validity based on errors
+	if len(result.Errors) > 0 || len(result.CircularRefs) > 0 {
 		result.IsValid = false
 	}
 
-	result.Details["formula_count"] = len(context.Formulas)
-	result.Details["structure_available"] = context.Structure != nil
-	result.Details["validation_timestamp"] = "now"
-
 	log.Info().
 		Bool("is_valid", result.IsValid).
-		Float64("score", result.Score).
 		Int("errors", len(result.Errors)).
-		Int("warnings", len(result.Warnings)).
+		Int("circular_refs", len(result.CircularRefs)).
 		Msg("Model validation completed")
 
 	return result, nil

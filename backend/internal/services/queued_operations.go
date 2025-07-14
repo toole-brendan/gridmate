@@ -64,40 +64,98 @@ func NewQueuedOperationRegistry() *QueuedOperationRegistry {
 }
 
 // QueueOperation adds a new operation to the queue
-func (r *QueuedOperationRegistry) QueueOperation(op *QueuedOperation) error {
+func (r *QueuedOperationRegistry) QueueOperation(op interface{}) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if op.ID == "" {
-		op.ID = uuid.New().String()
+	var operation *QueuedOperation
+
+	// Handle different input types
+	switch v := op.(type) {
+	case *QueuedOperation:
+		operation = v
+	case map[string]interface{}:
+		// Convert map to QueuedOperation
+		operation = &QueuedOperation{
+			ID:        getStringFromMap(v, "ID"),
+			SessionID: getStringFromMap(v, "SessionID"),
+			Type:      getStringFromMap(v, "Type"),
+			Input:     getMapFromInterface(v["Input"]),
+			Preview:   v["Preview"], // Keep as interface{} for flexibility
+			Context:   getStringFromMap(v, "Context"),
+			Priority:  getIntFromMap(v, "Priority"),
+		}
+
+		// Handle dependencies if present
+		if deps, ok := v["Dependencies"].([]string); ok {
+			operation.Dependencies = deps
+		}
+
+		// Handle batch ID if present
+		if batchID := getStringFromMap(v, "BatchID"); batchID != "" {
+			operation.BatchID = batchID
+		}
+	default:
+		return fmt.Errorf("unsupported operation type: %T", op)
 	}
 
-	op.Status = StatusQueued
-	op.CreatedAt = time.Now()
+	if operation.ID == "" {
+		operation.ID = uuid.New().String()
+	}
+
+	operation.Status = StatusQueued
+	operation.CreatedAt = time.Now()
 
 	// Store operation
-	r.operations[op.ID] = op
+	r.operations[operation.ID] = operation
 
 	// Track dependencies
-	if len(op.Dependencies) > 0 {
-		for _, depID := range op.Dependencies {
-			r.dependencies[depID] = append(r.dependencies[depID], op.ID)
+	if len(operation.Dependencies) > 0 {
+		for _, depID := range operation.Dependencies {
+			r.dependencies[depID] = append(r.dependencies[depID], operation.ID)
 		}
 	}
 
 	// Track batch groups
-	if op.BatchID != "" {
-		r.batchGroups[op.BatchID] = append(r.batchGroups[op.BatchID], op.ID)
+	if operation.BatchID != "" {
+		r.batchGroups[operation.BatchID] = append(r.batchGroups[operation.BatchID], operation.ID)
 	}
 
 	log.Info().
-		Str("operation_id", op.ID).
-		Str("type", op.Type).
-		Str("session_id", op.SessionID).
-		Int("dependencies", len(op.Dependencies)).
+		Str("operation_id", operation.ID).
+		Str("type", operation.Type).
+		Str("session_id", operation.SessionID).
+		Int("dependencies", len(operation.Dependencies)).
+		Interface("preview", operation.Preview).
 		Msg("Operation queued")
 
 	return nil
+}
+
+// Helper functions for safe type conversion
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getIntFromMap(m map[string]interface{}, key string) int {
+	if v, ok := m[key].(int); ok {
+		return v
+	}
+	// Try float64 (JSON numbers are often decoded as float64)
+	if v, ok := m[key].(float64); ok {
+		return int(v)
+	}
+	return 0
+}
+
+func getMapFromInterface(v interface{}) map[string]interface{} {
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
+	}
+	return make(map[string]interface{})
 }
 
 // GetPendingOperations returns operations that can be executed

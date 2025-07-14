@@ -204,6 +204,83 @@ func formatToolError(err error) map[string]interface{} {
 	return map[string]interface{}{"error": err.Error()}
 }
 
+// generateOperationPreview creates a human-readable preview of what an operation will do
+func generateOperationPreview(toolName string, input map[string]interface{}) string {
+	switch toolName {
+	case "write_range":
+		rangeAddr, _ := input["range"].(string)
+		values := input["values"]
+
+		// Try to create a concise preview of the values
+		var preview string
+		if vals, ok := values.([][]interface{}); ok && len(vals) > 0 && len(vals[0]) > 0 {
+			firstValue := fmt.Sprintf("%v", vals[0][0])
+			if len(vals) == 1 && len(vals[0]) == 1 {
+				preview = fmt.Sprintf("Write '%s' to %s", firstValue, rangeAddr)
+			} else {
+				preview = fmt.Sprintf("Write %dx%d values starting with '%s' to %s",
+					len(vals), len(vals[0]), firstValue, rangeAddr)
+			}
+		} else {
+			preview = fmt.Sprintf("Write values to %s", rangeAddr)
+		}
+		return preview
+
+	case "apply_formula":
+		rangeAddr, _ := input["range"].(string)
+		formula, _ := input["formula"].(string)
+		if len(formula) > 50 {
+			formula = formula[:47] + "..."
+		}
+		return fmt.Sprintf("Apply formula '%s' to %s", formula, rangeAddr)
+
+	case "format_range":
+		rangeAddr, _ := input["range"].(string)
+		format := input["format"]
+
+		var formatDesc string
+		if f, ok := format.(map[string]interface{}); ok {
+			parts := []string{}
+			if numFmt, ok := f["number_format"].(string); ok {
+				parts = append(parts, fmt.Sprintf("format: %s", numFmt))
+			}
+			if bold, ok := f["bold"].(bool); ok && bold {
+				parts = append(parts, "bold")
+			}
+			if color, ok := f["background_color"].(string); ok {
+				parts = append(parts, fmt.Sprintf("bg: %s", color))
+			}
+			if len(parts) > 0 {
+				formatDesc = strings.Join(parts, ", ")
+			}
+		}
+
+		if formatDesc != "" {
+			return fmt.Sprintf("Format %s (%s)", rangeAddr, formatDesc)
+		}
+		return fmt.Sprintf("Format %s", rangeAddr)
+
+	case "create_chart":
+		chartType, _ := input["chart_type"].(string)
+		dataRange, _ := input["data_range"].(string)
+		return fmt.Sprintf("Create %s chart from %s", chartType, dataRange)
+
+	case "insert_rows_columns":
+		position, _ := input["position"].(string)
+		count, _ := input["count"].(int)
+		insertType, _ := input["type"].(string)
+		return fmt.Sprintf("Insert %d %s at %s", count, insertType, position)
+
+	case "create_named_range":
+		name, _ := input["name"].(string)
+		rangeAddr, _ := input["range"].(string)
+		return fmt.Sprintf("Create named range '%s' for %s", name, rangeAddr)
+
+	default:
+		return fmt.Sprintf("Execute %s operation", toolName)
+	}
+}
+
 // NewToolExecutor creates a new tool executor
 func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntelligence) *ToolExecutor {
 	te := &ToolExecutor{
@@ -263,26 +340,40 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			if err.Error() == "Tool execution queued for user approval" {
 				result.IsError = false
 				result.Status = "queued"
-				result.Content = map[string]string{"status": "queued", "message": "Write range operation queued for user approval"}
+				preview := generateOperationPreview("write_range", toolCall.Input)
+				result.Content = map[string]interface{}{
+					"status":  "queued",
+					"message": "Write range operation queued for user approval",
+					"preview": preview,
+				}
 				result.Details = map[string]interface{}{
 					"operation": "write_range",
 					"range":     toolCall.Input["range"],
+					"preview":   preview,
 					"timestamp": time.Now().Format(time.RFC3339),
 				}
 
 				// Register in queued operations registry if available
 				if te.queuedOpsRegistry != nil {
+					// Generate preview for the operation
+					preview := generateOperationPreview("write_range", toolCall.Input)
+
+					// Create a properly structured operation for the registry
+					queuedOp := map[string]interface{}{
+						"ID":        toolCall.ID,
+						"SessionID": sessionID,
+						"Type":      "write_range",
+						"Input":     toolCall.Input,
+						"Preview":   preview,
+						"Context":   "Excel write operation requested by AI",
+						"Priority":  50, // Normal priority
+					}
+
+					// Try to queue the operation
 					if registry, ok := te.queuedOpsRegistry.(interface {
-						QueueOperation(context.Context, interface{}) error
+						QueueOperation(interface{}) error
 					}); ok {
-						queuedOp := map[string]interface{}{
-							"ID":        toolCall.ID,
-							"SessionID": sessionID,
-							"ToolName":  "write_range",
-							"RequestID": toolCall.ID,
-							"Input":     toolCall.Input,
-						}
-						if err := registry.QueueOperation(ctx, queuedOp); err != nil {
+						if err := registry.QueueOperation(queuedOp); err != nil {
 							log.Error().Err(err).Msg("Failed to register queued operation")
 						}
 					}
@@ -310,27 +401,41 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			if err.Error() == "Tool execution queued for user approval" {
 				result.IsError = false
 				result.Status = "queued"
-				result.Content = map[string]string{"status": "queued", "message": "Formula application queued for user approval"}
+				preview := generateOperationPreview("apply_formula", toolCall.Input)
+				result.Content = map[string]interface{}{
+					"status":  "queued",
+					"message": "Formula application queued for user approval",
+					"preview": preview,
+				}
 				result.Details = map[string]interface{}{
 					"operation": "apply_formula",
 					"range":     toolCall.Input["range"],
 					"formula":   toolCall.Input["formula"],
+					"preview":   preview,
 					"timestamp": time.Now().Format(time.RFC3339),
 				}
 
 				// Register in queued operations registry if available
 				if te.queuedOpsRegistry != nil {
+					// Generate preview for the operation
+					preview := generateOperationPreview("apply_formula", toolCall.Input)
+
+					// Create a properly structured operation for the registry
+					queuedOp := map[string]interface{}{
+						"ID":        toolCall.ID,
+						"SessionID": sessionID,
+						"Type":      "apply_formula",
+						"Input":     toolCall.Input,
+						"Preview":   preview,
+						"Context":   "Excel formula application requested by AI",
+						"Priority":  50, // Normal priority
+					}
+
+					// Try to queue the operation
 					if registry, ok := te.queuedOpsRegistry.(interface {
-						QueueOperation(context.Context, interface{}) error
+						QueueOperation(interface{}) error
 					}); ok {
-						queuedOp := map[string]interface{}{
-							"ID":        toolCall.ID,
-							"SessionID": sessionID,
-							"ToolName":  "apply_formula",
-							"RequestID": toolCall.ID,
-							"Input":     toolCall.Input,
-						}
-						if err := registry.QueueOperation(ctx, queuedOp); err != nil {
+						if err := registry.QueueOperation(queuedOp); err != nil {
 							log.Error().Err(err).Msg("Failed to register queued operation")
 						}
 					}
@@ -361,26 +466,40 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			if err.Error() == "Tool execution queued for user approval" {
 				result.IsError = false
 				result.Status = "queued"
-				result.Content = map[string]string{"status": "queued", "message": "Format operation queued for user approval"}
+				preview := generateOperationPreview("format_range", toolCall.Input)
+				result.Content = map[string]interface{}{
+					"status":  "queued",
+					"message": "Format operation queued for user approval",
+					"preview": preview,
+				}
 				result.Details = map[string]interface{}{
 					"operation": "format_range",
 					"range":     toolCall.Input["range"],
+					"preview":   preview,
 					"timestamp": time.Now().Format(time.RFC3339),
 				}
 
 				// Register in queued operations registry if available
 				if te.queuedOpsRegistry != nil {
+					// Generate preview for the operation
+					preview := generateOperationPreview("format_range", toolCall.Input)
+
+					// Create a properly structured operation for the registry
+					queuedOp := map[string]interface{}{
+						"ID":        toolCall.ID,
+						"SessionID": sessionID,
+						"Type":      "format_range",
+						"Input":     toolCall.Input,
+						"Preview":   preview,
+						"Context":   "Excel formatting requested by AI",
+						"Priority":  40, // Lower priority for formatting
+					}
+
+					// Try to queue the operation
 					if registry, ok := te.queuedOpsRegistry.(interface {
-						QueueOperation(context.Context, interface{}) error
+						QueueOperation(interface{}) error
 					}); ok {
-						queuedOp := map[string]interface{}{
-							"ID":        toolCall.ID,
-							"SessionID": sessionID,
-							"ToolName":  "format_range",
-							"RequestID": toolCall.ID,
-							"Input":     toolCall.Input,
-						}
-						if err := registry.QueueOperation(ctx, queuedOp); err != nil {
+						if err := registry.QueueOperation(queuedOp); err != nil {
 							log.Error().Err(err).Msg("Failed to register queued operation")
 						}
 					}

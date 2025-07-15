@@ -10,7 +10,7 @@ fi
 # Override with local development settings
 export PORT=8080
 export ENV=development
-export LOG_LEVEL=debug
+export LOG_LEVEL=info
 
 # Azure PostgreSQL settings
 export DB_HOST=gridmate-db-server.postgres.database.azure.com

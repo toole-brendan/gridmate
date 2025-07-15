@@ -474,8 +474,7 @@ export class ExcelService {
 
   // Tool executor for AI requests
   async executeToolRequest(tool: string, input: any): Promise<any> {
-    console.log(`🔧 ExcelService.executeToolRequest called with tool: ${tool}`)
-    console.log(`🔧 Input:`, input)
+    console.log(`[✅ Diff Apply Success] ExcelService received tool request to execute.`, { tool, input });
     
     try {
       switch (tool) {
@@ -497,13 +496,16 @@ export class ExcelService {
           return await this.toolGetNamedRanges(input)
         case 'create_named_range':
           return await this.toolCreateNamedRange(input)
+        case 'clear_range':
+          return await this.toolClearRange(input)
         case 'insert_rows_columns':
           return await this.toolInsertRowsColumns(input)
         default:
+          console.error(`[❌ Diff Error] Unknown tool requested in ExcelService: ${tool}`);
           throw new Error(`Unknown tool: ${tool}`)
       }
     } catch (error) {
-      console.error(`🔧 Tool execution error:`, error)
+      console.error(`[❌ Diff Error] Error during tool execution in ExcelService.`, { tool, error });
       
       // Create enhanced error with details
       const enhancedError = {
@@ -516,6 +518,23 @@ export class ExcelService {
       
       throw enhancedError
     }
+  }
+
+  private async getWorksheetFromRange(context: any, rangeStr: string): Promise<{worksheet: any, rangeAddress: string}> {
+      let sheetName: string | null = null;
+      let rangeAddress = rangeStr;
+
+      if (rangeStr.includes('!')) {
+          const parts = rangeStr.split('!');
+          sheetName = parts[0].replace(/'/g, ''); // Remove single quotes
+          rangeAddress = parts[1];
+      }
+
+      const worksheet = sheetName 
+          ? context.workbook.worksheets.getItem(sheetName)
+          : context.workbook.worksheets.getActiveWorksheet();
+      
+      return { worksheet, rangeAddress };
   }
 
   private async toolReadRange(input: any): Promise<RangeData> {
@@ -569,102 +588,78 @@ export class ExcelService {
   }
 
   private async toolWriteRange(input: any): Promise<any> {
-    const { range, values /*, preserve_formatting = true*/ } = input
+    const { range, values } = input
+    console.log(`[✅ Diff Apply Success] Executing toolWriteRange.`, { range, values });
     
     return Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const excelRange = worksheet.getRange(range)
-      
-      // Validate and clean values before writing
-      const cleanedValues = values.map((row: any[]) =>
-        row.map((cell: any) => {
-          // Convert undefined/null to empty string
-          if (cell === undefined || cell === null) {
-            return ''
-          }
-          // Ensure numbers are properly typed
-          if (typeof cell === 'string' && !isNaN(Number(cell)) && cell !== '') {
+      try {
+        const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
+        const excelRange = worksheet.getRange(rangeAddress);
+        
+        console.log(`[✅ Diff Apply Success] Target determined: Sheet='${worksheet.name}', Range='${rangeAddress}'`);
+        
+        const cleanedValues = values.map((row: any[]) =>
+          row.map((cell: any) => (cell === undefined || cell === null) ? '' : cell)
+        );
+        
+        // Validate and clean values before writing
+        const finalValues = cleanedValues.map((row: any[]) =>
+          row.map((cell: any) => {
+            // Convert undefined/null to empty string
+            if (cell === undefined || cell === null) {
+              return ''
+            }
+            // Ensure numbers are properly typed
+            if (typeof cell === 'string' && !isNaN(Number(cell)) && cell !== '') {
             return Number(cell)
           }
           return cell
         })
       )
       
-      console.log(`✍️ Writing to range ${range}:`, cleanedValues)
+      excelRange.values = finalValues;
+      await context.sync();
       
-      try {
-        excelRange.values = cleanedValues
-        await context.sync()
+      console.log(`[✅ Diff Apply Success] toolWriteRange completed successfully.`);
+      return { message: 'Range written successfully', status: 'success' };
+
       } catch (error) {
-        console.error(`❌ Failed to write to range ${range}:`, error)
-        
-        const errorDetails = {
-          operation: 'write_range',
-          range: range,
-          valueDimensions: `${cleanedValues.length}x${cleanedValues[0]?.length || 0}`,
-          excelError: error instanceof Error ? error.message : String(error)
+        console.error(`[❌ Diff Error] Failed inside toolWriteRange.`, { range, error });
+        if (error instanceof Error && (error as any).code === 'ItemNotFound') {
+             throw new Error(`Sheet or range not found for "${range}". Please ensure the sheet exists.`);
         }
-        
-        throw new Error(`Failed to write values: ${(error as Error).message}. Details: ${JSON.stringify(errorDetails)}`)
-      }
-      
-      return {
-        message: 'Range written successfully',
-        status: 'success'
+        throw new Error(`Failed to write to range "${range}": ${(error as Error).message}`);
       }
     })
   }
 
   private async toolApplyFormula(input: any): Promise<any> {
-    const { range, formula, relative_references = true } = input
+    const { range, formula } = input
+    console.log(`[✅ Diff Apply Success] Executing toolApplyFormula.`, { range, formula });
     
     return Excel.run(async (context: any) => {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet()
-      const excelRange = worksheet.getRange(range)
-      
-      // Load range properties to determine size
-      excelRange.load(['rowCount', 'columnCount', 'address'])
-      await context.sync()
-      
-      console.log(`🔧 Applying formula "${formula}" to range ${excelRange.address} (${excelRange.rowCount}x${excelRange.columnCount})`)
-      
       try {
-        if (relative_references && (excelRange.rowCount > 1 || excelRange.columnCount > 1)) {
-          // For ranges with relative references, use .formula property
-          // This allows Excel to auto-adjust references for each cell
-          console.log(`📐 Using relative references for multi-cell range`)
-          excelRange.formula = formula
-        } else {
-          // For single cells or absolute references, use formulas array
-          const formulaArray = Array(excelRange.rowCount).fill(null).map(() => 
-            Array(excelRange.columnCount).fill(formula)
-          )
-          console.log(`📊 Using formula array for ${excelRange.rowCount}x${excelRange.columnCount} range`)
-          excelRange.formulas = formulaArray
-        }
+        const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
+        const excelRange = worksheet.getRange(rangeAddress);
         
+        console.log(`[✅ Diff Apply Success] Target determined: Sheet='${worksheet.name}', Range='${rangeAddress}'`);
+      
+        // Load range properties to determine size
+        excelRange.load(['rowCount', 'columnCount', 'address'])
         await context.sync()
         
-        console.log(`✅ Formula applied successfully to ${excelRange.address}`)
+        excelRange.formulas = [[formula]]; // Apply to the top-left cell of the range
+        await context.sync();
         
-        return {
-          message: 'Formula applied successfully',
-          status: 'success',
-          range: excelRange.address,
-          formula_applied: formula,
-          cells_affected: excelRange.rowCount * excelRange.columnCount
-        }
+        console.log(`[✅ Diff Apply Success] toolApplyFormula completed successfully.`);
+        return { message: 'Formula applied successfully', status: 'success' };
+
       } catch (error) {
-        console.error('❌ Formula application error:', error)
-        
-        const errorDetails = {
-          operation: 'apply_formula',
-          range: range,
-          formula: formula,
-          excelError: error instanceof Error ? error.message : String(error)
+        console.error(`[❌ Diff Error] Failed inside toolApplyFormula.`, { range, formula, error });
+        if (error instanceof Error && (error as any).code === 'ItemNotFound') {
+             throw new Error(`Sheet or range not found for "${range}". Please ensure the sheet exists.`);
         }
-        
-        throw new Error(`Failed to apply formula "${formula}" to range "${range}": ${(error as Error).message}. Details: ${JSON.stringify(errorDetails)}`)
+        throw new Error(`Failed to apply formula to range "${range}": ${(error as Error).message}`);
       }
     })
   }
@@ -1104,6 +1099,38 @@ export class ExcelService {
         status: 'success'
       }
     })
+  }
+
+  private async toolClearRange(input: any): Promise<any> {
+    const { range, clear_contents = true, clear_formats = false } = input;
+    
+    return Excel.run(async (context: any) => {
+      try {
+        const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
+        const excelRange = worksheet.getRange(rangeAddress);
+        
+        console.log(`🧹 Clearing range ${range} on sheet ${worksheet.name}`);
+        
+        if (clear_contents && clear_formats) {
+          excelRange.clear();
+        } else if (clear_contents) {
+          excelRange.clear(Excel.ClearApplyTo.contents);
+        } else if (clear_formats) {
+          excelRange.clear(Excel.ClearApplyTo.formats);
+        }
+        
+        await context.sync();
+        
+        return { message: 'Range cleared successfully', status: 'success' };
+
+      } catch (error) {
+        console.error(`❌ Failed to clear range ${range}:`, error);
+        if (error instanceof Error && (error as any).code === 'ItemNotFound') {
+          throw new Error(`Sheet or range not found for "${range}". Please ensure the sheet exists.`);
+        }
+        throw new Error(`Failed to clear range "${range}": ${(error as Error).message}`);
+      }
+    });
   }
 
   private async toolInsertRowsColumns(input: any): Promise<any> {

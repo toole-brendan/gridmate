@@ -6,6 +6,19 @@ import { AISuggestedOperation, DiffPayload, DiffMessage } from '../types/diff'
 import { SignalRClient } from '../services/signalr/SignalRClient'
 import axios from 'axios'
 
+// Safe import with fallback
+let log: (source: string, message: string, data?: any) => void
+try {
+  const logStore = require('../store/logStore')
+  log = logStore.log
+} catch (error) {
+  console.error('Failed to import logStore:', error)
+  // Fallback to console.log
+  log = (source: string, message: string, data?: any) => {
+    console.log(`[${source}] ${message}`, data)
+  }
+}
+
 interface UseDiffPreviewReturn {
   initiatePreview: (operations: AISuggestedOperation[]) => Promise<void>
   applyChanges: () => Promise<void>
@@ -36,15 +49,20 @@ export function useDiffPreview(
     if (!signalRClient) return
 
     const handleDiffMessage = (message: DiffMessage) => {
+      log('visual-diff', `[📡 Diff Backend Call] Received diff message from SignalR.`, { message });
       if (message.workbookId === workbookId && pendingOperations) {
+        log('visual-diff', `[🎨 Diff Apply] Setting ${message.hunks.length} diffs for rendering.`);
         // Update store with received diff
         setPreview(message.hunks, pendingOperations, workbookId)
         
         // Apply visual highlights
+        log('visual-diff', `[🎨 Diff Apply] Applying visual highlights to grid...`);
         GridVisualizer.applyHighlights(message.hunks).catch(err => {
-          console.error('Failed to apply highlights:', err)
+          log('visual-diff', `[❌ Diff Error] Failed to apply highlights:`, err)
           setError('Failed to visualize changes')
         })
+      } else {
+        log('visual-diff', `[📡 Diff Backend Call] Ignoring diff message (workbookId mismatch or no pending operations).`);
       }
     }
 
@@ -58,56 +76,67 @@ export function useDiffPreview(
 
   // Initiate diff preview
   const initiatePreview = useCallback(async (operations: AISuggestedOperation[]) => {
-    setIsLoading(true)
-    setError(null)
-    setStatus('computing')
+    log('visual-diff', `[🚀 Diff Start]`, { operations });
+    setIsLoading(true);
+    setError(null);
+    setStatus('computing');
 
     try {
-      // Get current state (before)
-      const before = await ExcelService.getInstance().createWorkbookSnapshot({
+      const excelService = ExcelService.getInstance();
+      const activeSheetName = (await excelService.getContext()).worksheet;
+      log('visual-diff', `[🚀 Diff Start] Active sheet context acquired: ${activeSheetName}`);
+
+      const before = await excelService.createWorkbookSnapshot({
         rangeAddress: 'UsedRange',
         includeFormulas: true,
         includeStyles: false,
         maxCells: 50000
-      })
+      });
+      log('visual-diff', `[🔬 Diff Simulate] "Before" snapshot created.`, { before: JSON.parse(JSON.stringify(before)) });
 
-      // Simulate operations to create "after" state
-      const after = await simulateOperations(before, operations)
+      const after = await simulateOperations(before, operations, activeSheetName);
+      log('visual-diff', `[🔬 Diff Simulate] "After" snapshot created.`, { after: JSON.parse(JSON.stringify(after)) });
 
-      // Store operations for later execution
-      useDiffStore.setState({ pendingOperations: operations })
+      const beforeCellCount = Object.keys(before).length;
+      const afterCellCount = Object.keys(after).length;
+      log('visual-diff', `[🔬 Diff Simulate] Snapshot cell counts: Before=${beforeCellCount}, After=${afterCellCount}`);
 
-      // Send to backend for diff computation
-      const token = localStorage.getItem('gridmate_token')
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/v1/excel/diff`,
-        {
-          workbookId,
-          before,
-          after
-        } as DiffPayload,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      )
-
-      if (!response.data.success) {
-        throw new Error('Failed to compute diff')
+      if (JSON.stringify(before) === JSON.stringify(after)) {
+        log('visual-diff', `[❌ Diff Error] Simulation resulted in no changes. "Before" and "After" snapshots are identical.`);
+        setError("Simulation failed to produce any changes.");
+        setIsLoading(false);
+        setStatus('idle');
+        return;
       }
 
-      // The diff will be received via SignalR and handled by the effect above
+      useDiffStore.setState({ pendingOperations: operations });
+      log('visual-diff', `[📡 Diff Backend Call] Stored pending operations. Invoking 'GetVisualDiff' on backend.`);
+
+      const diffResult = await signalRClient?.invoke('GetVisualDiff', {
+        workbookId,
+        before,
+        after,
+      });
+
+      log('visual-diff', `[📡 Diff Backend Call] Received response from 'GetVisualDiff'.`, { diffResult });
+
+      if (!diffResult || diffResult.length === 0) {
+        log('visual-diff', `[❌ Diff Error] Backend returned no differences.`);
+        setError("Backend analysis found no changes to preview.");
+      } else {
+        log('visual-diff', `[🎨 Diff Apply] Setting ${diffResult.length} diffs for rendering.`);
+        setPreview(diffResult, operations, workbookId);
+      }
+
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to preview changes'
-      setError(errorMessage)
-      setStoreError(errorMessage)
-      setStatus('idle')
+      log('visual-diff', `[❌ Diff Error] An error occurred in initiatePreview.`, { error: err });
+      setError((err as Error).message);
     } finally {
-      setIsLoading(false)
+      log('visual-diff', `[🚀 Diff End] Process finished.`);
+      setIsLoading(false);
+      setStatus('idle');
     }
-  }, [workbookId, setStatus, setStoreError])
+  }, [signalRClient, workbookId]);
 
   // Apply the previewed changes
   const applyChanges = useCallback(async () => {
@@ -159,7 +188,7 @@ export function useDiffPreview(
       clearPreview()
       setError(null)
     } catch (err) {
-      console.error('Failed to clear highlights:', err)
+      log('visual-diff', 'Failed to clear highlights:', err)
     } finally {
       setIsLoading(false)
     }
@@ -177,7 +206,8 @@ export function useDiffPreview(
 // Simulate operations on a workbook snapshot to create the "after" state
 async function simulateOperations(
   before: WorkbookSnapshot,
-  operations: AISuggestedOperation[]
+  operations: AISuggestedOperation[],
+  activeSheetName: string // Pass down active sheet context
 ): Promise<WorkbookSnapshot> {
   // Create a deep copy of the before state
   const after: WorkbookSnapshot = JSON.parse(JSON.stringify(before))
@@ -185,13 +215,13 @@ async function simulateOperations(
   for (const op of operations) {
     switch (op.tool) {
       case 'write_range':
-        simulateWriteRange(after, op.input)
+        simulateWriteRange(after, op.input, activeSheetName)
         break
       case 'apply_formula':
-        simulateApplyFormula(after, op.input)
+        simulateApplyFormula(after, op.input, activeSheetName)
         break
       case 'clear_range':
-        simulateClearRange(after, op.input)
+        simulateClearRange(after, op.input, activeSheetName)
         break
       // Add more tools as needed
     }
@@ -200,50 +230,119 @@ async function simulateOperations(
   return after
 }
 
-function simulateWriteRange(snapshot: WorkbookSnapshot, input: any) {
+// Enhanced range parsing function
+function parseRange(rangeStr: string, activeSheetName: string): { sheet: string, startRow: number, startCol: number, endRow?: number, endCol?: number } | null {
+    let sheet = activeSheetName;
+    let rangePart = rangeStr;
+
+    // Handle sheet prefix (including quoted sheet names like 'Sheet Name'!A1)
+    if (rangeStr.includes('!')) {
+        const parts = rangeStr.split('!');
+        sheet = parts[0].replace(/^'|'$/g, ''); // Remove surrounding quotes
+        rangePart = parts[1];
+    }
+
+    // Enhanced regex to handle:
+    // - Single cells: A1, $A$1
+    // - Ranges: A1:B2, $A$1:$B$2
+    // - Mixed references: $A1:B$2
+    const match = rangePart.match(/^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/);
+    if (!match) return null;
+
+    const startCol = columnToIndex(match[1]);
+    const startRow = parseInt(match[2], 10) - 1;
+    
+    let result: any = { sheet, startRow, startCol };
+    
+    // If it's a range (has end cell)
+    if (match[3] && match[4]) {
+        result.endRow = parseInt(match[4], 10) - 1;
+        result.endCol = columnToIndex(match[3]);
+    }
+
+    return result;
+}
+
+function simulateWriteRange(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
   const { range, values } = input
   if (!range || !values) return
+
+  const parsedRange = parseRange(range, activeSheetName);
+  if (!parsedRange) return;
+
+  const { sheet, startRow, startCol } = parsedRange;
   
-  // Parse range (simplified - assumes current sheet)
-  const sheet = 'Sheet1' // TODO: Get from context
-  const match = range.match(/([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?/)
-  if (!match) return
-  
-  const startCol = columnToIndex(match[1])
-  const startRow = parseInt(match[2]) - 1
-  
-  // Apply values
   for (let i = 0; i < values.length; i++) {
     for (let j = 0; j < values[i].length; j++) {
+      const cellValue = values[i][j];
+      // Skip empty values to avoid overwriting existing data with blanks
+      if (cellValue === null || cellValue === undefined || cellValue === '') continue;
+
       const key = `${sheet}!${indexToColumn(startCol + j)}${startRow + i + 1}`
-      snapshot[key] = { v: values[i][j] }
+      
+      // Ensure the cell snapshot exists
+      if (!snapshot[key]) {
+        snapshot[key] = {};
+      }
+      snapshot[key]!.v = cellValue;
     }
   }
 }
 
-function simulateApplyFormula(snapshot: WorkbookSnapshot, input: any) {
+function simulateApplyFormula(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
   const { range, formula } = input
   if (!range || !formula) return
+
+  const parsedRange = parseRange(range, activeSheetName);
+  if (!parsedRange) return;
+
+  const { sheet, startRow, startCol, endRow, endCol } = parsedRange;
   
-  const sheet = 'Sheet1' // TODO: Get from context
-  const key = `${sheet}!${range}`
-  snapshot[key] = { f: formula }
+  // For single cell
+  if (!endRow || !endCol) {
+    const key = `${sheet}!${indexToColumn(startCol)}${startRow + 1}`;
+    if (!snapshot[key]) {
+      snapshot[key] = {};
+    }
+    snapshot[key]!.f = formula;
+  } else {
+    // For multi-cell ranges (array formulas)
+    for (let row = startRow; row <= endRow; row++) {
+      for (let col = startCol; col <= endCol; col++) {
+        const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+        if (!snapshot[key]) {
+          snapshot[key] = {};
+        }
+        // Excel array formulas are typically surrounded by {} in the UI
+        // but stored without them in the formula property
+        snapshot[key]!.f = formula;
+      }
+    }
+  }
 }
 
-function simulateClearRange(snapshot: WorkbookSnapshot, input: any) {
-  const { range } = input
-  if (!range) return
+function simulateClearRange(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
+  const { range } = input;
+  if (!range) return;
+
+  const parsedRange = parseRange(range, activeSheetName);
+  if (!parsedRange) return;
+
+  const { sheet, startRow, startCol, endRow, endCol } = parsedRange;
   
-  // Simple implementation - just delete the keys
-  const sheet = 'Sheet1'
-  const keyPrefix = `${sheet}!`
+  // Determine the range bounds
+  const rowStart = startRow;
+  const rowEnd = endRow ?? startRow;
+  const colStart = startCol;
+  const colEnd = endCol ?? startCol;
   
-  // This is simplified - in reality we'd parse the range properly
-  Object.keys(snapshot).forEach(key => {
-    if (key.startsWith(keyPrefix) && key.includes(range)) {
-      delete snapshot[key]
+  // Clear all cells in the range
+  for (let row = rowStart; row <= rowEnd; row++) {
+    for (let col = colStart; col <= colEnd; col++) {
+      const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+      delete snapshot[key];
     }
-  })
+  }
 }
 
 // Helper functions for column conversion

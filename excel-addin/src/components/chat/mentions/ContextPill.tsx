@@ -54,11 +54,11 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
   
   const getTypeStyles = () => {
     if (!isEnabled) {
-      return 'bg-secondary-background text-text-tertiary border-border-primary opacity-50'
+      return 'bg-transparent text-[#B85500] border-[#B85500] opacity-50'
     }
     
-    // Clean, light military-style - all pills have same color scheme
-    return 'bg-secondary-background text-text-secondary border-border-primary hover:border-text-secondary'
+    // Darker orange color scheme with transparent background
+    return 'bg-transparent text-[#B85500] border-[#B85500] hover:border-[#D96600]'
   }
   
   const Component = onClick ? 'button' : 'div'

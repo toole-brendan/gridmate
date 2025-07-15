@@ -38,7 +38,7 @@ services:
       # Application configuration
       PORT: 8080
       ENV: development
-      LOG_LEVEL: debug
+      LOG_LEVEL: info
       
       # JWT configuration
       JWT_SECRET: your-dev-secret-key-change-in-production

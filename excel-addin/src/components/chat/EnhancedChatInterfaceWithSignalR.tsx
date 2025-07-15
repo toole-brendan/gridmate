@@ -24,6 +24,7 @@ import { MentionItem, ContextItem } from '../chat/mentions'
 import { useDiffPreview } from '../../hooks/useDiffPreview'
 import { DiffPreviewBar } from './DiffPreviewBar'
 import { AISuggestedOperation } from '../../types/diff'
+import { useLogStore } from '../../store/logStore'
 
 // Global SignalR client instance to prevent multiple connections
 let globalSignalRClient: SignalRClient | null = null
@@ -39,6 +40,11 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const sessionIdRef = useRef<string>(globalSessionId)
   const [aiIsGenerating, setAiIsGenerating] = useState(false)
   const toolRequestQueue = useRef<Map<string, any>>(new Map())
+  
+  // State for debug container
+  const [isDebugOpen, setIsDebugOpen] = useState(false)
+  const [copyButtonText, setCopyButtonText] = useState('📋 Copy All Debug Info')
+  const [showDebugText, setShowDebugText] = useState(false)
   
   // Response tracking for bulk approval
   const [currentResponseId, setCurrentResponseId] = useState<string | null>(null)
@@ -59,6 +65,10 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     setDebugLogs(prev => [...prev.slice(-50), { time, message, type }]) // Keep last 50 logs
     console.log(`[${time}] [${type.toUpperCase()}] ${message}`)
   }, [])
+  
+  // Get logs from the centralized logStore
+  const allLogs = useLogStore((state: any) => state.logs)
+  const visualDiffLogs = allLogs.filter((log: any) => log.source === 'visual-diff')
   
   // Mention system state
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([])
@@ -176,10 +186,16 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       // Update active context
       const contextItems: ContextItem[] = []
       if (context.selectedRange) {
+        // Check if selectedRange already includes sheet name (e.g., "Sheet1!A1:B2")
+        const hasSheetPrefix = context.selectedRange.includes('!')
+        const label = hasSheetPrefix 
+          ? `Context: ${context.selectedRange}`
+          : `Context: ${context.worksheet || 'Sheet'}!${context.selectedRange}`
+        
         contextItems.push({
           id: 'selection',
           type: 'selection',
-          label: 'Context',
+          label: label,
           value: context.selectedRange
         })
         addDebugLog(`Selected range: ${context.selectedRange}`)
@@ -1114,7 +1130,7 @@ Escape : Reject focused action
   }, [addDebugLog])
   
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--app-background)' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--app-background)' }}>
       {/* Connection Status Bar */}
       {(connectionStatus !== 'connected' || !isAuthenticated) && (
         <div className={`px-4 py-2 text-sm font-medium ${
@@ -1132,7 +1148,9 @@ Escape : Reject focused action
         </div>
       )}
       
-      <EnhancedChatInterface
+      {/* Scrollable chat container */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <EnhancedChatInterface
         messages={messages}
         input={input}
         setInput={setInput}
@@ -1162,29 +1180,40 @@ Escape : Reject focused action
         hasRedo={redoStack.length > 0}
         isContextEnabled={isContextEnabled}
         onContextToggle={() => setIsContextEnabled(!isContextEnabled)}
-      />
+        />
+      </div>
       
       {/* Debug Info (collapsed by default) */}
-      <details data-debug="true" style={{ 
-        borderTop: '1px solid #374151', 
-        backgroundColor: '#1f2937',
-        fontSize: '11px',
-        padding: '8px 12px',
-        color: '#e5e7eb',
-        userSelect: 'text',
-        WebkitUserSelect: 'text',
-        MozUserSelect: 'text',
-        msUserSelect: 'text'
-      }}>
-        <summary style={{ 
-          cursor: 'pointer', 
-          fontWeight: 'medium', 
+      <details 
+        data-debug="true" 
+        open={isDebugOpen}
+        style={{ 
+          borderTop: '1px solid #374151', 
+          backgroundColor: '#1f2937',
+          fontSize: '11px',
+          padding: '8px 12px',
           color: '#e5e7eb',
-          userSelect: 'none',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
+          userSelect: 'text',
+          WebkitUserSelect: 'text',
+          MozUserSelect: 'text',
+          msUserSelect: 'text'
+        }}
+      >
+        <summary 
+          style={{ 
+            cursor: 'pointer', 
+            fontWeight: 'medium', 
+            color: '#e5e7eb',
+            userSelect: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+          onClick={(e) => {
+            e.preventDefault()
+            setIsDebugOpen(!isDebugOpen)
+          }}
+        >
           <span>Debug Info</span>
         </summary>
         <div style={{ 
@@ -1202,34 +1231,227 @@ Escape : Reject focused action
           
           {/* Copy All Debug Info Button */}
           <button
-            onClick={() => {
-              const debugInfo = `Debug Info - ${new Date().toISOString()}
+            onClick={async () => {
+              console.log('🔵 Copy All Debug Info button clicked!');
+              
+              // Show immediate feedback
+              setCopyButtonText('⏳ Copying...');
+              
+              try {
+                // Defensive checks for allLogs
+                const safeAllLogs = Array.isArray(allLogs) ? allLogs : [];
+                const safeVisualDiffLogs = Array.isArray(visualDiffLogs) ? visualDiffLogs : [];
+                
+                console.log('📊 Log arrays:', { 
+                  allLogsLength: safeAllLogs.length, 
+                  visualDiffLogsLength: safeVisualDiffLogs.length,
+                  allLogsType: typeof allLogs,
+                  isArray: Array.isArray(allLogs)
+                });
+                
+                // Generate the full debug string including visual diff logs
+                let debugInfo = '';
+                try {
+                  // Safely get all the logs
+                  const generalLogs = safeAllLogs.filter(l => l && l.source === 'general').map(log => `[${log.timestamp}] ${log.message}`).join('\n');
+                  const diffLogs = safeVisualDiffLogs.map(log => log ? `[${log.timestamp}] ${log.message}` : '').join('\n');
+                  
+                  // Safely get audit logs
+                  let auditLogsText = 'No audit logs available';
+                  try {
+                    const auditLogs = AuditLogger.getRecentLogs(10).reverse();
+                    if (auditLogs && auditLogs.length > 0) {
+                      auditLogsText = auditLogs.map(log => 
+                        `${new Date(log.timestamp).toLocaleTimeString()} - ${log.toolName} - ${log.result} ${log.autonomyMode ? `(${log.autonomyMode})` : ''}${log.error ? ` - Error: ${log.error}` : ''}`
+                      ).join('\n');
+                    }
+                  } catch (auditError) {
+                    console.error('Error getting audit logs:', auditError);
+                    auditLogsText = `Error retrieving audit logs: ${auditError}`;
+                  }
+                  
+                  // Safely get queue summary
+                  let queueSummaryText = '';
+                  let queueItemsText = '';
+                  try {
+                    if (summary) {
+                      queueSummaryText = `Pending: ${summary.pendingCount || 0}
+Completed: ${summary.completedCount || 0}
+Failed: ${summary.failedCount || 0}
+In Progress: ${summary.inProgressCount || 0}`;
+                    } else {
+                      queueSummaryText = 'Queue summary not available';
+                    }
+                    
+                    if (queue && queue.length > 0) {
+                      queueItemsText = `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.status}] ${op.toolName} - ${op.description}`).join('\n')}`;
+                    }
+                  } catch (queueError) {
+                    console.error('Error getting queue info:', queueError);
+                    queueSummaryText = 'Queue information not available';
+                  }
+                  
+                  // Safely get debug logs
+                  let debugLogsText = 'No debug logs';
+                  try {
+                    if (debugLogs && debugLogs.length > 0) {
+                      debugLogsText = debugLogs.map(log => `[${log.time}] [${log.type.toUpperCase()}] ${log.message}`).join('\n');
+                    }
+                  } catch (debugLogError) {
+                    console.error('Error getting debug logs:', debugLogError);
+                    debugLogsText = 'Error retrieving debug logs';
+                  }
+                  
+                  debugInfo = `Debug Info - ${new Date().toISOString()}
 =====================================
-Session: ${sessionIdRef.current}
-Mode: ${autonomyMode}
-Connection: ${connectionStatus} ${isAuthenticated ? '(authenticated)' : '(not authenticated)'}
-SignalR Connected: ${signalRClient.current?.isConnected() ? 'Yes' : 'No'}
 
-Debug Logs:
-${debugLogs.map(log => `[${log.time}] [${log.type.toUpperCase()}] ${log.message}`).join('\n')}
+=== Connection Info ===
+Session: ${sessionIdRef.current || 'No session'}
+Mode: ${autonomyMode || 'Unknown'}
+Connection: ${connectionStatus || 'Unknown'} ${isAuthenticated ? '(authenticated)' : '(not authenticated)'}
+SignalR Connected: ${signalRClient.current?.isConnected ? signalRClient.current.isConnected() : 'No client'} 
 
-Audit Logs (last 10):
-${AuditLogger.getRecentLogs(10).reverse().map(log => 
-  `${new Date(log.timestamp).toLocaleTimeString()} - ${log.toolName} - ${log.result} ${log.autonomyMode ? `(${log.autonomyMode})` : ''}${log.error ? ` - Error: ${log.error}` : ''}`
-).join('\n')}
+=== Debug Logs (${debugLogs?.length || 0} entries) ===
+${debugLogsText}
 
-Queue Summary:
-Pending: ${summary.pendingCount}
-Completed: ${summary.completedCount}
-Failed: ${summary.failedCount}
-In Progress: ${summary.inProgressCount}
-${queue.length > 0 ? `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.status}] ${op.toolName} - ${op.description}`).join('\n')}` : ''}`;
+=== Visual Diff Logs (${safeVisualDiffLogs.length} entries) ===
+${diffLogs || 'No visual diff activity yet...'}
 
-              navigator.clipboard.writeText(debugInfo).then(() => {
-                addDebugLog('Debug info copied to clipboard', 'success');
-              }).catch(err => {
-                addDebugLog(`Failed to copy: ${err}`, 'error');
-              });
+=== General Logs (${safeAllLogs.filter(l => l && l.source === 'general').length} entries) ===
+${generalLogs || 'No general logs'}
+
+=== Audit Logs (last 10) ===
+${auditLogsText}
+
+=== Queue Summary ===
+${queueSummaryText}${queueItemsText}
+
+=== Raw Data ===
+All Logs Count: ${safeAllLogs.length}
+Visual Diff Logs Count: ${safeVisualDiffLogs.length}
+Debug Logs Count: ${debugLogs?.length || 0}`;
+                  
+                  console.log('✅ Debug info generated successfully, length:', debugInfo.length);
+                } catch (genError) {
+                  console.error('❌ Error generating debug info:', genError);
+                  // More comprehensive fallback
+                  debugInfo = `Error generating debug info: ${genError}
+
+=== Basic Info ===
+Session: ${sessionIdRef.current || 'No session'}
+Mode: ${autonomyMode || 'Unknown'}
+Connection: ${connectionStatus || 'Unknown'}
+Authenticated: ${isAuthenticated}
+SignalR Client Exists: ${!!signalRClient.current}
+
+=== Available Data ===
+allLogs exists: ${!!allLogs}
+allLogs is array: ${Array.isArray(allLogs)}
+allLogs length: ${Array.isArray(allLogs) ? allLogs.length : 'N/A'}
+visualDiffLogs exists: ${!!visualDiffLogs}
+debugLogs exists: ${!!debugLogs}
+debugLogs length: ${Array.isArray(debugLogs) ? debugLogs.length : 'N/A'}
+summary exists: ${!!summary}
+queue exists: ${!!queue}
+
+Please check the browser console for more details.`;
+                }
+
+                // Try multiple clipboard methods
+                let copySuccess = false;
+                
+                // Method 1: Try modern clipboard API first
+                console.log('🔧 Trying modern clipboard API...');
+                try {
+                  await navigator.clipboard.writeText(debugInfo);
+                  copySuccess = true;
+                  console.log('✅ Modern clipboard API succeeded!');
+                } catch (err) {
+                  console.log("⚠️ Modern clipboard API failed:", err);
+                }
+                
+                // Method 2: Try document.execCommand (older but more compatible)
+                if (!copySuccess) {
+                  console.log('🔧 Trying document.execCommand...');
+                  try {
+                    // Create a temporary textarea
+                    const tempTextArea = document.createElement('textarea');
+                    tempTextArea.value = debugInfo;
+                    tempTextArea.style.position = 'fixed';
+                    tempTextArea.style.top = '0';
+                    tempTextArea.style.left = '0';
+                    tempTextArea.style.width = '2em';
+                    tempTextArea.style.height = '2em';
+                    tempTextArea.style.padding = '0';
+                    tempTextArea.style.border = 'none';
+                    tempTextArea.style.outline = 'none';
+                    tempTextArea.style.boxShadow = 'none';
+                    tempTextArea.style.background = 'transparent';
+                    document.body.appendChild(tempTextArea);
+                    
+                    // Focus and select
+                    tempTextArea.focus();
+                    tempTextArea.select();
+                    tempTextArea.setSelectionRange(0, debugInfo.length);
+                    
+                    // Try to copy
+                    copySuccess = document.execCommand('copy');
+                    console.log('✅ execCommand result:', copySuccess);
+                    
+                    // Cleanup
+                    document.body.removeChild(tempTextArea);
+                  } catch (err) {
+                    console.error("❌ execCommand fallback failed:", err);
+                  }
+                }
+                
+                // Method 3: Try Office.js clipboard if available (with Promise wrapper)
+                if (!copySuccess && typeof Office !== 'undefined' && Office.context && Office.context.document) {
+                  console.log('🔧 Trying Office.js clipboard...');
+                  try {
+                    copySuccess = await new Promise((resolve) => {
+                      Office.context.document.setSelectedDataAsync(
+                        debugInfo,
+                        { coercionType: Office.CoercionType.Text },
+                        (result) => {
+                          if (result.status === Office.AsyncResultStatus.Succeeded) {
+                            console.log('✅ Office.js clipboard succeeded!');
+                            resolve(true);
+                          } else {
+                            console.log('❌ Office.js clipboard failed:', result.error);
+                            resolve(false);
+                          }
+                        }
+                      );
+                    });
+                  } catch (err) {
+                    console.error("❌ Office.js clipboard failed:", err);
+                  }
+                }
+                
+                // Update UI based on result
+                if (copySuccess) {
+                  addDebugLog('Debug info copied to clipboard', 'success');
+                  setCopyButtonText('✅ Copied!');
+                  setShowDebugText(false); // Hide textarea if shown
+                  console.log('🎉 Copy successful!');
+                } else {
+                  addDebugLog('All copy methods failed, showing manual copy option', 'warning');
+                  setCopyButtonText('❌ Manual Copy Required');
+                  setShowDebugText(true); // Show the textarea on failure
+                  console.log('😞 All copy methods failed, showing manual option');
+                }
+                
+              } catch (error) {
+                console.error('❌ Fatal error in copy handler:', error);
+                setCopyButtonText('❌ Error - See Console');
+                setShowDebugText(true);
+                // Show an alert as last resort to confirm button works
+                alert(`Copy button error: ${error}. Please check console and use manual copy.`);
+              } finally {
+                // Always reset button text after delay
+                setTimeout(() => setCopyButtonText('📋 Copy All Debug Info'), 3000);
+              }
             }}
             style={{
               marginTop: '8px',
@@ -1243,8 +1465,198 @@ ${queue.length > 0 ? `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.st
               userSelect: 'none'
             }}
           >
-            📋 Copy All Debug Info
+            {copyButtonText}
           </button>
+          
+          {/* Fallback Textarea */}
+          {showDebugText && (
+            <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#1e293b', borderRadius: '4px', border: '1px solid #334155' }}>
+              <p style={{ fontSize: '11px', color: '#fbbf24', marginBottom: '8px', fontWeight: 'bold' }}>
+                ⚠️ Automatic copy failed. Manual copy options:
+              </p>
+              <div style={{ marginBottom: '8px' }}>
+                <button
+                  onClick={() => {
+                    const textarea = document.getElementById('debug-info-textarea') as HTMLTextAreaElement;
+                    if (textarea) {
+                      textarea.select();
+                      textarea.setSelectionRange(0, textarea.value.length);
+                      try {
+                        document.execCommand('copy');
+                        addDebugLog('Debug info selected and copied', 'success');
+                        setCopyButtonText('✅ Manually Copied!');
+                        setTimeout(() => {
+                          setCopyButtonText('📋 Copy All Debug Info');
+                          setShowDebugText(false);
+                        }, 2000);
+                      } catch (err) {
+                        addDebugLog('Manual copy also failed', 'error');
+                        alert('Please select all text (Ctrl+A/Cmd+A) and copy (Ctrl+C/Cmd+C)');
+                      }
+                    }
+                  }}
+                  style={{
+                    padding: '4px 12px',
+                    backgroundColor: '#059669',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                    marginRight: '8px'
+                  }}
+                >
+                  🔄 Try Manual Copy
+                </button>
+                <button
+                  onClick={() => {
+                    const textarea = document.getElementById('debug-info-textarea') as HTMLTextAreaElement;
+                    if (textarea) {
+                      textarea.select();
+                      textarea.setSelectionRange(0, textarea.value.length);
+                      textarea.focus();
+                    }
+                  }}
+                  style={{
+                    padding: '4px 12px',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  📝 Select All Text
+                </button>
+              </div>
+              <textarea
+                id="debug-info-textarea"
+                readOnly
+                value={(() => {
+                  try {
+                    // Safely get all logs
+                    const safeAllLogs = Array.isArray(allLogs) ? allLogs : [];
+                    const safeVisualDiffLogs = Array.isArray(visualDiffLogs) ? visualDiffLogs : [];
+                    
+                    const generalLogs = safeAllLogs.filter(l => l && l.source === 'general').map(log => `[${log.timestamp}] ${log.message}`).join('\n');
+                    const diffLogs = safeVisualDiffLogs.map(log => log ? `[${log.timestamp}] ${log.message}` : '').join('\n');
+                    
+                    // Safely get audit logs
+                    let auditLogsText = 'No audit logs available';
+                    try {
+                      const auditLogs = AuditLogger.getRecentLogs(10).reverse();
+                      if (auditLogs && auditLogs.length > 0) {
+                        auditLogsText = auditLogs.map(log => 
+                          `${new Date(log.timestamp).toLocaleTimeString()} - ${log.toolName} - ${log.result} ${log.autonomyMode ? `(${log.autonomyMode})` : ''}${log.error ? ` - Error: ${log.error}` : ''}`
+                        ).join('\n');
+                      }
+                    } catch (auditError) {
+                      auditLogsText = `Error retrieving audit logs: ${auditError}`;
+                    }
+                    
+                    // Safely get queue summary
+                    let queueSummaryText = '';
+                    let queueItemsText = '';
+                    try {
+                      if (summary) {
+                        queueSummaryText = `Pending: ${summary.pendingCount || 0}
+Completed: ${summary.completedCount || 0}
+Failed: ${summary.failedCount || 0}
+In Progress: ${summary.inProgressCount || 0}`;
+                      } else {
+                        queueSummaryText = 'Queue summary not available';
+                      }
+                      
+                      if (queue && queue.length > 0) {
+                        queueItemsText = `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.status}] ${op.toolName} - ${op.description}`).join('\n')}`;
+                      }
+                    } catch (queueError) {
+                      queueSummaryText = 'Queue information not available';
+                    }
+                    
+                    // Safely get debug logs
+                    let debugLogsText = 'No debug logs';
+                    try {
+                      if (debugLogs && debugLogs.length > 0) {
+                        debugLogsText = debugLogs.map(log => `[${log.time}] [${log.type.toUpperCase()}] ${log.message}`).join('\n');
+                      }
+                    } catch (debugLogError) {
+                      debugLogsText = 'Error retrieving debug logs';
+                    }
+                    
+                    return `Debug Info - ${new Date().toISOString()}
+=====================================
+
+=== Connection Info ===
+Session: ${sessionIdRef.current || 'No session'}
+Mode: ${autonomyMode || 'Unknown'}
+Connection: ${connectionStatus || 'Unknown'} ${isAuthenticated ? '(authenticated)' : '(not authenticated)'}
+SignalR Connected: ${signalRClient.current?.isConnected ? signalRClient.current.isConnected() : 'No client'} 
+
+=== Debug Logs (${debugLogs?.length || 0} entries) ===
+${debugLogsText}
+
+=== Visual Diff Logs (${safeVisualDiffLogs.length} entries) ===
+${diffLogs || 'No visual diff activity yet...'}
+
+=== General Logs (${safeAllLogs.filter(l => l && l.source === 'general').length} entries) ===
+${generalLogs || 'No general logs'}
+
+=== Audit Logs (last 10) ===
+${auditLogsText}
+
+=== Queue Summary ===
+${queueSummaryText}${queueItemsText}
+
+=== Raw Data ===
+All Logs Count: ${safeAllLogs.length}
+Visual Diff Logs Count: ${safeVisualDiffLogs.length}
+Debug Logs Count: ${debugLogs?.length || 0}`;
+                  } catch (error) {
+                    return `Error generating debug info in textarea: ${error}
+
+=== Basic Info ===
+Session: ${sessionIdRef.current || 'No session'}
+Mode: ${autonomyMode || 'Unknown'}
+Connection: ${connectionStatus || 'Unknown'}
+Authenticated: ${isAuthenticated}
+
+Please try the copy button again or check console for details.`;
+                  }
+                })()}
+                style={{
+                  width: '100%',
+                  height: '200px',
+                  marginTop: '4px',
+                  backgroundColor: '#0d1117',
+                  color: '#e5e7eb',
+                  border: '1px solid #30363d',
+                  fontSize: '10px',
+                  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                  padding: '8px',
+                  borderRadius: '4px',
+                  resize: 'vertical',
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text',
+                  MozUserSelect: 'text',
+                  msUserSelect: 'text'
+                }}
+                onFocus={(e) => {
+                  e.target.select();
+                  e.target.setSelectionRange(0, e.target.value.length);
+                }}
+                onClick={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.select();
+                  target.setSelectionRange(0, target.value.length);
+                }}
+              />
+              <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
+                💡 Tip: Click the textarea or use Ctrl+A (Cmd+A on Mac) to select all, then Ctrl+C (Cmd+C) to copy
+              </p>
+            </div>
+          )}
           
           {/* Debug Logs */}
           <details data-debug="true" style={{ marginTop: '8px' }}>
@@ -1276,6 +1688,40 @@ ${queue.length > 0 ? `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.st
               ))}
               {debugLogs.length === 0 && (
                 <div style={{ color: '#6e7681' }}>No debug logs yet...</div>
+              )}
+            </div>
+          </details>
+          
+          {/* Visual Diff Logs Section */}
+          <details data-debug="true" style={{ marginTop: '8px' }} open>
+            <summary style={{ cursor: 'pointer', userSelect: 'none' }}>Visual Diff Logs ({visualDiffLogs.length})</summary>
+            <div style={{ 
+              marginTop: '4px', 
+              maxHeight: '200px', 
+              overflowY: 'auto',
+              fontSize: '10px',
+              lineHeight: '1.4',
+              backgroundColor: '#0d1117',
+              padding: '8px',
+              borderRadius: '4px',
+              border: '1px solid #30363d',
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+              MozUserSelect: 'text',
+              msUserSelect: 'text'
+            }}>
+              {visualDiffLogs.map((log, index) => (
+                <div key={index} style={{ marginBottom: '2px', color: log.message.includes('❌') ? '#ff6b6b' : '#8b949e' }}>
+                  <span style={{ color: '#6e7681' }}>[{log.timestamp}]</span> {log.message}
+                  {log.data && (
+                    <pre style={{ fontSize: '9px', color: '#666', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                      {JSON.stringify(log.data, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+              {visualDiffLogs.length === 0 && (
+                <div style={{ color: '#6e7681' }}>No visual diff activity yet...</div>
               )}
             </div>
           </details>

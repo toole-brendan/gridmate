@@ -34,9 +34,9 @@ const modeConfigs: ModeConfig[] = [
     shortLabel: 'Ask',
     description: 'AI can only read and analyze, no changes',
     icon: EyeIcon,
-    color: 'text-primary',
-    bgColor: 'bg-primary/10',
-    borderColor: 'border-primary'
+    color: 'text-[#0066CC]',
+    bgColor: 'bg-transparent',
+    borderColor: 'border-[#0066CC]'
   },
   {
     mode: 'agent-default',
@@ -54,9 +54,9 @@ const modeConfigs: ModeConfig[] = [
     shortLabel: 'YOLO',
     description: 'AI applies changes automatically',
     icon: BoltIcon,
-    color: 'text-warning',
-    bgColor: 'bg-warning/10',
-    borderColor: 'border-warning',
+    color: 'text-[#0066CC]',
+    bgColor: 'bg-transparent',
+    borderColor: 'border-[#0066CC]',
     warning: 'Changes are applied immediately without approval'
   }
 ]

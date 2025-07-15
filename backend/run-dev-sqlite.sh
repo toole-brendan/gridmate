@@ -10,7 +10,7 @@ fi
 # Override with SQLite settings
 export PORT=8080
 export ENV=development
-export LOG_LEVEL=debug
+export LOG_LEVEL=info
 
 # Use SQLite instead of PostgreSQL
 export DB_HOST=

@@ -2,6 +2,18 @@ import React from 'react'
 import { useIsPreviewing, useDiffHunks, useDiffStore } from '../../store/diffStore'
 import { DiffKind } from '../../types/diff'
 import { EyeIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
+// Safe import with fallback
+let log: (source: string, message: string, data?: any) => void
+try {
+  const logStore = require('../../store/logStore')
+  log = logStore.log
+} catch (error) {
+  console.error('Failed to import logStore:', error)
+  // Fallback to console.log
+  log = (source: string, message: string, data?: any) => {
+    console.log(`[${source}] ${message}`, data)
+  }
+}
 
 interface DiffPreviewBarProps {
   onApply: () => void
@@ -18,7 +30,13 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
   const hunks = useDiffHunks()
   const error = useDiffStore(state => state.error)
   
+  log('visual-diff', `[🎨 Diff Apply] DiffPreviewBar rendered.`, { isPreviewing, hunksCount: hunks?.length || 0, isLoading });
+  
   if (!isPreviewing || !hunks) {
+    // Add a log to confirm why it's not showing
+    if (isPreviewing && !hunks) {
+      log('visual-diff', `[🎨 Diff Apply] DiffPreviewBar is hidden because there are no diffs to show.`);
+    }
     return null
   }
   
@@ -29,6 +47,12 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
   }, {} as Record<DiffKind, number>)
   
   const totalChanges = hunks.length
+  
+  const additions = hunks.filter(d => d.kind === DiffKind.Added).length;
+  const modifications = hunks.filter(d => d.kind === DiffKind.ValueChanged || d.kind === DiffKind.FormulaChanged).length;
+  const deletions = hunks.filter(d => d.kind === DiffKind.Deleted).length;
+
+  log('visual-diff', `[🎨 Diff Apply] Diff summary:`, { additions, modifications, deletions });
   
   return (
     <div className="fixed bottom-20 left-1/2 transform -translate-x-1/2 z-50 

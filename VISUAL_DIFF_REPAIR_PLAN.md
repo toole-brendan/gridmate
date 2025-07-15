@@ -379,7 +379,162 @@ The tool execution methods will be refactored to correctly parse sheet names fro
 
 ---
 
-## 4. Verification Plan
+## 4. Additional Improvements
+
+Based on code analysis, here are important enhancements to make the solution more robust:
+
+### 4.1 Enhanced Range Parsing
+
+The range parsing regex should handle more Excel range formats:
+
+```typescript
+function parseRange(rangeStr: string, activeSheetName: string): { sheet: string, startRow: number, startCol: number, endRow?: number, endCol?: number } | null {
+    let sheet = activeSheetName;
+    let rangePart = rangeStr;
+
+    // Handle sheet prefix (including quoted sheet names like 'Sheet Name'!A1)
+    if (rangeStr.includes('!')) {
+        const parts = rangeStr.split('!');
+        sheet = parts[0].replace(/^'|'$/g, ''); // Remove surrounding quotes
+        rangePart = parts[1];
+    }
+
+    // Enhanced regex to handle:
+    // - Single cells: A1, $A$1
+    // - Ranges: A1:B2, $A$1:$B$2
+    // - Mixed references: $A1:B$2
+    const match = rangePart.match(/^\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/);
+    if (!match) return null;
+
+    const startCol = columnToIndex(match[1]);
+    const startRow = parseInt(match[2], 10) - 1;
+    
+    let result: any = { sheet, startRow, startCol };
+    
+    // If it's a range (has end cell)
+    if (match[3] && match[4]) {
+        result.endRow = parseInt(match[4], 10) - 1;
+        result.endCol = columnToIndex(match[3]);
+    }
+
+    return result;
+}
+```
+
+### 4.2 Fix Clear Range Implementation
+
+The `simulateClearRange` function needs proper implementation:
+
+```typescript
+function simulateClearRange(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
+    const { range } = input;
+    if (!range) return;
+
+    const parsedRange = parseRange(range, activeSheetName);
+    if (!parsedRange) return;
+
+    const { sheet, startRow, startCol, endRow, endCol } = parsedRange;
+    
+    // Determine the range bounds
+    const rowStart = startRow;
+    const rowEnd = endRow ?? startRow;
+    const colStart = startCol;
+    const colEnd = endCol ?? startCol;
+    
+    // Clear all cells in the range
+    for (let row = rowStart; row <= rowEnd; row++) {
+        for (let col = colStart; col <= colEnd; col++) {
+            const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+            delete snapshot[key];
+        }
+    }
+}
+```
+
+### 4.3 Handle Array Formulas
+
+Update `simulateApplyFormula` to handle multi-cell formula ranges:
+
+```typescript
+function simulateApplyFormula(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
+    const { range, formula } = input;
+    if (!range || !formula) return;
+
+    const parsedRange = parseRange(range, activeSheetName);
+    if (!parsedRange) return;
+
+    const { sheet, startRow, startCol, endRow, endCol } = parsedRange;
+    
+    // For single cell
+    if (!endRow || !endCol) {
+        const key = `${sheet}!${indexToColumn(startCol)}${startRow + 1}`;
+        if (!snapshot[key]) {
+            snapshot[key] = {};
+        }
+        snapshot[key]!.f = formula;
+    } else {
+        // For multi-cell ranges (array formulas)
+        for (let row = startRow; row <= endRow; row++) {
+            for (let col = startCol; col <= endCol; col++) {
+                const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+                if (!snapshot[key]) {
+                    snapshot[key] = {};
+                }
+                // Excel array formulas are typically surrounded by {} in the UI
+                // but stored without them in the formula property
+                snapshot[key]!.f = formula;
+            }
+        }
+    }
+}
+```
+
+### 4.4 Add Clear Range Support to ExcelService
+
+Add the missing `toolClearRange` implementation:
+
+```typescript
+private async toolClearRange(input: any): Promise<any> {
+    const { range, clear_contents = true, clear_formats = false } = input;
+    
+    return Excel.run(async (context: any) => {
+        try {
+            const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
+            const excelRange = worksheet.getRange(rangeAddress);
+            
+            console.log(`🧹 Clearing range ${range} on sheet ${worksheet.name}`);
+            
+            if (clear_contents && clear_formats) {
+                excelRange.clear();
+            } else if (clear_contents) {
+                excelRange.clear(Excel.ClearApplyTo.contents);
+            } else if (clear_formats) {
+                excelRange.clear(Excel.ClearApplyTo.formats);
+            }
+            
+            await context.sync();
+            
+            return { message: 'Range cleared successfully', status: 'success' };
+
+        } catch (error) {
+            console.error(`❌ Failed to clear range ${range}:`, error);
+            if (error instanceof Error && (error as any).code === 'ItemNotFound') {
+                throw new Error(`Sheet or range not found for "${range}". Please ensure the sheet exists.`);
+            }
+            throw new Error(`Failed to clear range "${range}": ${(error as Error).message}`);
+        }
+    });
+}
+```
+
+Don't forget to add it to the switch statement in `executeToolRequest`:
+
+```typescript
+case 'clear_range':
+    return await this.toolClearRange(input)
+```
+
+## 5. Verification Plan
 
 After implementing the fixes above, the following scenarios must be tested thoroughly to ensure the issues are resolved and no regressions have been introduced.
 
@@ -398,3 +553,59 @@ After implementing the fixes above, the following scenarios must be tested thoro
 4.  **Incorrect Edit Rejection Test:**
     - **Action:** Ask the AI to perform a non-sensical action, like "write my name in cell A1:Z1000".
     - **Expected Result:** A visual diff should appear, highlighting a large range. The user should be able to click "Cancel" or "Reject" on the `DiffPreviewBar`, which should clear all highlights and make no changes to the sheet.
+
+5.  **Clear Range Test:**
+    - **Action:** Fill cells A1:C3 with data. Ask the AI to "clear the contents of A1:C3".
+    - **Expected Result:** The range A1:C3 should highlight in red (deletion). Applying the diff should clear the contents.
+
+6.  **Absolute Reference Test:**
+    - **Action:** Ask the AI to "write 'Fixed' in $B$2".
+    - **Expected Result:** The absolute reference should be parsed correctly and B2 should be highlighted.
+
+7.  **Quoted Sheet Name Test:**
+    - **Action:** Create a sheet named "My Sheet" (with space). Ask the AI to "write 'Test' in 'My Sheet'!A1".
+    - **Expected Result:** The quoted sheet name should be handled correctly.
+
+8.  **Array Formula Test:**
+    - **Action:** Ask the AI to "apply the formula =A1:A3*2 to cells B1:B3" (array formula).
+    - **Expected Result:** All three cells B1:B3 should highlight and receive the formula.
+
+## 6. Unit Test Coverage
+
+Consider adding unit tests for the new utility functions:
+
+```typescript
+// Example test cases for parseRange
+describe('parseRange', () => {
+    it('should parse simple cell reference', () => {
+        const result = parseRange('A1', 'Sheet1');
+        expect(result).toEqual({ sheet: 'Sheet1', startRow: 0, startCol: 0 });
+    });
+
+    it('should parse range with sheet name', () => {
+        const result = parseRange('Sheet2!B2:C3', 'Sheet1');
+        expect(result).toEqual({ 
+            sheet: 'Sheet2', 
+            startRow: 1, 
+            startCol: 1,
+            endRow: 2,
+            endCol: 2
+        });
+    });
+
+    it('should handle quoted sheet names', () => {
+        const result = parseRange("'My Sheet'!A1", 'Sheet1');
+        expect(result).toEqual({ sheet: 'My Sheet', startRow: 0, startCol: 0 });
+    });
+
+    it('should handle absolute references', () => {
+        const result = parseRange('$A$1:$B$2', 'Sheet1');
+        expect(result).toEqual({ 
+            sheet: 'Sheet1', 
+            startRow: 0, 
+            startCol: 0,
+            endRow: 1,
+            endCol: 1
+        });
+    });
+});

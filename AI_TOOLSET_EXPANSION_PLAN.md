@@ -4,6 +4,11 @@
 
 This document outlines the implementation plan to evolve the AI's capabilities from a set of low-level primitives to a suite of high-level, domain-specific tools tailored for advanced financial modeling. The goal is to create a "Cursor-like" experience where the AI can understand and execute complex, multi-step tasks that are central to an analyst's daily workflow.
 
+This plan primarily involves modifications to the following key files:
+-   **Frontend Tool Implementation**: `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/excel/ExcelService.ts` is where the client-side logic for each tool will be implemented.
+-   **Backend AI Configuration**: `/Users/brendantoole/projects2/gridmate/backend/internal/services/ai/prompt_builder.go` is where the tool definitions will be added to the system prompt to make the AI aware of its new capabilities.
+-   **Backend Data Service (New File)**: `/Users/brendantoole/projects2/gridmate/backend/internal/services/financialdata/service.go` will be created to handle fetching data from external financial APIs.
+
 This plan is guided by two core principles:
 1.  **Context Window Efficiency**: Tools are designed as high-leverage abstractions to minimize the number of back-and-forth calls with the AI.
 2.  **Workflow Alignment**: New tools map directly to the common, repetitive, and high-value tasks performed by financial analysts.
@@ -385,7 +390,193 @@ private async toolFetchFinancialData(input: any): Promise<any> {
 
 ---
 
-## 5. Implementation and Verification Steps
+## 5. New Tools for Aesthetics and Native Features
+
+This section details tools for controlling visual layout and for replicating common, native Excel features that are not directly exposed by the APIs.
+
+### 5.1. Tool: `apply_layout`
+
+-   **Objective**: To provide the AI with precise control over the visual layout of cells, including merging, setting dimensions, and applying borders.
+-   **User Prompt Examples**:
+    -   *"Merge cells A1 through E1 for the main header."*
+    -   *"Set the width of column C to 30."*
+    -   *"Put an outline border around the selected table."*
+
+#### Frontend Implementation
+
+**File to Modify**: `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/excel/ExcelService.ts`
+
+**Action**: Add the following method and wire it into the `executeToolRequest` switch statement.
+
+```typescript
+// Add to the executeToolRequest switch statement:
+// case 'apply_layout':
+//   return await this.toolApplyLayout(input);
+
+private async toolApplyLayout(input: any): Promise<any> {
+  const { range, merge, row_height, column_width, auto_fit, border } = input;
+
+  return Excel.run(async (context: any) => {
+    const excelRange = context.workbook.worksheets.getActiveWorksheet().getRange(range);
+
+    if (merge) {
+      excelRange.merge(merge === 'across');
+    }
+    if (row_height) {
+      excelRange.format.rowHeight = row_height;
+    }
+    if (column_width) {
+      excelRange.format.columnWidth = column_width;
+    }
+    if (auto_fit) {
+      if (auto_fit === 'rows') excelRange.format.autofitRows();
+      if (auto_fit === 'columns') excelRange.format.autofitColumns();
+    }
+    if (border) {
+      const { edge, style, weight, color } = border;
+      const borderStyle = style || 'Continuous';
+      const borderWeight = weight || 'Thin';
+      const borderColor = color || 'Black';
+      
+      const borderObj = excelRange.format.borders.getItem(edge);
+      borderObj.style = borderStyle;
+      borderObj.weight = borderWeight;
+      borderObj.color = borderColor;
+    }
+
+    await context.sync();
+    return { status: 'success', message: `Layout applied successfully to ${range}.` };
+  });
+}
+```
+
+#### Backend Definition
+
+**File to Modify**: `/Users/brendantoole/projects2/gridmate/backend/internal/services/ai/prompt_builder.go`
+
+**Action**: Add the following tool definition to the system prompt.
+
+```json
+{
+  "tool_name": "apply_layout",
+  "description": "Modifies the visual layout of the worksheet. Can merge cells, set row heights and column widths, autofit, and apply borders.",
+  "parameters": [
+    { "name": "range", "type": "string", "description": "The target range for the layout change, e.g., 'A1:C10'." },
+    { "name": "merge", "type": "string", "enum": ["all", "across"], "description": "Optional. 'all' merges the entire range into one cell. 'across' merges each row in the range individually." },
+    { "name": "row_height", "type": "number", "description": "Optional. Sets the height for all rows in the range." },
+    { "name": "column_width", "type": "number", "description": "Optional. Sets the width for all columns in the range." },
+    { "name": "auto_fit", "type": "string", "enum": ["rows", "columns"], "description": "Optional. Auto-fits the height of rows or the width of columns in the range based on their content." },
+    { "name": "border", "type": "object", "description": "Optional. Applies a border. Specify 'edge' ('Top', 'Bottom', 'Left', 'Right', 'Outline', 'Inside') and optionally 'style' ('Continuous', 'Dash', 'Dot'), 'weight' ('Thin', 'Medium', 'Thick'), and 'color'." }
+  ]
+}
+```
+
+### 5.2. Tool: `sort_range`
+
+-   **Objective**: To replicate Excel's native sorting functionality.
+-   **User Prompt Example**: *"Sort the table from A3 to F50 by the values in column D in descending order."*
+
+#### Frontend Implementation
+
+**File to Modify**: `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/excel/ExcelService.ts`
+
+**Action**: Add the following method and wire it into the `executeToolRequest` switch statement.
+
+```typescript
+// Add to the executeToolRequest switch statement:
+// case 'sort_range':
+//   return await this.toolSortRange(input);
+
+private async toolSortRange(input: any): Promise<any> {
+  const { range, sort_by } = input;
+
+  return Excel.run(async (context: any) => {
+    const excelRange = context.workbook.worksheets.getActiveWorksheet().getRange(range);
+    const sortFields = sort_by.map(field => ({
+      key: field.column_index, // Assumes column index is provided
+      ascending: field.order !== 'descending',
+    }));
+
+    excelRange.sort.apply(sortFields);
+    await context.sync();
+    return { status: 'success', message: `Range ${range} sorted.` };
+  });
+}
+```
+
+#### Backend Definition
+
+**File to Modify**: `/Users/brendantoole/projects2/gridmate/backend/internal/services/ai/prompt_builder.go`
+
+**Action**: Add the following tool definition to the system prompt.
+
+```json
+{
+  "tool_name": "sort_range",
+  "description": "Sorts a range of data based on one or more columns.",
+  "parameters": [
+    { "name": "range", "type": "string", "description": "The entire range to sort, including headers, e.g., 'A1:G50'." },
+    { "name": "sort_by", "type": "array", "items": {
+        "type": "object",
+        "properties": {
+          "column_index": { "type": "number", "description": "The 0-based index of the column to sort by within the specified range." },
+          "order": { "type": "string", "enum": ["ascending", "descending"], "description": "The sort order." }
+        }
+      }, "description": "An array of objects specifying the columns and order to sort by."
+    }
+  ]
+}
+```
+
+### 5.3. Tool: `remove_duplicates`
+
+-   **Objective**: To replicate Excel's native "Remove Duplicates" feature.
+-   **User Prompt Example**: *"Remove duplicates from my selection based on the first column."*
+
+#### Frontend Implementation
+
+**File to Modify**: `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/excel/ExcelService.ts`
+
+**Action**: Add the following method and wire it into the `executeToolRequest` switch statement.
+
+```typescript
+// Add to the executeToolRequest switch statement:
+// case 'remove_duplicates':
+//   return await this.toolRemoveDuplicates(input);
+
+private async toolRemoveDuplicates(input: any): Promise<any> {
+  const { range, key_columns_indices } = input;
+
+  return Excel.run(async (context: any) => {
+    const excelRange = context.workbook.worksheets.getActiveWorksheet().getRange(range);
+    const result = excelRange.removeDuplicates(key_columns_indices, true); // true = hasHeaders
+    result.load('removed');
+    await context.sync();
+    return { status: 'success', message: `${result.removed} duplicate rows were removed.` };
+  });
+}
+```
+
+#### Backend Definition
+
+**File to Modify**: `/Users/brendantoole/projects2/gridmate/backend/internal/services/ai/prompt_builder.go`
+
+**Action**: Add the following tool definition to the system prompt.
+
+```json
+{
+  "tool_name": "remove_duplicates",
+  "description": "Removes duplicate rows from a specified range based on the values in key columns.",
+  "parameters": [
+    { "name": "range", "type": "string", "description": "The range to process, e.g., 'A1:D100'." },
+    { "name": "key_columns_indices", "type": "array", "items": { "type": "number" }, "description": "An array of 0-based column indices within the range to check for duplicates." }
+  ]
+}
+```
+
+---
+
+## 6. Implementation and Verification Steps
 
 1.  **Modify Frontend**: Open `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/excel/ExcelService.ts` and add/update the methods as described above. Ensure each new tool is added to the `executeToolRequest` switch statement.
 2.  **Modify Backend (Prompting)**: Open `/Users/brendantoole/projects2/gridmate/backend/internal/services/ai/prompt_builder.go` and add/update the JSON tool definitions within the system prompt string.

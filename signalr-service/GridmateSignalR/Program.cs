@@ -70,6 +70,11 @@ app.MapPost("/api/forward-to-client", async (
             case "aiResponse":
                 await GridmateHub.SendAIResponseToClient(hubContext, request.SessionId, request.Data);
                 break;
+            case "workbookDiff":
+                // Broadcast to all clients in the workbook group
+                var workbookId = request.SessionId; // In this case, SessionId is actually the workbookId
+                await hubContext.Clients.Group($"workbook_{workbookId}").SendAsync("workbookDiff", request.Data);
+                break;
             default:
                 return Results.BadRequest($"Unknown message type: {request.Type}");
         }

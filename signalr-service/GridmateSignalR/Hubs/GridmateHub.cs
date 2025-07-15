@@ -77,8 +77,46 @@ namespace GridmateSignalR.Hubs
             });
         }
 
+        // Join a workbook group for receiving diff broadcasts
+        public async Task JoinWorkbookGroup(string workbookId)
+        {
+            if (string.IsNullOrEmpty(workbookId))
+            {
+                await Clients.Caller.SendAsync("error", "Workbook ID required");
+                return;
+            }
+
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"workbook_{workbookId}");
+            _logger.LogInformation($"Connection {Context.ConnectionId} joined workbook group: {workbookId}");
+            
+            await Clients.Caller.SendAsync("joinedWorkbookGroup", new
+            {
+                workbookId,
+                timestamp = DateTime.UtcNow
+            });
+        }
+
+        // Leave a workbook group
+        public async Task LeaveWorkbookGroup(string workbookId)
+        {
+            if (string.IsNullOrEmpty(workbookId))
+            {
+                await Clients.Caller.SendAsync("error", "Workbook ID required");
+                return;
+            }
+
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"workbook_{workbookId}");
+            _logger.LogInformation($"Connection {Context.ConnectionId} left workbook group: {workbookId}");
+            
+            await Clients.Caller.SendAsync("leftWorkbookGroup", new
+            {
+                workbookId,
+                timestamp = DateTime.UtcNow
+            });
+        }
+
         // Send chat message to backend
-        public async Task SendChatMessage(string sessionId, string content, object excelContext = null, string autonomyMode = "agent-default")
+        public async Task SendChatMessage(string sessionId, string content, object? excelContext = null, string autonomyMode = "agent-default")
         {
             UpdateSessionActivity(sessionId);
             _logger.LogInformation($"Chat message from session {sessionId}: {content}");
@@ -149,8 +187,8 @@ namespace GridmateSignalR.Hubs
         }
 
         // Handle tool responses from Excel add-in (enhanced with detailed error info)
-        public async Task SendToolResponse(string requestId, object result, string error = null, 
-            bool queued = false, string errorDetails = null, Dictionary<string, object> metadata = null)
+        public async Task SendToolResponse(string requestId, object? result, string? error = null, 
+            bool queued = false, string? errorDetails = null, Dictionary<string, object>? metadata = null)
         {
             _logger.LogInformation($"Tool response for request {requestId}");
             

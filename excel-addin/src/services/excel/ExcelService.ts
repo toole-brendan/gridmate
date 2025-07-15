@@ -95,6 +95,14 @@ export interface NamedRange {
   comment?: string
 }
 
+export interface WorkbookSnapshot {
+  [key: string]: {
+    v?: string | number | boolean | null  // value
+    f?: string  // formula
+    s?: string  // style (JSON string)
+  }
+}
+
 export class ExcelService {
   private static instance: ExcelService
 
@@ -1127,5 +1135,137 @@ export class ExcelService {
 
   async applyFormula(range: string, formula: string): Promise<any> {
     return this.toolApplyFormula({ range, formula })
+  }
+
+  // Create a snapshot of the workbook for diff comparison
+  async createWorkbookSnapshot(options: {
+    rangeAddress?: string
+    includeFormulas?: boolean
+    includeStyles?: boolean
+    maxCells?: number
+  } = {}): Promise<WorkbookSnapshot> {
+    const {
+      rangeAddress = 'A1:Z100', // Default range to scan
+      includeFormulas = true,
+      includeStyles = true,
+      maxCells = 10000
+    } = options
+
+    return Excel.run(async (context: any) => {
+      const worksheet = context.workbook.worksheets.getActiveWorksheet()
+      worksheet.load('name')
+      
+      // Get the used range or specified range
+      let range: any
+      if (rangeAddress === 'UsedRange') {
+        range = worksheet.getUsedRange()
+        if (!range) {
+          return {} // Empty worksheet
+        }
+      } else {
+        range = worksheet.getRange(rangeAddress)
+      }
+      
+      // Load required properties efficiently
+      const propertiesToLoad = ['address', 'values', 'rowCount', 'columnCount']
+      if (includeFormulas) {
+        propertiesToLoad.push('formulas')
+      }
+      range.load(propertiesToLoad)
+      
+      await context.sync()
+      
+      // Check if we're within the cell limit
+      const totalCells = range.rowCount * range.columnCount
+      if (totalCells > maxCells) {
+        console.warn(`Range contains ${totalCells} cells, exceeding limit of ${maxCells}`)
+        // You might want to handle this by sampling or limiting the range
+      }
+      
+      const snapshot: WorkbookSnapshot = {}
+      const sheetName = worksheet.name
+      
+      // Process each cell in the range
+      for (let row = 0; row < range.rowCount; row++) {
+        for (let col = 0; col < range.columnCount; col++) {
+          const value = range.values[row][col]
+          const formula = includeFormulas ? range.formulas[row][col] : null
+          
+          // Skip empty cells to save space
+          if (value === null && value === '' && !formula) {
+            continue
+          }
+          
+          // Calculate the cell address
+          const cellAddress = this.getCellAddressFromRange(range.address, row, col)
+          const key = `${sheetName}!${cellAddress}`
+          
+          const cellSnapshot: any = {}
+          
+          // Add value if present
+          if (value !== null && value !== '') {
+            cellSnapshot.v = value
+          }
+          
+          // Add formula if present and different from value
+          if (formula && formula !== value) {
+            cellSnapshot.f = formula
+          }
+          
+          // Add style if requested (for now, we'll skip this for performance)
+          if (includeStyles && false) { // Disabled for initial implementation
+            // Style loading is expensive, implement later if needed
+            cellSnapshot.s = JSON.stringify({})
+          }
+          
+          // Only add to snapshot if cell has content
+          if (Object.keys(cellSnapshot).length > 0) {
+            snapshot[key] = cellSnapshot
+          }
+        }
+      }
+      
+      return snapshot
+    })
+  }
+  
+  // Helper method to calculate cell address from range and indices
+  private getCellAddressFromRange(rangeAddress: string, rowIndex: number, colIndex: number): string {
+    // Extract the starting cell from range address (e.g., "A1" from "A1:B10")
+    const match = rangeAddress.match(/([A-Z]+)(\d+)/)
+    if (!match) return 'A1'
+    
+    const startCol = match[1]
+    const startRow = parseInt(match[2])
+    
+    // Convert column letters to number
+    const startColNum = this.columnLetterToNumber(startCol)
+    
+    // Calculate new position
+    const newColNum = startColNum + colIndex
+    const newRow = startRow + rowIndex
+    
+    // Convert back to letter
+    const newCol = this.numberToColumnLetter(newColNum)
+    
+    return `${newCol}${newRow}`
+  }
+  
+  private columnLetterToNumber(col: string): number {
+    let num = 0
+    for (let i = 0; i < col.length; i++) {
+      num = num * 26 + (col.charCodeAt(i) - 'A'.charCodeAt(0) + 1)
+    }
+    return num
+  }
+  
+  private numberToColumnLetter(num: number): string {
+    let letter = ''
+    while (num > 0) {
+      const remainder = (num - 1) % 26
+      letter = String.fromCharCode(remainder + 'A'.charCodeAt(0)) + letter
+      num = Math.floor((num - 1) / 26)
+    }
+    return letter
   }
 }

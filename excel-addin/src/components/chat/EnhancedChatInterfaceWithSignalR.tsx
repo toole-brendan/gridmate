@@ -21,6 +21,9 @@ import { AutonomyMode } from './AutonomyModeSelector'
 import { EnhancedAutonomySelector } from './EnhancedAutonomySelector'
 import { checkToolSafety, AuditLogger } from '../../utils/safetyChecks'
 import { MentionItem, ContextItem } from '../chat/mentions'
+import { useDiffPreview } from '../../hooks/useDiffPreview'
+import { DiffPreviewBar } from './DiffPreviewBar'
+import { AISuggestedOperation } from '../../types/diff'
 
 // Global SignalR client instance to prevent multiple connections
 let globalSignalRClient: SignalRClient | null = null
@@ -83,6 +86,18 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     const saved = localStorage.getItem('gridmate-autonomy-mode')
     return (saved as AutonomyMode) || 'agent-default'
   })
+  
+  // Workbook ID for diff tracking (you might want to get this from context)
+  const [workbookId] = useState(() => `workbook_${Date.now()}`)
+  
+  // Initialize diff preview hook
+  const {
+    initiatePreview,
+    applyChanges: applyDiffChanges,
+    cancelPreview,
+    isLoading: isDiffLoading,
+    error: diffError
+  } = useDiffPreview(signalRClient.current, workbookId)
   
   // Helper to add to message log
   const addToLog = useCallback((message: string) => {
@@ -381,6 +396,32 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     console.log('🎯 Executing tool request:', { tool, request_id })
     
+    // Check if this is a write operation that should use diff preview
+    const shouldUseDiffPreview = tool.includes('write') || tool.includes('apply') || tool.includes('format')
+    
+    if (shouldUseDiffPreview && autonomyMode === 'agent-default') {
+      // Use diff preview for write operations
+      const operation: AISuggestedOperation = {
+        tool,
+        input,
+        description: getToolDescription(tool)
+      }
+      
+      // Update the suggestion message to show it's being previewed
+      setMessages(prev => prev.map(msg => 
+        msg.id === `tool_${request_id}` && isToolSuggestion(msg)
+          ? { ...msg, status: 'approved', description: msg.tool.description + ' (Previewing changes...)' } as ToolSuggestionMessage
+          : msg
+      ))
+      
+      // Initiate diff preview
+      await initiatePreview([operation])
+      
+      // The actual execution will happen when the user approves the diff
+      return
+    }
+    
+    // For non-write operations or other autonomy modes, execute immediately
     // Update the suggestion message to approved
     setMessages(prev => prev.map(msg => 
       msg.id === `tool_${request_id}` && isToolSuggestion(msg)
@@ -556,7 +597,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     // Remove from queue
     toolRequestQueue.current.delete(request_id)
-  }, [setMessages, isToolSuggestion, addStatusMessage, getToolDescription, updateStatusMessage, removeStatusMessage, autonomyMode, sessionIdRef, signalRClient, toolRequestQueue])
+  }, [setMessages, isToolSuggestion, addStatusMessage, getToolDescription, updateStatusMessage, removeStatusMessage, autonomyMode, sessionIdRef, signalRClient, toolRequestQueue, initiatePreview])
   
   const rejectToolRequest = useCallback(async (toolRequest: any, reason?: string) => {
     const { request_id } = toolRequest
@@ -1068,6 +1109,13 @@ Escape : Reject focused action
         sessionIdRef.current = data.data.sessionId || sessionIdRef.current
         setIsAuthenticated(true)
         addDebugLog(`Authentication successful, session: ${sessionIdRef.current}`, 'success')
+        
+        // Join workbook group for diff broadcasts
+        if (signalRClient.current && workbookId) {
+          signalRClient.current.invoke('JoinWorkbookGroup', workbookId)
+            .then(() => addDebugLog(`Joined workbook group: ${workbookId}`, 'success'))
+            .catch(err => addDebugLog(`Failed to join workbook group: ${err}`, 'error'))
+        }
       }
       
       if (data.type === 'tool_request') {
@@ -1306,6 +1354,13 @@ ${queue.length > 0 ? `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.st
           </details>
         </div>
       </details>
+      
+      {/* Diff Preview Bar */}
+      <DiffPreviewBar
+        onApply={applyDiffChanges}
+        onCancel={cancelPreview}
+        isLoading={isDiffLoading}
+      />
     </div>
   )
 }

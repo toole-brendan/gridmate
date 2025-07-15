@@ -314,7 +314,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     return toolName.startsWith('read_')
   }
 
-  const handleToolRequest = async (toolRequest: any) => {
+  const handleToolRequest = useCallback(async (toolRequest: any) => {
     console.log('🔧 Received tool request:', toolRequest)
     addToLog(`← Received tool_request: ${toolRequest.tool} (${toolRequest.request_id})`)
     
@@ -369,9 +369,9 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     // Execute immediately
     await executeToolRequest(toolRequest)
-  }
+  }, [autonomyMode, addDebugLog, addToLog, createToolSuggestionMessage, setMessages, executeToolRequest, rejectToolRequest, toolRequestQueue, signalRClient, isReadOnlyTool])
   
-  const executeToolRequest = async (toolRequest: any) => {
+  const executeToolRequest = useCallback(async (toolRequest: any) => {
     const { tool, request_id, ...input } = toolRequest
     
     console.log('🎯 Executing tool request:', { tool, request_id })
@@ -551,9 +551,9 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     // Remove from queue
     toolRequestQueue.current.delete(request_id)
-  }
+  }, [setMessages, isToolSuggestion, addStatusMessage, getToolDescription, updateStatusMessage, removeStatusMessage, autonomyMode, sessionIdRef, signalRClient, toolRequestQueue])
   
-  const rejectToolRequest = async (toolRequest: any, reason?: string) => {
+  const rejectToolRequest = useCallback(async (toolRequest: any, reason?: string) => {
     const { request_id } = toolRequest
     
     // Update the suggestion message to rejected
@@ -575,7 +575,15 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     // Remove from queue
     toolRequestQueue.current.delete(request_id)
-  }
+  }, [setMessages, isToolSuggestion, signalRClient, toolRequestQueue])
+  
+  // Create a ref to hold the stable handleToolRequest callback
+  const handleToolRequestRef = useRef(handleToolRequest)
+  
+  // Update the ref whenever handleToolRequest changes
+  useEffect(() => {
+    handleToolRequestRef.current = handleToolRequest
+  }, [handleToolRequest])
   
   
   // Handle bulk approval/rejection for ALL pending tools
@@ -1047,7 +1055,7 @@ Escape : Reject focused action
       }
       
       if (data.type === 'tool_request') {
-        handleToolRequest(data.data)
+        handleToolRequestRef.current(data.data)
       }
       
       if (data.type === 'ai_response') {

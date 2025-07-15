@@ -116,9 +116,14 @@ export const MentionableTextarea: React.FC<MentionableTextareaProps> = ({
   }
   
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showAutocomplete) {
-      // Let autocomplete handle arrow keys and enter
-      if (['ArrowUp', 'ArrowDown', 'Enter', 'Tab'].includes(e.key)) {
+    if (showAutocomplete && filteredMentions.length > 0) {
+      // Only intercept navigation keys when there are actual mentions to select
+      if (['ArrowUp', 'ArrowDown', 'Tab'].includes(e.key)) {
+        e.preventDefault()
+        return
+      }
+      // Only intercept Enter if there are mentions to select from
+      if (e.key === 'Enter') {
         e.preventDefault()
         return
       }

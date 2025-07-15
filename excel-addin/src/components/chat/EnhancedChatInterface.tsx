@@ -214,7 +214,13 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                 : 'bg-gray-100 text-gray-900'
             }`}
           >
-            <p className="text-sm whitespace-pre-wrap select-text" style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
+            <p className="text-sm whitespace-pre-wrap select-text" style={{ 
+              userSelect: 'text', 
+              WebkitUserSelect: 'text',
+              MozUserSelect: 'text',
+              msUserSelect: 'text',
+              cursor: 'text'
+            }}>
               {message.content}
             </p>
             {message.metadata?.suggestedActions && message.metadata.suggestedActions.length > 0 && (
@@ -229,7 +235,13 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                 </div>
               </div>
             )}
-            <p className="text-xs opacity-70 mt-1 select-text" style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
+            <p className="text-xs opacity-70 mt-1 select-text" style={{ 
+              userSelect: 'text', 
+              WebkitUserSelect: 'text',
+              MozUserSelect: 'text',
+              msUserSelect: 'text',
+              cursor: 'text'
+            }}>
               {new Date(message.timestamp).toLocaleTimeString()}
             </p>
           </div>
@@ -460,7 +472,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
             
             {/* Send Button */}
             <button
-              onClick={handleSendMessage}
+              onClick={() => handleSendMessage()}
               disabled={!input.trim() || isLoading}
               className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               title="Send message"

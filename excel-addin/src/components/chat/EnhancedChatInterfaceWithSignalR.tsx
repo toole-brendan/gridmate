@@ -297,9 +297,30 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     return times[toolName] || '1-5s'
   }
   
+  // Helper function to identify read-only tools that should be auto-approved
+  const isReadOnlyTool = (toolName: string): boolean => {
+    return toolName.startsWith('read_')
+  }
+
   const handleToolRequest = async (toolRequest: any) => {
     console.log('🔧 Received tool request:', toolRequest)
     addToLog(`← Received tool_request: ${toolRequest.tool} (${toolRequest.request_id})`)
+    
+    // Auto-approve read-only tools regardless of autonomy mode
+    if (isReadOnlyTool(toolRequest.tool)) {
+      addDebugLog(`Auto-approving read-only tool: ${toolRequest.tool}`, 'info')
+      
+      // Create tool suggestion message with auto-approved status
+      const suggestionMessage = createToolSuggestionMessage(toolRequest)
+      suggestionMessage.status = 'approved'
+      // Add a visual indicator that this was auto-approved
+      suggestionMessage.description = (suggestionMessage.description || '') + ' (Auto-approved)'
+      setMessages(prev => [...prev, suggestionMessage])
+      
+      // Execute immediately
+      await executeToolRequest(toolRequest)
+      return
+    }
     
     if (autonomyMode === 'ask') {
       // In Ask mode, immediately reject
@@ -989,25 +1010,90 @@ Escape : Reject focused action
       />
       
       {/* Debug Info (collapsed by default) */}
-      <details style={{ 
+      <details data-debug="true" style={{ 
         borderTop: '1px solid #374151', 
         backgroundColor: '#1f2937',
         fontSize: '11px',
         padding: '8px 12px',
-        color: '#e5e7eb'
+        color: '#e5e7eb',
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
+        MozUserSelect: 'text',
+        msUserSelect: 'text'
       }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 'medium', color: '#e5e7eb' }}>
-          Debug Info
+        <summary style={{ 
+          cursor: 'pointer', 
+          fontWeight: 'medium', 
+          color: '#e5e7eb',
+          userSelect: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <span>Debug Info</span>
         </summary>
-        <div style={{ marginTop: '8px', fontFamily: 'monospace' }}>
+        <div style={{ 
+          marginTop: '8px', 
+          fontFamily: 'monospace',
+          userSelect: 'text',
+          WebkitUserSelect: 'text',
+          MozUserSelect: 'text',
+          msUserSelect: 'text'
+        }}>
           <div>Session: {sessionIdRef.current}</div>
           <div>Mode: {autonomyMode}</div>
           <div>Connection: {connectionStatus} {isAuthenticated ? '(authenticated)' : '(not authenticated)'}</div>
           <div>SignalR Connected: {signalRClient.current?.isConnected() ? 'Yes' : 'No'}</div>
           
+          {/* Copy All Debug Info Button */}
+          <button
+            onClick={() => {
+              const debugInfo = `Debug Info - ${new Date().toISOString()}
+=====================================
+Session: ${sessionIdRef.current}
+Mode: ${autonomyMode}
+Connection: ${connectionStatus} ${isAuthenticated ? '(authenticated)' : '(not authenticated)'}
+SignalR Connected: ${signalRClient.current?.isConnected() ? 'Yes' : 'No'}
+
+Debug Logs:
+${debugLogs.map(log => `[${log.time}] [${log.type.toUpperCase()}] ${log.message}`).join('\n')}
+
+Audit Logs (last 10):
+${AuditLogger.getRecentLogs(10).reverse().map(log => 
+  `${new Date(log.timestamp).toLocaleTimeString()} - ${log.toolName} - ${log.result} ${log.autonomyMode ? `(${log.autonomyMode})` : ''}${log.error ? ` - Error: ${log.error}` : ''}`
+).join('\n')}
+
+Queue Summary:
+Pending: ${summary.pendingCount}
+Completed: ${summary.completedCount}
+Failed: ${summary.failedCount}
+In Progress: ${summary.inProgressCount}
+${queue.length > 0 ? `\nQueue Items:\n${queue.map((op, i) => `${i + 1}. [${op.status}] ${op.toolName} - ${op.description}`).join('\n')}` : ''}`;
+
+              navigator.clipboard.writeText(debugInfo).then(() => {
+                addDebugLog('Debug info copied to clipboard', 'success');
+              }).catch(err => {
+                addDebugLog(`Failed to copy: ${err}`, 'error');
+              });
+            }}
+            style={{
+              marginTop: '8px',
+              padding: '4px 8px',
+              backgroundColor: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              cursor: 'pointer',
+              userSelect: 'none'
+            }}
+          >
+            📋 Copy All Debug Info
+          </button>
+          
           {/* Debug Logs */}
-          <details style={{ marginTop: '8px' }}>
-            <summary style={{ cursor: 'pointer' }}>Debug Logs ({debugLogs.length})</summary>
+          <details data-debug="true" style={{ marginTop: '8px' }}>
+            <summary style={{ cursor: 'pointer', userSelect: 'none' }}>Debug Logs ({debugLogs.length})</summary>
             <div style={{ 
               marginTop: '4px', 
               maxHeight: '200px', 
@@ -1017,7 +1103,11 @@ Escape : Reject focused action
               backgroundColor: '#0d1117',
               padding: '8px',
               borderRadius: '4px',
-              border: '1px solid #30363d'
+              border: '1px solid #30363d',
+              userSelect: 'text',
+              WebkitUserSelect: 'text',
+              MozUserSelect: 'text',
+              msUserSelect: 'text'
             }}>
               {debugLogs.map((log, index) => (
                 <div key={index} style={{ 
@@ -1035,7 +1125,7 @@ Escape : Reject focused action
             </div>
           </details>
           
-          <details style={{ marginTop: '8px' }}>
+          <details data-debug="true" style={{ marginTop: '8px' }}>
             <summary style={{ cursor: 'pointer' }}>Audit Log (last 10)</summary>
             <div style={{ 
               marginTop: '4px', 

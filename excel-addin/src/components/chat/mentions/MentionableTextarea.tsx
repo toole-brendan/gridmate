@@ -5,6 +5,7 @@ interface MentionableTextareaProps {
   value: string
   onChange: (value: string) => void
   onKeyPress?: (e: React.KeyboardEvent) => void
+  onKeyDown?: (e: React.KeyboardEvent) => void
   placeholder?: string
   disabled?: boolean
   rows?: number
@@ -17,6 +18,7 @@ export const MentionableTextarea: React.FC<MentionableTextareaProps> = ({
   value,
   onChange,
   onKeyPress,
+  onKeyDown,
   placeholder,
   disabled,
   rows = 2,
@@ -116,13 +118,13 @@ export const MentionableTextarea: React.FC<MentionableTextareaProps> = ({
   }
   
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showAutocomplete && filteredMentions.length > 0) {
-      // Only intercept navigation keys when there are actual mentions to select
+    if (showAutocomplete) {
+      // Only intercept navigation keys when autocomplete is shown
       if (['ArrowUp', 'ArrowDown', 'Tab'].includes(e.key)) {
         e.preventDefault()
         return
       }
-      // Only intercept Enter if there are mentions to select from
+      // Only intercept Enter when autocomplete is shown
       if (e.key === 'Enter') {
         e.preventDefault()
         return
@@ -133,7 +135,11 @@ export const MentionableTextarea: React.FC<MentionableTextareaProps> = ({
       setShowAutocomplete(false)
       setMentionStartIndex(-1)
       setMentionSearch('')
+      return
     }
+    
+    // Call parent's onKeyDown if provided
+    onKeyDown?.(e)
   }
   
   // Close autocomplete when clicking outside

@@ -18,50 +18,69 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove }) => {
   const getIcon = () => {
     switch (item.type) {
       case 'sheet':
-        return '📊'
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+          </svg>
+        )
       case 'range':
-        return '📍'
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+          </svg>
+        )
       case 'filter':
-        return '🔍'
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+          </svg>
+        )
       case 'selection':
-        return '🎯'
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        )
       default:
-        return '📌'
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+          </svg>
+        )
     }
   }
   
-  const getTypeColor = () => {
+  const getTypeStyles = () => {
     switch (item.type) {
       case 'sheet':
-        return 'bg-blue-900/30 text-blue-400 border-blue-500/50'
+        return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
       case 'range':
-        return 'bg-green-900/30 text-green-400 border-green-500/50'
+        return 'bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/20'
       case 'filter':
-        return 'bg-purple-900/30 text-purple-400 border-purple-500/50'
+        return 'bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20'
       case 'selection':
-        return 'bg-orange-900/30 text-orange-400 border-orange-500/50'
+        return 'bg-orange-500/10 text-orange-400 border-orange-500/20 hover:bg-orange-500/20'
       default:
-        return 'bg-gray-700/30 text-gray-400 border-gray-500/50'
+        return 'bg-gray-500/10 text-gray-400 border-gray-500/20 hover:bg-gray-500/20'
     }
   }
   
   return (
     <div className={`
-      inline-flex items-center space-x-1.5 px-2 py-1 rounded-full text-xs
-      border transition-all duration-200 ${getTypeColor()}
-      ${item.removable ? 'pr-1' : ''}
+      inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+      border transition-all duration-150 cursor-default ${getTypeStyles()}
     `}>
-      <span>{getIcon()}</span>
-      <span className="font-medium">{item.label}:</span>
-      <span className="opacity-80">{item.value}</span>
+      {getIcon()}
+      <span>{item.label}:</span>
+      <span className="font-normal opacity-80">{item.value}</span>
       
       {item.removable && onRemove && (
         <button
           onClick={() => onRemove(item.id)}
-          className="ml-1 p-0.5 rounded-full hover:bg-white/10 transition-colors"
+          className="ml-1 -mr-1 p-0.5 rounded hover:bg-black/20 transition-colors group"
           title="Remove context"
         >
-          <XMarkIcon className="w-3 h-3" />
+          <XMarkIcon className="w-3 h-3 opacity-60 group-hover:opacity-100" />
         </button>
       )}
     </div>

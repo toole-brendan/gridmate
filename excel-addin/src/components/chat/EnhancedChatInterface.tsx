@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Send, Loader2 } from 'lucide-react'
+import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
 import { 
   EnhancedChatMessage, 
   isToolSuggestion, 
@@ -52,6 +53,12 @@ interface EnhancedChatInterfaceProps {
   onClearChat?: () => void
   hasUndo?: boolean
   hasRedo?: boolean
+  // Bulk actions
+  pendingToolsCount?: number
+  onApproveAll?: () => void
+  onRejectAll?: () => void
+  isProcessingBulkAction?: boolean
+  aiIsGenerating?: boolean
 }
 
 export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
@@ -70,7 +77,12 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   onRedo,
   onClearChat,
   hasUndo = false,
-  hasRedo = false
+  hasRedo = false,
+  pendingToolsCount = 0,
+  onApproveAll,
+  onRejectAll,
+  isProcessingBulkAction = false,
+  aiIsGenerating = false
 }) => {
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const [focusedMessageId, setFocusedMessageId] = React.useState<string | null>(null)
@@ -140,7 +152,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     slashCommands
   )
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !showCommands) {
       e.preventDefault()
       handleSendMessage()
@@ -402,8 +414,8 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   return (
     <KeyboardShortcuts shortcuts={shortcuts}>
       <div className="h-full flex flex-col bg-gray-900 text-gray-100">
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Messages Container */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="text-center text-gray-400 mt-8">
             <p className="text-lg font-medium mb-2">Welcome to Gridmate AI</p>
@@ -442,60 +454,135 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
           </div>
         )}
         <div ref={messagesEndRef} />
-      </div>
+        </div>
 
-      {/* Input Container */}
-      <div className="border-t border-gray-700 p-4 bg-gray-800">
-        <div className="space-y-2">
-          {/* Context Pills */}
+        {/* Input Container - Cursor-inspired design */}
+        <div className="border-t border-gray-800/50 bg-gray-900/95">
+          {/* Context Pills - Above input area */}
           {activeContext.length > 0 && (
-            <ContextPillsContainer
-              items={activeContext}
-              onRemove={onContextRemove}
-              className="mb-2"
-            />
+            <div className="px-4 pt-3 pb-2">
+              <ContextPillsContainer
+                items={activeContext}
+                onRemove={onContextRemove}
+                className="flex flex-wrap gap-2"
+              />
+            </div>
           )}
           
-          {/* Textarea with mentions */}
-          <MentionableTextarea
-            value={input}
-            onChange={setInput}
-            onKeyPress={handleKeyPress}
-            placeholder="Ask about your financial model... (Use @ to reference cells)"
-            disabled={isLoading}
-            rows={2}
-            availableMentions={availableMentions}
-            onMentionSelect={onMentionSelect}
-            className="w-full px-4 py-3 border border-gray-600 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-100 bg-gray-700 placeholder-gray-400 text-sm"
-          />
-          
-          {/* Controls Row */}
-          <div className="flex items-center justify-between">
-            {/* Left side: Autonomy Selector and mention hint */}
-            <div className="flex items-center space-x-3">
-              {autonomySelector && (
-                <div className="flex-shrink-0">
-                  {autonomySelector}
-                </div>
-              )}
-              <div className="text-xs text-gray-500">
+          {/* Main Input Area */}
+          <div className="px-4 pb-4">
+            <div className="relative">
+              <MentionableTextarea
+                value={input}
+                onChange={setInput}
+                onKeyDown={handleKeyDown}
+                placeholder="Plan, search, build anything"
+                disabled={isLoading}
+                rows={3}
+                availableMentions={availableMentions}
+                onMentionSelect={onMentionSelect}
+                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-xl resize-none focus:outline-none focus:ring-1 focus:ring-gray-600 focus:border-gray-600 text-gray-100 placeholder-gray-500 text-[15px] leading-relaxed transition-all"
+              />
+              
+              {/* Inline helper text */}
+              <div className="absolute bottom-3 right-3 text-xs text-gray-500 pointer-events-none">
                 Type @ to reference sheets, ranges, or tables
               </div>
             </div>
             
-            {/* Send Button */}
-            <button
-              onClick={() => handleSendMessage()}
-              disabled={!input.trim() || isLoading}
-              className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title="Send message"
-            >
-              {isLoading ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Send className="w-3 h-3" />
-              )}
-            </button>
+            {/* Controls Row - Below input */}
+            <div className="flex items-center justify-between mt-3">
+              {/* Left side: Autonomy Selector */}
+              <div className="flex items-center gap-4">
+                {autonomySelector && (
+                  <div className="flex-shrink-0">
+                    {autonomySelector}
+                  </div>
+                )}
+                
+                {/* Add Context button (like Cursor) */}
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 rounded-lg transition-all"
+                  onClick={() => {/* TODO: Implement context addition */}}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Context
+                </button>
+              </div>
+              
+              {/* Right side: Action buttons */}
+              <div className="flex items-center gap-2">
+                {/* Status indicator when AI is generating */}
+                {aiIsGenerating && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-400">
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Generating...</span>
+                  </div>
+                )}
+                
+                {/* Stop button (when generating) */}
+                {aiIsGenerating && (
+                  <button
+                    onClick={() => {/* TODO: Implement stop */}}
+                    className="flex items-center gap-2 px-4 py-1.5 text-sm bg-gray-800 text-gray-300 hover:bg-gray-700 rounded-lg transition-all"
+                  >
+                    Stop
+                    <kbd className="ml-1 px-1.5 py-0.5 text-xs bg-gray-700 rounded">⌘⌫</kbd>
+                  </button>
+                )}
+                
+                {/* Bulk action buttons (ALWAYS visible) */}
+                <button
+                  onClick={onRejectAll}
+                  disabled={isProcessingBulkAction || pendingToolsCount === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-all ${
+                    pendingToolsCount > 0 
+                      ? 'bg-gray-800/50 text-gray-400 hover:bg-red-900/20 hover:text-red-400' 
+                      : 'bg-gray-800/20 text-gray-500 cursor-not-allowed'
+                  } disabled:opacity-50`}
+                >
+                  <XCircleIcon className="w-4 h-4" />
+                  Reject all
+                  {pendingToolsCount > 0 && (
+                    <span className="text-xs opacity-70">({pendingToolsCount})</span>
+                  )}
+                </button>
+                
+                <button
+                  onClick={onApproveAll}
+                  disabled={isProcessingBulkAction || pendingToolsCount === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-all font-medium ${
+                    pendingToolsCount > 0
+                      ? 'bg-green-900/20 text-green-400 hover:bg-green-900/30'
+                      : 'bg-gray-800/20 text-gray-500 cursor-not-allowed'
+                  } disabled:opacity-50`}
+                >
+                  <CheckCircleIcon className="w-4 h-4" />
+                  Accept all
+                  {pendingToolsCount > 0 && (
+                    <span className="text-xs opacity-70">({pendingToolsCount})</span>
+                  )}
+                  <kbd className="ml-1 px-1.5 py-0.5 text-xs bg-gray-700/50 rounded">⌘⏎</kbd>
+                </button>
+                
+                {/* Send button (primary action) */}
+                {!aiIsGenerating && (
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={!input.trim() || isLoading}
+                    className="p-2 bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-all"
+                    title="Send message"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         
@@ -521,7 +608,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
         shortcuts={shortcuts}
       />
 
-      <style jsx>{`
+      <style>{`
         @keyframes fadeIn {
           from {
             opacity: 0;
@@ -537,7 +624,6 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
           animation: fadeIn 0.3s ease-out;
         }
       `}</style>
-    </div>
     </KeyboardShortcuts>
   )
 }

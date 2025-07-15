@@ -46,7 +46,22 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
     }
   }
 
+  const isReadTool = () => {
+    return message.tool.name.startsWith('read_')
+  }
+
   const getStatusColor = () => {
+    // Special styling for read tools
+    if (isReadTool()) {
+      switch (message.status) {
+        case 'approved': return 'border-gray-500/50 bg-gray-600/10'
+        case 'rejected': return 'border-red-500/50 bg-red-500/5'
+        case 'expired': return 'border-gray-500/50 bg-gray-500/5'
+        default: return 'border-gray-500/50 bg-gray-600/10'
+      }
+    }
+    
+    // Regular styling for other tools
     switch (message.status) {
       case 'approved': return 'border-green-500/50 bg-green-500/5'
       case 'rejected': return 'border-red-500/50 bg-red-500/5'
@@ -81,14 +96,29 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
       <div className="p-2">
         <div className="flex items-start justify-between mb-1">
           <div className="flex items-center space-x-2">
-            <div className="flex-shrink-0">
-              <div className="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">
-                <span className="text-blue-400 text-xs">🔧</span>
+            {!isReadTool() && (
+              <div className="flex-shrink-0">
+                <div className="w-5 h-5 rounded bg-blue-500/20 flex items-center justify-center">
+                  <span className="text-blue-400 text-xs">🔧</span>
+                </div>
               </div>
-            </div>
+            )}
             <div>
-              <h4 className="text-xs font-mono font-medium text-gray-100" style={{fontFamily: 'IBM Plex Mono, monospace'}}>{message.tool.name}</h4>
-              <p className="text-xs text-gray-400 font-mono" style={{fontFamily: 'IBM Plex Mono, monospace'}}>{message.tool.description}</p>
+              <h4 className="text-xs font-mono font-medium text-gray-100" style={{fontFamily: 'IBM Plex Mono, monospace'}}>
+                {isReadTool() ? (
+                  <>
+                    read {message.tool.parameters.range || message.tool.parameters.address || 'data'}
+                    {message.tool.description && message.tool.description.includes('(Auto-approved)') && 
+                      <span className="text-gray-500 ml-1">(Auto-approved)</span>
+                    }
+                  </>
+                ) : (
+                  message.tool.name
+                )}
+              </h4>
+              {!isReadTool() && (
+                <p className="text-xs text-gray-400 font-mono" style={{fontFamily: 'IBM Plex Mono, monospace'}}>{message.tool.description}</p>
+              )}
             </div>
           </div>
           
@@ -99,7 +129,7 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
             </span>
           )}
 
-          {message.status === 'approved' && (
+          {message.status === 'approved' && !isReadTool() && (
             <CheckCircleSolidIcon className="w-5 h-5 text-green-400" />
           )}
           

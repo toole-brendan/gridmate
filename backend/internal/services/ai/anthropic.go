@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +22,11 @@ const (
 	AnthropicAPIVersion = "2023-06-01"
 	DefaultModel        = "claude-3-5-sonnet-20241022"
 )
+
+func init() {
+	// Initialize random number generator for jitter
+	rand.Seed(time.Now().UnixNano())
+}
 
 // AnthropicProvider implements the AIProvider interface for Anthropic Claude
 type AnthropicProvider struct {
@@ -76,8 +83,42 @@ func (a *AnthropicProvider) GetCompletion(ctx context.Context, request Completio
 	var lastErr error
 	for attempt := 0; attempt <= a.config.MaxRetries; attempt++ {
 		if attempt > 0 {
+			// Calculate exponential backoff with jitter
+			baseDelay := a.config.RetryDelay
+			if baseDelay == 0 {
+				baseDelay = 1 * time.Second
+			}
+			
+			// Exponential backoff: baseDelay * 2^(attempt-1)
+			backoffDelay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt-1)))
+			
+			// Cap the maximum delay to 60 seconds
+			maxDelay := 60 * time.Second
+			if backoffDelay > maxDelay {
+				backoffDelay = maxDelay
+			}
+			
+			// Add jitter: randomize between 0.5x and 1.5x of the backoff delay
+			jitterMultiplier := 0.5 + rand.Float64() // 0.5 to 1.5
+			delayWithJitter := time.Duration(float64(backoffDelay) * jitterMultiplier)
+			
+			// Check if we have a Retry-After value from the previous error
+			if aiErr, ok := lastErr.(*AIError); ok && aiErr.RetryAfter > 0 {
+				// Use the server-specified retry delay
+				delayWithJitter = time.Duration(aiErr.RetryAfter) * time.Second
+				log.Debug().
+					Int("retry_after_seconds", aiErr.RetryAfter).
+					Int("attempt", attempt).
+					Msg("Using Retry-After header value from server")
+			}
+			
+			log.Debug().
+				Int("attempt", attempt).
+				Dur("delay", delayWithJitter).
+				Msg("Retrying after delay")
+			
 			select {
-			case <-time.After(a.config.RetryDelay * time.Duration(attempt)):
+			case <-time.After(delayWithJitter):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -89,6 +130,11 @@ func (a *AnthropicProvider) GetCompletion(ctx context.Context, request Completio
 			if aiErr, ok := err.(*AIError); ok && !aiErr.IsRetryable() {
 				break
 			}
+			log.Warn().
+				Err(err).
+				Int("attempt", attempt).
+				Int("max_retries", a.config.MaxRetries).
+				Msg("Request failed, will retry if attempts remain")
 			continue
 		}
 
@@ -633,6 +679,8 @@ func (a *AnthropicProvider) handleAPIError(resp *http.Response) *AIError {
 		errorType = ErrorTypeRateLimit
 	case 400:
 		errorType = ErrorTypeInvalidInput
+	case 529:
+		errorType = ErrorTypeRateLimit // 529 is "overloaded", treat as rate limit
 	default:
 		errorType = ErrorTypeServerError
 	}
@@ -643,13 +691,14 @@ func (a *AnthropicProvider) handleAPIError(resp *http.Response) *AIError {
 		Code:    strconv.Itoa(resp.StatusCode),
 	}
 
-	// Parse retry-after header for rate limits
-	if resp.StatusCode == 429 {
+	// Parse retry-after header for rate limits and overload errors
+	if resp.StatusCode == 429 || resp.StatusCode == 529 {
 		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
 			if seconds, err := strconv.Atoi(retryAfter); err == nil {
 				aiErr.RetryAfter = seconds
 			}
 		}
+		// If no Retry-After header is provided, we'll use exponential backoff
 	}
 
 	return aiErr

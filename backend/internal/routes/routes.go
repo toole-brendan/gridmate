@@ -12,6 +12,7 @@ import (
 	"github.com/gridmate/backend/internal/middleware"
 	"github.com/gridmate/backend/internal/repository"
 	"github.com/gridmate/backend/internal/services"
+	"github.com/gridmate/backend/internal/services/diff"
 	"github.com/gridmate/backend/internal/services/documents"
 )
 
@@ -21,6 +22,7 @@ func RegisterAPIRoutes(
 	jwtManager *auth.JWTManager,
 	excelBridge *services.ExcelBridge,
 	docService *documents.DocumentService,
+	signalRBridge *handlers.SignalRBridge,
 	logger *logrus.Logger,
 ) {
 	// Initialize handlers
@@ -32,6 +34,10 @@ func RegisterAPIRoutes(
 	excelHandler := handlers.NewExcelHandler(excelBridge, logger)
 	modelsHandler := handlers.NewModelsHandler(logger)
 	auditHandler := handlers.NewAuditHandler(repos, logger)
+	
+	// Initialize diff service and handler
+	diffService := diff.NewService()
+	diffHandler := handlers.NewDiffHandler(diffService, signalRBridge, logger)
 	
 	// Initialize middleware
 	authMiddleware := middleware.NewAuthMiddleware(jwtManager, repos.APIKeys, logger)
@@ -89,6 +95,7 @@ func RegisterAPIRoutes(
 	// Excel routes (protected)
 	excelRoutes := protected.PathPrefix("/excel").Subrouter()
 	excelRoutes.HandleFunc("/context", excelHandler.SendContext).Methods("POST")
+	excelRoutes.HandleFunc("/diff", diffHandler.ComputeDiff).Methods("POST")
 	
 	// Model templates routes (protected)
 	modelsRoutes := protected.PathPrefix("/models").Subrouter()

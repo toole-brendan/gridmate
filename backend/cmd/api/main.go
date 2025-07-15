@@ -169,7 +169,7 @@ func main() {
 	router.HandleFunc("/api/metrics/sessions/by-user", metricsHandler.GetSessionsByUser).Methods("GET")
 
 	// Register API routes
-	routes.RegisterAPIRoutes(router, repos, jwtManager, excelBridge, docService, logger)
+	routes.RegisterAPIRoutes(router, repos, jwtManager, excelBridge, docService, signalRBridge, logger)
 
 	// Configure CORS
 	corsOptions := cors.New(cors.Options{

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { EnhancedChatInterface } from './EnhancedChatInterface'
 import { ChatMessage } from '../../types/chat'
+import { useDebounce } from '../../hooks/useDebounce'
 import { 
   EnhancedChatMessage, 
   ToolSuggestionMessage, 
@@ -62,6 +63,10 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const [excelContext, setExcelContext] = useState<any>(null)
   const [isContextEnabled, setIsContextEnabled] = useState(true)
   
+  // State for managing selection changes with debouncing
+  const [rawSelection, setRawSelection] = useState<string | null>(null)
+  const debouncedSelection = useDebounce(rawSelection, 300) // 300ms delay
+  
   // Initialize operation queue hook
   const { 
     queue,
@@ -80,13 +85,13 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   })
   
   // Helper to add to message log
-  const addToLog = (message: string) => {
+  const addToLog = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString()
     console.log(`[${timestamp}] ${message}`)
-  }
+  }, [])
   
   // Update available mentions based on Excel context
-  const updateAvailableMentions = async () => {
+  const updateAvailableMentions = useCallback(async () => {
     addDebugLog('updateAvailableMentions called')
     try {
       const context = await ExcelService.getInstance().getSmartContext()
@@ -171,7 +176,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       addDebugLog(`Failed to update mentions: ${error}`, 'error')
       console.error('Failed to update mentions:', error)
     }
-  }
+  }, [addDebugLog, setAvailableMentions, setExcelContext, setActiveContext])
   
   // Handle mention selection
   const handleMentionSelect = (mention: MentionItem) => {
@@ -310,9 +315,9 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   }
   
   // Helper function to identify read-only tools that should be auto-approved
-  const isReadOnlyTool = (toolName: string): boolean => {
+  const isReadOnlyTool = useCallback((toolName: string): boolean => {
     return toolName.startsWith('read_')
-  }
+  }, [])
 
   const handleToolRequest = useCallback(async (toolRequest: any) => {
     console.log('🔧 Received tool request:', toolRequest)
@@ -369,7 +374,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     // Execute immediately
     await executeToolRequest(toolRequest)
-  }, [autonomyMode, addDebugLog, addToLog, createToolSuggestionMessage, setMessages, executeToolRequest, rejectToolRequest, toolRequestQueue, signalRClient, isReadOnlyTool])
+  }, [autonomyMode, addDebugLog, addToLog, setMessages, toolRequestQueue, signalRClient, isReadOnlyTool, currentResponseId])
   
   const executeToolRequest = useCallback(async (toolRequest: any) => {
     const { tool, request_id, ...input } = toolRequest
@@ -948,7 +953,8 @@ Escape : Reject focused action
           const worksheet = context.workbook.worksheets.getActiveWorksheet()
           worksheet.onSelectionChanged.add((args) => {
             addDebugLog('Selection changed, updating context...')
-            updateAvailableMentions()
+            // Just update the raw selection state - debouncing will handle the rest
+            setRawSelection(`selection_${Date.now()}`)
           })
           
           await context.sync()
@@ -975,7 +981,8 @@ Escape : Reject focused action
         Office.EventType.DocumentSelectionChanged,
         () => {
           addDebugLog('Document selection changed event fired!')
-          updateAvailableMentions()
+          // Just update the raw selection state - debouncing will handle the rest
+          setRawSelection(`selection_${Date.now()}`)
         },
         (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
@@ -997,6 +1004,15 @@ Escape : Reject focused action
       // They are cleaned up when the add-in is unloaded
     }
   }, [addDebugLog, updateAvailableMentions])
+  
+  // Handle debounced selection changes
+  useEffect(() => {
+    // Only update mentions when the debounced selection value changes
+    if (debouncedSelection) {
+      addDebugLog('Debounced selection changed, updating mentions...')
+      updateAvailableMentions()
+    }
+  }, [debouncedSelection, updateAvailableMentions, addDebugLog])
   
   // Initialize SignalR connection
   useEffect(() => {

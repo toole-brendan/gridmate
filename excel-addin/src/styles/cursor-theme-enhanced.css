@@ -2,65 +2,88 @@
 
 /* CSS Variables for consistent theming */
 :root {
-  /* Base colors - Dark theme */
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --bg-hover: #30363d;
-  --bg-active: #484f58;
+  /* 1. Fonts */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", monospace;
+
+  /* 2. Colors (Light Theme) */
+  /* App Backgrounds */
+  --app-background: #FAFAFA;
+  --secondary-background: #FFFFFF;
+
+  /* Text */
+  --text-primary: #000000;
+  --text-secondary: #6D6D72; /* SF Pro Text Regular #8E8E93, but darker for contrast */
+  --text-tertiary: #AEAEB2;
+  --text-placeholder: #C7C7CD;
+  --text-on-accent: #FFFFFF;
+
+  /* Accents */
+  --accent-primary: #007AFF; /* iOS Blue */
+  --accent-destructive: #FF3B30; /* iOS Red */
+  --accent-success: #34C759; /* iOS Green */
+  --accent-warning: #FF9500; /* iOS Orange */
+
+  /* Borders */
+  --border-primary: #E5E5EA;
+  --border-secondary: #F2F2F7;
+
+  /* 3. Corners (Border Radius) */
+  --radius: 4px; /* Base iOS-style radius */
+  --radius-sm: 2px;
+  --radius-md: var(--radius);
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* 4. Shadows */
+  --shadow-ios: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.12);
+
+  /* 5. Spacing & Padding */
+  --page-padding-x: 1rem;
+  --page-padding-y: 0.75rem;
+  --content-spacing-xs: 0.25rem;
+  --content-spacing-sm: 0.5rem;
+  --content-spacing-md: 1rem;
+  --content-spacing-lg: 1.5rem;
+
+  /* 6. Transitions */
+  --transition-fast: 150ms ease;
+  --transition-medium: 300ms ease;
   
-  /* Text colors */
-  --text-primary: #f0f6fc;
-  --text-secondary: #8b949e;
-  --text-tertiary: #6e7681;
-  --text-muted: #484f58;
+  /* Legacy mappings for compatibility */
+  --bg-primary: var(--app-background);
+  --bg-secondary: var(--secondary-background);
+  --bg-tertiary: #F2F2F7;
+  --bg-hover: #E5E5EA;
+  --bg-active: #D1D1D6;
   
-  /* Accent colors */
-  --accent-blue: #2563eb;
-  --accent-green: #10b981;
-  --accent-red: #ef4444;
-  --accent-yellow: #f59e0b;
-  --accent-purple: #8b5cf6;
-  --accent-cyan: #06b6d4;
-  --accent-orange: #f97316;
+  --accent-blue: var(--accent-primary);
+  --accent-green: var(--accent-success);
+  --accent-red: var(--accent-destructive);
+  --accent-yellow: var(--accent-warning);
+  --accent-purple: #AF52DE; /* iOS Purple */
+  --accent-cyan: #32ADE6; /* iOS Cyan */
+  --accent-orange: var(--accent-warning);
   
-  /* Semantic colors */
-  --color-success: var(--accent-green);
-  --color-error: var(--accent-red);
-  --color-warning: var(--accent-yellow);
-  --color-info: var(--accent-blue);
+  --color-success: var(--accent-success);
+  --color-error: var(--accent-destructive);
+  --color-warning: var(--accent-warning);
+  --color-info: var(--accent-primary);
   
-  /* Border colors */
-  --border-primary: #30363d;
-  --border-secondary: #21262d;
-  --border-hover: #484f58;
-  
-  /* Shadows */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: var(--shadow-subtle);
+  --shadow-md: var(--shadow-ios);
+  --shadow-lg: var(--shadow-elevated);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   
-  /* Typography */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Consolas, 'Liberation Mono', Menlo, monospace;
-  
-  /* Spacing */
-  --space-xs: 0.25rem;
-  --space-sm: 0.5rem;
-  --space-md: 1rem;
-  --space-lg: 1.5rem;
+  --space-xs: var(--content-spacing-xs);
+  --space-sm: var(--content-spacing-sm);
+  --space-md: var(--content-spacing-md);
+  --space-lg: var(--content-spacing-lg);
   --space-xl: 2rem;
   
-  /* Border radius */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-full: 9999px;
-  
-  /* Transitions */
-  --transition-fast: 150ms ease;
-  --transition-base: 200ms ease;
+  --transition-base: var(--transition-medium);
   --transition-slow: 300ms ease;
 }
 
@@ -68,31 +91,34 @@
 body {
   font-family: var(--font-sans);
   color: var(--text-primary);
-  background-color: var(--bg-primary);
+  background-color: var(--app-background);
+  font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Enable text selection by default */
+/* Disable text selection by default */
 * {
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  -ms-user-select: text;
-  user-select: text;
-}
-
-/* Disable selection only for interactive elements */
-button, 
-a, 
-summary,
-.btn,
-.hover-lift,
-[role="button"] {
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
+}
+
+/* Enable selection for content elements */
+p, 
+span, 
+div, 
+td, 
+th, 
+li,
+.message-content,
+.selectable {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
 }
 
 /* Override for debug content - allow text selection */
@@ -125,13 +151,13 @@ details[data-debug="true"] *:not(summary):not(button) {
 
 /* Message styling */
 .message-user {
-  background: var(--accent-blue);
-  color: white;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
 }
 
 .message-assistant {
-  background: var(--bg-secondary);
+  background: var(--secondary-background);
   color: var(--text-primary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm);
@@ -142,81 +168,82 @@ details[data-debug="true"] *:not(summary):not(button) {
   color: var(--text-secondary);
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius-md);
-  font-size: var(--text-sm);
+  font-size: 0.875rem;
 }
 
 /* Tool suggestion cards */
 .tool-suggestion-card {
-  background: var(--bg-secondary);
+  background: var(--secondary-background);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
-  transition: all var(--transition-base);
+  box-shadow: var(--shadow-ios);
+  transition: all var(--transition-fast);
 }
 
 .tool-suggestion-card:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--border-hover);
+  background: var(--secondary-background);
+  border-color: var(--accent-primary);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-elevated);
 }
 
 .tool-suggestion-card.pending {
-  border-color: var(--accent-blue);
-  background: rgba(37, 99, 235, 0.05);
+  border-color: var(--accent-primary);
+  background: var(--secondary-background);
 }
 
 .tool-suggestion-card.approved {
-  border-color: var(--accent-green);
-  background: rgba(16, 185, 129, 0.05);
+  border-color: var(--accent-success);
+  background: var(--secondary-background);
 }
 
 .tool-suggestion-card.rejected {
-  border-color: var(--accent-red);
-  background: rgba(239, 68, 68, 0.05);
+  border-color: var(--accent-destructive);
+  background: var(--secondary-background);
 }
 
 /* Buttons */
 .btn {
   font-family: var(--font-sans);
-  font-weight: 500;
+  font-weight: 600;
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-sm) var(--space-md);
-  font-size: var(--text-sm);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
   line-height: 1;
   cursor: pointer;
   border: 1px solid transparent;
 }
 
 .btn-primary {
-  background: var(--accent-blue);
-  color: white;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #0059b3;
   transform: translateY(-1px);
 }
 
 .btn-success {
-  background: var(--accent-green);
-  color: white;
+  background: var(--accent-success);
+  color: var(--text-on-accent);
 }
 
 .btn-success:hover {
-  background: #059669;
+  background: #2BA04B;
 }
 
 .btn-danger {
-  background: var(--accent-red);
-  color: white;
+  background: var(--accent-destructive);
+  color: var(--text-on-accent);
 }
 
 .btn-danger:hover {
-  background: #dc2626;
+  background: #CC2E26;
 }
 
 .btn-ghost {
@@ -232,23 +259,23 @@ details[data-debug="true"] *:not(summary):not(button) {
 
 /* Input styles */
 .input {
-  background: var(--bg-secondary);
+  background: var(--secondary-background);
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
   border-radius: var(--radius-md);
-  padding: var(--space-sm) var(--space-md);
-  font-size: var(--text-sm);
+  padding: var(--content-spacing-sm) var(--content-spacing-md);
+  font-size: 0.875rem;
   transition: all var(--transition-fast);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
 }
 
 .input::placeholder {
-  color: var(--text-tertiary);
+  color: var(--text-placeholder);
 }
 
 /* Mention highlights */
@@ -264,19 +291,22 @@ details[data-debug="true"] *:not(summary):not(button) {
 .context-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--bg-tertiary);
+  gap: var(--content-spacing-xs);
+  padding: 0.125rem 0.5rem;
+  background: var(--secondary-background);
   border: 1px solid var(--border-primary);
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  border-radius: var(--radius-md);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06px;
   color: var(--text-secondary);
   transition: all var(--transition-fast);
 }
 
 .context-pill:hover {
   background: var(--bg-hover);
-  border-color: var(--border-hover);
+  border-color: var(--text-secondary);
 }
 
 /* Status indicators */

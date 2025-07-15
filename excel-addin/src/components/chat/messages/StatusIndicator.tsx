@@ -42,43 +42,33 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({ message }) => 
     const baseClasses = "w-4 h-4"
     switch (message.status.type) {
       case 'thinking':
-        return (
-          <div className="relative">
-            <CogIcon className={`${baseClasses} text-blue-400 animate-spin`} />
-            <div className="absolute inset-0 blur-md bg-blue-400/30 animate-pulse" />
-          </div>
-        )
+        return <CogIcon className={`${baseClasses} text-primary animate-spin`} />
       case 'processing':
-        return <CogIcon className={`${baseClasses} text-blue-400 animate-pulse`} />
+        return <CogIcon className={`${baseClasses} text-primary animate-pulse`} />
       case 'executing':
-        return <ServerIcon className={`${baseClasses} text-orange-400 animate-pulse`} />
+        return <ServerIcon className={`${baseClasses} text-warning animate-pulse`} />
       case 'generating':
-        return (
-          <div className="relative">
-            <SparklesIcon className={`${baseClasses} text-purple-400 animate-pulse`} />
-            <div className="absolute inset-0 blur-sm bg-purple-400/20 animate-pulse" />
-          </div>
-        )
+        return <SparklesIcon className={`${baseClasses} text-primary animate-pulse`} />
       case 'searching':
-        return <MagnifyingGlassIcon className={`${baseClasses} text-cyan-400 animate-pulse`} />
+        return <MagnifyingGlassIcon className={`${baseClasses} text-primary animate-pulse`} />
       case 'analyzing':
-        return <DocumentTextIcon className={`${baseClasses} text-indigo-400 animate-pulse`} />
+        return <DocumentTextIcon className={`${baseClasses} text-primary animate-pulse`} />
       case 'error':
-        return <ExclamationTriangleIcon className={`${baseClasses} text-red-400`} />
+        return <ExclamationTriangleIcon className={`${baseClasses} text-destructive`} />
       case 'info':
-        return <InformationCircleIcon className={`${baseClasses} text-gray-400`} />
+        return <InformationCircleIcon className={`${baseClasses} text-text-secondary`} />
       case 'success':
-        return <CheckCircleIcon className={`${baseClasses} text-green-400`} />
+        return <CheckCircleIcon className={`${baseClasses} text-success`} />
       default:
-        return <CheckCircleIcon className={`${baseClasses} text-green-400`} />
+        return <CheckCircleIcon className={`${baseClasses} text-success`} />
     }
   }
 
   const getTextColor = () => {
     switch (message.status.type) {
-      case 'error': return 'text-red-300'
-      case 'info': return 'text-gray-300'
-      default: return 'text-gray-400'
+      case 'error': return 'text-destructive'
+      case 'info': return 'text-text-secondary'
+      default: return 'text-text-secondary'
     }
   }
 
@@ -93,20 +83,20 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({ message }) => 
     return (
       <div className="mt-2 ml-6 space-y-1">
         {message.status.subSteps.map((step, index) => (
-          <div key={index} className="flex items-center space-x-2 text-xs">
+          <div key={index} className="flex items-center space-x-2">
             <div className="w-1.5 h-1.5 rounded-full" style={{
-              backgroundColor: step.status === 'completed' ? '#10b981' :
-                             step.status === 'active' ? '#3b82f6' :
-                             step.status === 'failed' ? '#ef4444' : '#6b7280'
+              backgroundColor: step.status === 'completed' ? 'var(--accent-success)' :
+                             step.status === 'active' ? 'var(--accent-primary)' :
+                             step.status === 'failed' ? 'var(--accent-destructive)' : 'var(--text-tertiary)'
             }} />
-            <span className={`
-              ${step.status === 'active' ? 'text-blue-400' : 'text-gray-500'}
+            <span className={`font-footnote
+              ${step.status === 'active' ? 'text-primary' : 'text-text-tertiary'}
               ${step.status === 'completed' ? 'line-through' : ''}
             `}>
               {step.name}
             </span>
             {step.duration && (
-              <span className="text-gray-600">({formatDuration(step.duration / 1000)})</span>
+              <span className="font-caption text-text-tertiary">({formatDuration(step.duration / 1000)})</span>
             )}
           </div>
         ))}
@@ -119,37 +109,27 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({ message }) => 
       <div className="flex items-center space-x-2">
         <div className="flex-shrink-0">{getIcon()}</div>
         <div className="flex-1">
-          <span className={`text-sm ${getTextColor()}`}>
+          <span className={`font-callout ${getTextColor()}`}>
             {message.status.message}
             {message.animated && dots}
           </span>
           
           {message.status.details && (
-            <div className="text-xs text-gray-500 mt-0.5">{message.status.details}</div>
+            <div className="font-footnote text-text-tertiary mt-0.5">{message.status.details}</div>
           )}
           
-          {message.status.type === 'thinking' && elapsedTime > 0 && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              ⏱️ Thought for {formatDuration(elapsedTime)}
-            </div>
-          )}
           
-          {message.status.duration && message.status.type !== 'thinking' && (
-            <div className="text-xs text-gray-500 mt-0.5">
-              ✓ Completed in {formatDuration(message.status.duration / 1000)}
-            </div>
-          )}
         </div>
         
         {message.status.progress !== undefined && (
           <div className="flex items-center space-x-2">
-            <div className="w-24 h-1 bg-gray-700 rounded-full overflow-hidden">
+            <div className="w-24 h-1 bg-border-primary rounded-full overflow-hidden">
               <div 
-                className="h-full bg-blue-500 transition-all duration-300"
+                className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${message.status.progress}%` }}
               />
             </div>
-            <span className="text-xs text-gray-400">{message.status.progress}%</span>
+            <span className="font-caption text-text-tertiary">{message.status.progress}%</span>
           </div>
         )}
       </div>

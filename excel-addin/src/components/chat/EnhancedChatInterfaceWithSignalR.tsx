@@ -773,27 +773,8 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     addDebugLog('User message added to UI, sending to backend...')
     
-    // Add AI thinking status
-    const statusId = addStatusMessage({
-      type: 'thinking',
-      message: 'AI is analyzing your request',
-      subSteps: [
-        { name: 'Understanding context', status: 'active' },
-        { name: 'Analyzing spreadsheet', status: 'pending' },
-        { name: 'Generating response', status: 'pending' }
-      ]
-    })
     
     try {
-      // Update status: getting Excel context
-      updateStatusMessage(statusId, {
-        subSteps: [
-          { name: 'Understanding context', status: 'completed', duration: 200 },
-          { name: 'Analyzing spreadsheet', status: 'active' },
-          { name: 'Generating response', status: 'pending' }
-        ]
-      })
-      
       // Get Excel context
       let excelContext = null
       try {
@@ -810,17 +791,6 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
         addDebugLog(`Could not get Excel context: ${error}`, 'error')
         console.warn('Could not get Excel context:', error)
       }
-      
-      // Update status: generating response
-      updateStatusMessage(statusId, {
-        type: 'generating',
-        message: 'AI is generating response',
-        subSteps: [
-          { name: 'Understanding context', status: 'completed', duration: 200 },
-          { name: 'Analyzing spreadsheet', status: 'completed', duration: 500 },
-          { name: 'Generating response', status: 'active' }
-        ]
-      })
       
       // Parse mentions from the message
       const mentionedRanges = messageContent.match(/@(\w+)/g) || []
@@ -853,16 +823,6 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       setIsLoading(false)
       setAiIsGenerating(false)
       
-      // Update status to show error
-      updateStatusMessage(statusId, {
-        type: 'error',
-        message: 'Failed to send message',
-        details: (error as Error).message,
-        animated: false
-      })
-      
-      // Remove status after delay
-      setTimeout(() => removeStatusMessage(statusId), 3000)
     }
   }
   
@@ -1154,7 +1114,7 @@ Escape : Reject focused action
   }, [addDebugLog])
   
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--app-background)' }}>
       {/* Connection Status Bar */}
       {(connectionStatus !== 'connected' || !isAuthenticated) && (
         <div className={`px-4 py-2 text-sm font-medium ${

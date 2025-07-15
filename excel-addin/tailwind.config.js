@@ -7,18 +7,26 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
-        }
+        primary: 'var(--accent-primary)',
+        destructive: 'var(--accent-destructive)',
+        success: 'var(--accent-success)',
+        warning: 'var(--accent-warning)',
+        'app-background': 'var(--app-background)',
+        'secondary-background': 'var(--secondary-background)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-tertiary': 'var(--text-tertiary)',
+        'border-primary': 'var(--border-primary)',
+      },
+      borderRadius: {
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        full: 'var(--radius-full)',
+      },
+      boxShadow: {
+        ios: 'var(--shadow-ios)',
+        elevated: 'var(--shadow-elevated)',
       },
       animation: {
         'slide-in': 'slideIn 0.2s ease-out',

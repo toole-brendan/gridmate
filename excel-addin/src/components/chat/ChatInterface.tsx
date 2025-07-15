@@ -40,8 +40,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="text-center text-gray-500 mt-8">
-            <p className="text-lg font-medium mb-2">Welcome to Gridmate AI</p>
-            <p className="text-sm">Select cells in Excel and ask me anything about your financial model!</p>
+            <p className="mb-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontWeight: 300, fontSize: '1.25rem', letterSpacing: '0.2em' }}>GRIDMATE</p>
             <div className="mt-6 space-y-2">
               <p className="text-xs text-gray-400">Try asking:</p>
               <div className="space-y-1">

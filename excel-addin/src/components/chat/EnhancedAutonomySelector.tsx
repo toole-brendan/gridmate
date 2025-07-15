@@ -34,9 +34,9 @@ const modeConfigs: ModeConfig[] = [
     shortLabel: 'Ask',
     description: 'AI can only read and analyze, no changes',
     icon: EyeIcon,
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-900/20',
-    borderColor: 'border-blue-500/50'
+    color: 'text-primary',
+    bgColor: 'bg-primary/10',
+    borderColor: 'border-primary'
   },
   {
     mode: 'agent-default',
@@ -44,9 +44,9 @@ const modeConfigs: ModeConfig[] = [
     shortLabel: 'Default',
     description: 'AI suggests changes, requires your approval',
     icon: CpuChipIcon,
-    color: 'text-green-400',
-    bgColor: 'bg-green-900/20',
-    borderColor: 'border-green-500/50'
+    color: 'text-[#0066CC]',
+    bgColor: 'bg-transparent',
+    borderColor: 'border-[#0066CC]'
   },
   {
     mode: 'agent-yolo',
@@ -54,9 +54,9 @@ const modeConfigs: ModeConfig[] = [
     shortLabel: 'YOLO',
     description: 'AI applies changes automatically',
     icon: BoltIcon,
-    color: 'text-orange-400',
-    bgColor: 'bg-orange-900/20',
-    borderColor: 'border-orange-500/50',
+    color: 'text-warning',
+    bgColor: 'bg-warning/10',
+    borderColor: 'border-warning',
     warning: 'Changes are applied immediately without approval'
   }
 ]
@@ -99,24 +99,24 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          flex items-center space-x-2 px-3 py-1.5 rounded-lg
+          inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption
           ${currentConfig.bgColor} ${currentConfig.borderColor}
-          border transition-all duration-200
-          hover:bg-opacity-30 hover:shadow-lg
-          ${isOpen ? 'ring-2 ring-offset-1 ring-offset-gray-900 ' + currentConfig.color.replace('text', 'ring') : ''}
+          border transition-all duration-150
+          hover:border-text-secondary
+          ${isOpen ? 'ring-2 ring-offset-1 ring-offset-app-background ' + currentConfig.color.replace('text', 'ring') : ''}
         `}
       >
-        <CurrentIcon className={`w-4 h-4 ${currentConfig.color}`} />
-        <span className={`text-sm font-medium ${currentConfig.color}`}>
+        <CurrentIcon className={`w-3 h-3 ${currentConfig.color}`} />
+        <span className={`uppercase ${currentConfig.color}`}>
           {currentConfig.shortLabel}
         </span>
-        <ChevronDownIcon className={`w-3 h-3 ${currentConfig.color} transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDownIcon className={`w-3 h-3 ${currentConfig.color} transition-transform rotate-180 ${isOpen ? 'rotate-0' : ''}`} />
       </button>
       
       {/* Tooltip */}
       {showTooltip && (
         <div className="absolute bottom-full left-0 mb-2 animate-fadeIn">
-          <div className="bg-gray-800 text-gray-200 text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+          <div className="bg-app-background text-text-primary text-xs px-2 py-1 rounded-md shadow-ios whitespace-nowrap border border-border-primary">
             Mode changed to {currentConfig.label}
           </div>
         </div>
@@ -125,7 +125,7 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
       {/* Dropdown - Always opens upward */}
       {isOpen && (
         <div 
-          className="absolute left-0 bottom-full mb-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl animate-slideUp"
+          className="absolute left-0 bottom-full mb-2 w-72 bg-app-background border border-border-primary rounded-lg shadow-ios animate-slideUp"
         >
           <div className="p-1">
             {modeConfigs.map((config) => {
@@ -139,7 +139,7 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
                   className={`
                     w-full flex items-start space-x-3 p-3 rounded-md
                     transition-all duration-150
-                    ${isSelected ? config.bgColor + ' ' + config.borderColor + ' border' : 'hover:bg-gray-700/50'}
+                    ${isSelected ? config.bgColor + ' ' + config.borderColor + ' border' : 'hover:bg-secondary-background'}
                   `}
                 >
                   <div className="flex-shrink-0 mt-0.5">
@@ -148,14 +148,14 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
                   
                   <div className="flex-1 text-left">
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm font-medium ${isSelected ? config.color : 'text-gray-200'}`}>
+                      <span className={`text-sm font-medium ${isSelected ? config.color : 'text-text-primary'}`}>
                         {config.label}
                       </span>
                       {isSelected && (
                         <CheckIcon className={`w-4 h-4 ${config.color}`} />
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-xs text-text-secondary mt-0.5">
                       {config.description}
                     </p>
                     {config.warning && (
@@ -172,10 +172,10 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
             })}
           </div>
           
-          <div className="border-t border-gray-700 px-3 py-2">
-            <div className="flex items-center justify-between text-xs text-gray-500">
+          <div className="border-t border-border-primary px-3 py-2">
+            <div className="flex items-center justify-between text-xs text-text-tertiary">
               <span>Keyboard shortcut</span>
-              <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">
+              <kbd className="px-1.5 py-0.5 bg-secondary-background rounded text-text-secondary font-caption">
                 {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'} + .
               </kbd>
             </div>

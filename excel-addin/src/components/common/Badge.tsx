@@ -15,39 +15,39 @@ interface BadgeProps {
 
 const variantStyles: Record<BadgeVariant, { bg: string; text: string; border: string }> = {
   default: {
-    bg: 'bg-gray-700/50',
-    text: 'text-gray-300',
-    border: 'border-gray-600'
+    bg: 'bg-secondary-background',
+    text: 'text-text-secondary',
+    border: 'border-border-primary'
   },
   success: {
-    bg: 'bg-green-900/30',
-    text: 'text-green-400',
-    border: 'border-green-500/50'
+    bg: 'bg-success/10',
+    text: 'text-success',
+    border: 'border-success'
   },
   error: {
-    bg: 'bg-red-900/30',
-    text: 'text-red-400',
-    border: 'border-red-500/50'
+    bg: 'bg-destructive/10',
+    text: 'text-destructive',
+    border: 'border-destructive'
   },
   warning: {
-    bg: 'bg-yellow-900/30',
-    text: 'text-yellow-400',
-    border: 'border-yellow-500/50'
+    bg: 'bg-warning/10',
+    text: 'text-warning',
+    border: 'border-warning'
   },
   info: {
-    bg: 'bg-blue-900/30',
-    text: 'text-blue-400',
-    border: 'border-blue-500/50'
+    bg: 'bg-primary/10',
+    text: 'text-primary',
+    border: 'border-primary'
   },
   purple: {
-    bg: 'bg-purple-900/30',
-    text: 'text-purple-400',
-    border: 'border-purple-500/50'
+    bg: 'bg-[#AF52DE]/10',
+    text: 'text-[#AF52DE]',
+    border: 'border-[#AF52DE]'
   },
   cyan: {
-    bg: 'bg-cyan-900/30',
-    text: 'text-cyan-400',
-    border: 'border-cyan-500/50'
+    bg: 'bg-[#32ADE6]/10',
+    text: 'text-[#32ADE6]',
+    border: 'border-[#32ADE6]'
   }
 }
 
@@ -68,7 +68,7 @@ export const Badge: React.FC<BadgeProps> = ({
   const { bg, text, border } = variantStyles[variant]
   
   const classes = [
-    'inline-flex items-center gap-1 rounded-full font-medium transition-colors',
+    'inline-flex items-center gap-1 rounded-md font-medium transition-colors',
     sizeStyles[size],
     outlined ? `bg-transparent border ${border}` : bg,
     text,

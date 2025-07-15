@@ -1,7 +1,6 @@
 import ReactDOM from 'react-dom/client'
 import { EnhancedChatInterfaceWrapper } from './components/chat/EnhancedChatInterfaceWrapper'
 import './styles/index.css'
-import './styles/cursor-theme.css'
 import './styles/cursor-theme-enhanced.css'
 
 // Office.js initialization

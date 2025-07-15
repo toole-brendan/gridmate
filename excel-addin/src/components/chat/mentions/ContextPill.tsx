@@ -54,21 +54,11 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
   
   const getTypeStyles = () => {
     if (!isEnabled) {
-      return 'bg-gray-800/20 text-gray-500 border-gray-700/30 opacity-50'
+      return 'bg-secondary-background text-text-tertiary border-border-primary opacity-50'
     }
     
-    switch (item.type) {
-      case 'sheet':
-        return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
-      case 'range':
-        return 'bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/20'
-      case 'filter':
-        return 'bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20'
-      case 'selection':
-        return 'bg-orange-500/10 text-orange-400 border-orange-500/20 hover:bg-orange-500/20'
-      default:
-        return 'bg-gray-500/10 text-gray-400 border-gray-500/20 hover:bg-gray-500/20'
-    }
+    // Clean, light military-style - all pills have same color scheme
+    return 'bg-secondary-background text-text-secondary border-border-primary hover:border-text-secondary'
   }
   
   const Component = onClick ? 'button' : 'div'
@@ -77,13 +67,12 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
     <Component
       onClick={onClick}
       className={`
-        inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+        inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption
         border transition-all duration-150 ${onClick ? 'cursor-pointer' : 'cursor-default'} ${getTypeStyles()}
       `}
     >
       {getIcon()}
-      <span>{item.label}:</span>
-      <span className="font-normal opacity-80">{item.value}</span>
+      <span>{item.label}</span>
       
       {item.removable && onRemove && (
         <button
@@ -91,10 +80,10 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
             e.stopPropagation()
             onRemove(item.id)
           }}
-          className="ml-1 -mr-1 p-0.5 rounded hover:bg-black/20 transition-colors group"
+          className="ml-1 text-text-tertiary hover:text-text-primary transition-colors"
           title="Remove context"
         >
-          <XMarkIcon className="w-3 h-3 opacity-60 group-hover:opacity-100" />
+          <XMarkIcon className="w-3 h-3" />
         </button>
       )}
     </Component>

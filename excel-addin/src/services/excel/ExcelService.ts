@@ -1158,9 +1158,21 @@ export class ExcelService {
       // Get the used range or specified range
       let range: any
       if (rangeAddress === 'UsedRange') {
-        range = worksheet.getUsedRange()
-        if (!range) {
-          return {} // Empty worksheet
+        range = worksheet.getUsedRange(true) // Use true to only consider cells with values
+        // For a blank sheet, getUsedRange() returns a proxy object.
+        // The error occurs when you try to load a property from it.
+        range.load('address')
+        try {
+          await context.sync()
+        } catch (error: any) {
+          // This is the expected behavior for a blank sheet.
+          if (error.code === 'ItemNotFound') {
+            console.log('Snapshot creation: Worksheet is empty. Returning empty snapshot.')
+            return {}
+          }
+          // For any other error, we should re-throw it.
+          console.error('Error getting used range:', error)
+          throw error
         }
       } else {
         range = worksheet.getRange(rangeAddress)
@@ -1191,8 +1203,8 @@ export class ExcelService {
           const value = range.values[row][col]
           const formula = includeFormulas ? range.formulas[row][col] : null
           
-          // Skip empty cells to save space
-          if (value === null && value === '' && !formula) {
+          // Skip empty cells to save space (Corrected logic)
+          if ((value === null || value === '') && (formula === null || formula === '')) {
             continue
           }
           

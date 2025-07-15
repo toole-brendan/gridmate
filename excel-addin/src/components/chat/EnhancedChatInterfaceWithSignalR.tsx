@@ -7,9 +7,11 @@ import {
   ToolSuggestionMessage, 
   ToolResultMessage,
   BatchOperationMessage,
+  ResponseToolsGroupMessage,
   StatusMessage,
   isToolSuggestion,
-  isBatchOperation
+  isBatchOperation,
+  isResponseToolsGroup
 } from '../../types/enhanced-chat'
 import { SignalRClient } from '../../services/signalr/SignalRClient'
 import { useOperationQueue } from '../../hooks/useOperationQueue'
@@ -33,6 +35,10 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const sessionIdRef = useRef<string>(globalSessionId)
   const [aiIsGenerating, setAiIsGenerating] = useState(false)
   const toolRequestQueue = useRef<Map<string, any>>(new Map())
+  
+  // Response tracking for bulk approval
+  const [currentResponseId, setCurrentResponseId] = useState<string | null>(null)
+  const [pendingResponseTools, setPendingResponseTools] = useState<Map<string, ToolSuggestionMessage[]>>(new Map())
   
   // Debug logs state
   const [debugLogs, setDebugLogs] = useState<Array<{time: string, message: string, type: 'info' | 'error' | 'warning' | 'success'}>>([])
@@ -255,6 +261,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       type: 'tool-suggestion',
       content: '',
       timestamp: new Date(),
+      responseId: currentResponseId || undefined, // Track which AI response generated this tool
       tool: {
         id: request_id,
         name: tool,
@@ -565,6 +572,94 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     toolRequestQueue.current.delete(request_id)
   }
   
+  // Create bulk approval group after AI response completes
+  const createResponseToolsGroup = (responseId: string, aiContent: string) => {
+    setMessages(prev => {
+      // Find all pending tool suggestions for this response
+      const responseTools = prev.filter(msg => 
+        isToolSuggestion(msg) && 
+        msg.responseId === responseId && 
+        msg.status === 'pending'
+      ) as ToolSuggestionMessage[]
+      
+      addDebugLog(`Found ${responseTools.length} pending tools for response ${responseId}`, 'info')
+      
+      // Only create group if there are pending tools
+      if (responseTools.length > 0) {
+        const groupMessage: ResponseToolsGroupMessage = {
+          id: `response_group_${responseId}`,
+          type: 'response-tools-group',
+          content: '',
+          timestamp: new Date(),
+          responseId,
+          aiResponseContent: aiContent,
+          tools: responseTools,
+          collapsed: false,
+          status: 'pending',
+          actions: {
+            approveAll: () => handleBulkApproval(responseId, 'approve'),
+            rejectAll: () => handleBulkApproval(responseId, 'reject'),
+            expandAll: () => {}, // TODO: Implement expand/collapse
+            collapseAll: () => {} // TODO: Implement expand/collapse
+          }
+        }
+        
+        // Replace individual tool messages with grouped message
+        const filtered = prev.filter(msg => 
+          !(isToolSuggestion(msg) && msg.responseId === responseId && msg.status === 'pending')
+        )
+        return [...filtered, groupMessage]
+      }
+      
+      return prev
+    })
+  }
+  
+  // Handle bulk approval/rejection for a response group
+  const handleBulkApproval = async (responseId: string, action: 'approve' | 'reject') => {
+    addDebugLog(`Bulk ${action} for response ${responseId}`, 'info')
+    
+    // Find the response group message from current state
+    let groupMessage: ResponseToolsGroupMessage | undefined
+    setMessages(prev => {
+      groupMessage = prev.find(msg => 
+        isResponseToolsGroup(msg) && msg.responseId === responseId
+      ) as ResponseToolsGroupMessage
+      return prev
+    })
+    
+    if (!groupMessage) {
+      addDebugLog(`Response group not found: ${responseId}`, 'error')
+      return
+    }
+    
+    // Update group status to in-progress
+    setMessages(prev => prev.map(msg => 
+      isResponseToolsGroup(msg) && msg.responseId === responseId
+        ? { ...msg, status: 'in-progress' as const }
+        : msg
+    ))
+    
+    // Execute actions in order for pending tools only
+    const pendingTools = groupMessage.tools.filter(tool => tool.status === 'pending')
+    for (const tool of pendingTools) {
+      if (action === 'approve') {
+        await tool.actions.approve()
+      } else {
+        await tool.actions.reject()
+      }
+      // Small delay to show progress
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    
+    // Update group status to completed
+    setMessages(prev => prev.map(msg => 
+      isResponseToolsGroup(msg) && msg.responseId === responseId
+        ? { ...msg, status: 'completed' as const }
+        : msg
+    ))
+  }
+
   const handleAIResponse = (response: any) => {
     console.log('🤖 Handling AI response:', response)
     
@@ -583,6 +678,12 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     setMessages(prev => [...prev, aiMessage])
     setIsLoading(false)
     setAiIsGenerating(false)
+    
+    // Complete the AI response and create bulk approval group if there are pending tools
+    if (currentResponseId) {
+      createResponseToolsGroup(currentResponseId, aiMessage.content)
+      setCurrentResponseId(null)
+    }
   }
   
   const handleSendMessage = async (content?: string) => {
@@ -647,6 +748,11 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     setInput('')
     setIsLoading(true)
     setAiIsGenerating(true)
+    
+    // Start tracking new AI response
+    const responseId = `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    setCurrentResponseId(responseId)
+    addDebugLog(`Started new AI response: ${responseId}`, 'info')
     
     addDebugLog('User message added to UI, sending to backend...')
     

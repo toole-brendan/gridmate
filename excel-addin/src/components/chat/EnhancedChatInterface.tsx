@@ -5,6 +5,7 @@ import {
   isToolSuggestion, 
   isToolResult, 
   isBatchOperation,
+  isResponseToolsGroup,
   isAuditMessage,
   isStatusMessage,
   isStandardMessage
@@ -16,6 +17,7 @@ import {
   AuditMessage,
   StatusIndicator
 } from './messages'
+import { ResponseToolsGroupCard } from './messages/ResponseToolsGroupCard'
 import { 
   MentionableTextarea, 
   ContextPillsContainer,
@@ -179,6 +181,17 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
           }`}
         >
           <BatchOperationCard message={message} />
+        </div>
+      )
+    }
+    if (isResponseToolsGroup(message)) {
+      return (
+        <div
+          className={`w-full animate-fadeIn ${
+            focusedMessageId === message.id ? 'ring-2 ring-blue-500/50 rounded-lg' : ''
+          }`}
+        >
+          <ResponseToolsGroupCard message={message} />
         </div>
       )
     }

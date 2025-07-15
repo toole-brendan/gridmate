@@ -8,6 +8,7 @@ export type EnhancedMessageType =
   | 'tool-suggestion' 
   | 'tool-result' 
   | 'batch-operation'
+  | 'response-tools-group'
   | 'audit'
   | 'status'
 
@@ -43,6 +44,7 @@ export interface ToolSuggestionMessage extends BaseEnhancedMessage {
   }
   status: 'pending' | 'approved' | 'rejected' | 'expired'
   expiresAt?: Date
+  responseId?: string // Track which AI response generated this tool
 }
 
 export interface ToolResultMessage extends BaseEnhancedMessage {
@@ -95,6 +97,21 @@ export interface BatchOperationMessage extends BaseEnhancedMessage {
   status: 'pending' | 'in-progress' | 'completed' | 'failed' | 'partial'
 }
 
+export interface ResponseToolsGroupMessage extends BaseEnhancedMessage {
+  type: 'response-tools-group'
+  responseId: string
+  aiResponseContent: string
+  tools: ToolSuggestionMessage[]
+  actions: {
+    approveAll: () => void
+    rejectAll: () => void
+    expandAll: () => void
+    collapseAll: () => void
+  }
+  status: 'pending' | 'in-progress' | 'completed' | 'failed' | 'partial'
+  collapsed: boolean
+}
+
 export interface AuditMessage extends BaseEnhancedMessage {
   type: 'audit'
   audit: {
@@ -133,6 +150,7 @@ export type EnhancedChatMessage =
   | ToolSuggestionMessage 
   | ToolResultMessage 
   | BatchOperationMessage
+  | ResponseToolsGroupMessage
   | AuditMessage
   | StatusMessage
 
@@ -146,6 +164,10 @@ export function isToolResult(message: EnhancedChatMessage): message is ToolResul
 
 export function isBatchOperation(message: EnhancedChatMessage): message is BatchOperationMessage {
   return 'type' in message && message.type === 'batch-operation'
+}
+
+export function isResponseToolsGroup(message: EnhancedChatMessage): message is ResponseToolsGroupMessage {
+  return 'type' in message && message.type === 'response-tools-group'
 }
 
 export function isAuditMessage(message: EnhancedChatMessage): message is AuditMessage {

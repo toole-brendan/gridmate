@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gridmate/backend/internal/utils"
 	"github.com/sirupsen/logrus"
 )
 
@@ -37,10 +38,18 @@ func NewLogger(cfg *Config) *logrus.Logger {
 			},
 		})
 	} else {
-		logger.SetFormatter(&logrus.TextFormatter{
-			TimestampFormat: cfg.TimeFormat,
-			FullTimestamp:   true,
-		})
+		// Use enhanced formatter for development
+		env := strings.ToLower(os.Getenv("APP_ENV"))
+		if env == "development" || env == "dev" || env == "" {
+			formatter := utils.NewEnhancedFormatter()
+			formatter.TimestampFormat = cfg.TimeFormat
+			logger.SetFormatter(formatter)
+		} else {
+			logger.SetFormatter(&logrus.TextFormatter{
+				TimestampFormat: cfg.TimeFormat,
+				FullTimestamp:   true,
+			})
+		}
 	}
 
 	// Set output

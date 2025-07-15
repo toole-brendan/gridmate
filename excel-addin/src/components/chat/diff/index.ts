@@ -1,0 +1,6 @@
+export { ExcelDiffRenderer } from './ExcelDiffRenderer'
+export { FormulaDiff } from './FormulaDiff'
+export { DataDiff } from './DataDiff'
+export { FormatDiff } from './FormatDiff'
+export { ChartDiff } from './ChartDiff'
+export { TableDiff } from './TableDiff'

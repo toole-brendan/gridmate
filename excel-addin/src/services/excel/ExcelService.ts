@@ -100,6 +100,12 @@ export class ExcelService {
 
   static getInstance(): ExcelService {
     if (!ExcelService.instance) {
+      console.log('[ExcelService] Creating new instance')
+      if (typeof Excel === 'undefined') {
+        console.error('[ExcelService] Excel object is undefined! Office.js may not be loaded')
+      } else {
+        console.log('[ExcelService] Excel object is available')
+      }
       ExcelService.instance = new ExcelService()
     }
     return ExcelService.instance
@@ -264,6 +270,7 @@ export class ExcelService {
 
   // Optimized method to get context around selection
   async getSmartContext(): Promise<ComprehensiveContext> {
+    console.log('[ExcelService] getSmartContext called')
     return Excel.run(async (context: any) => {
       const workbook = context.workbook
       const worksheet = workbook.worksheets.getActiveWorksheet()
@@ -274,6 +281,12 @@ export class ExcelService {
       selectedRange.load(['address', 'rowIndex', 'columnIndex', 'rowCount', 'columnCount'])
 
       await context.sync()
+      
+      console.log('[ExcelService] Basic context loaded:', {
+        workbook: workbook.name,
+        worksheet: worksheet.name,
+        selectedRange: selectedRange.address
+      })
 
       const result: ComprehensiveContext = {
         workbook: workbook.name,
@@ -313,10 +326,14 @@ export class ExcelService {
           colCount: nearbyRange.columnCount
         }
       } catch (e) {
-        console.log('Could not get nearby range')
+        console.log('[ExcelService] Could not get nearby range:', e)
       }
 
+      console.log('[ExcelService] getSmartContext completed successfully')
       return result
+    }).catch(error => {
+      console.error('[ExcelService] getSmartContext error:', error)
+      throw error
     })
   }
 

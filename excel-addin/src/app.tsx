@@ -1,7 +1,8 @@
 import ReactDOM from 'react-dom/client'
-import { ChatInterfaceWrapper } from './components/chat/ChatInterfaceWrapper'
+import { EnhancedChatInterfaceWrapper } from './components/chat/EnhancedChatInterfaceWrapper'
 import './styles/index.css'
 import './styles/cursor-theme.css'
+import './styles/cursor-theme-enhanced.css'
 
 // Office.js initialization
 declare const Office: any
@@ -14,7 +15,7 @@ console.log('🔍 Document ready state:', document.readyState)
 // Main app component
 const MainApp = () => {
   console.log('🎨 MainApp rendering')
-  return <ChatInterfaceWrapper />
+  return <EnhancedChatInterfaceWrapper />
 }
 
 if (typeof Office !== 'undefined') {

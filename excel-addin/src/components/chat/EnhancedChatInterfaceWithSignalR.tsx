@@ -60,6 +60,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([])
   const [activeContext, setActiveContext] = useState<ContextItem[]>([])
   const [excelContext, setExcelContext] = useState<any>(null)
+  const [isContextEnabled, setIsContextEnabled] = useState(true)
   
   // Initialize operation queue hook
   const { 
@@ -134,13 +135,18 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       // Add some common ranges based on current selection
       if (context.selectedRange) {
         const sheet = context.worksheet || 'Sheet1'
-        mentions.push({
-          id: 'selected-column',
-          type: 'range',
-          label: `${sheet} Column`,
-          value: `@${sheet}!${context.selectedRange.columnLetter}:${context.selectedRange.columnLetter}`,
-          description: 'Entire column of selection'
-        })
+        // Extract column letter from range like "A1" or "B3:D5"
+        const rangeMatch = context.selectedRange.match(/^([A-Z]+)\d+/)
+        if (rangeMatch) {
+          const columnLetter = rangeMatch[1]
+          mentions.push({
+            id: 'selected-column',
+            type: 'range',
+            label: `${sheet} Column`,
+            value: `@${sheet}!${columnLetter}:${columnLetter}`,
+            description: 'Entire column of selection'
+          })
+        }
       }
       
       addDebugLog(`Total mentions created: ${mentions.length}`)
@@ -149,23 +155,14 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       
       // Update active context
       const contextItems: ContextItem[] = []
-      if (context.worksheet) {
-        contextItems.push({
-          id: 'active-sheet',
-          type: 'sheet',
-          label: 'Sheet',
-          value: context.worksheet
-        })
-        addDebugLog(`Active worksheet: ${context.worksheet}`)
-      }
       if (context.selectedRange) {
         contextItems.push({
           id: 'selection',
           type: 'selection',
-          label: 'Selection',
-          value: context.selectedRange.address
+          label: 'Context',
+          value: context.selectedRange
         })
-        addDebugLog(`Selected range: ${context.selectedRange.address}`)
+        addDebugLog(`Selected range: ${context.selectedRange}`)
       }
       setActiveContext(contextItems)
       addDebugLog(`Active context items: ${contextItems.length}`)
@@ -781,11 +778,11 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
         data: {
           content: messageContent,
           sessionId: sessionIdRef.current,
-          excelContext: {
+          excelContext: isContextEnabled ? {
             ...excelContext,
             mentionedRanges,
             activeContext: activeContext.map(c => ({ type: c.type, value: c.value }))
-          },
+          } : null,
           autonomyMode: autonomyMode
         }
       }
@@ -930,22 +927,68 @@ Escape : Reject focused action
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [autonomyMode])
   
-  // Update mentions when component mounts
+  // Update mentions when component mounts and listen for selection changes
   useEffect(() => {
-    addDebugLog('Initializing mention system on component mount...')
+    addDebugLog('Initializing mention system and selection change listener...')
     updateAvailableMentions()
     
-    // Set up interval to refresh context periodically
-    const interval = setInterval(() => {
-      addDebugLog('Periodic mention refresh triggered (30s interval)')
-      updateAvailableMentions()
-    }, 30000) // Every 30 seconds
+    // Set up real-time selection change listener
+    const setupSelectionListener = async () => {
+      try {
+        await Excel.run(async (context) => {
+          // Register event handler for selection changes
+          const worksheet = context.workbook.worksheets.getActiveWorksheet()
+          worksheet.onSelectionChanged.add((args) => {
+            addDebugLog('Selection changed, updating context...')
+            updateAvailableMentions()
+          })
+          
+          await context.sync()
+          addDebugLog('Selection change listener registered successfully')
+        })
+      } catch (error) {
+        addDebugLog(`Failed to set up selection listener: ${error}`, 'error')
+        console.error('Failed to set up selection listener:', error)
+        
+        // Fallback to periodic updates if event registration fails
+        const interval = setInterval(() => {
+          addDebugLog('Fallback periodic mention refresh (30s)')
+          updateAvailableMentions()
+        }, 30000)
+        
+        return () => clearInterval(interval)
+      }
+    }
+    
+    // Only set up listener if we're in Office context
+    if (typeof Office !== 'undefined' && Office.context) {
+      addDebugLog('Office context found, registering document selection handler...')
+      Office.context.document.addHandlerAsync(
+        Office.EventType.DocumentSelectionChanged,
+        () => {
+          addDebugLog('Document selection changed event fired!')
+          updateAvailableMentions()
+        },
+        (result) => {
+          if (result.status === Office.AsyncResultStatus.Succeeded) {
+            addDebugLog('Document selection change handler registered successfully', 'success')
+          } else {
+            addDebugLog(`Failed to register selection handler: ${result.error?.message}`, 'error')
+            setupSelectionListener() // Try Excel-specific approach
+          }
+        }
+      )
+    } else {
+      addDebugLog('No Office context, trying Excel-specific approach...')
+      setupSelectionListener() // Try Excel-specific approach
+    }
     
     return () => {
-      addDebugLog('Cleaning up mention refresh interval')
-      clearInterval(interval)
+      addDebugLog('Cleaning up selection listeners')
+      // Note: Office.js doesn't provide a direct way to remove event handlers
+      // They are cleaned up when the add-in is unloaded
     }
-  }, [addDebugLog])
+  }, [addDebugLog, updateAvailableMentions])
   
   // Initialize SignalR connection
   useEffect(() => {
@@ -1085,6 +1128,8 @@ Escape : Reject focused action
         onClearChat={handleClearChat}
         hasUndo={undoStack.length > 0}
         hasRedo={redoStack.length > 0}
+        isContextEnabled={isContextEnabled}
+        onContextToggle={() => setIsContextEnabled(!isContextEnabled)}
       />
       
       {/* Debug Info (collapsed by default) */}

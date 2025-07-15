@@ -122,9 +122,11 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
         </div>
       )}
       
-      {/* Dropdown */}
+      {/* Dropdown - Always opens upward */}
       {isOpen && (
-        <div className="absolute bottom-full left-0 mb-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl animate-slideUp">
+        <div 
+          className="absolute left-0 bottom-full mb-2 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl animate-slideUp"
+        >
           <div className="p-1">
             {modeConfigs.map((config) => {
               const Icon = config.icon

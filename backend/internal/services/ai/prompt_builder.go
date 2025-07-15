@@ -85,35 +85,32 @@ func (pb *PromptBuilder) BuildAnalysisPrompt(context *FinancialContext, analysis
 // buildContextPrompt builds the context section of the prompt
 // Optimized to minimize tokens for empty or sparse spreadsheets
 func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
+	var parts []string
+	parts = append(parts, "<context>")
+
+	// Always include sheet and selection if available
+	if context.WorksheetName != "" {
+		parts = append(parts, fmt.Sprintf("  <sheet>%s</sheet>", context.WorksheetName))
+	}
+	if context.SelectedRange != "" {
+		parts = append(parts, fmt.Sprintf("  <selection>%s</selection>", context.SelectedRange))
+	}
+	
 	// For empty spreadsheets, provide minimal context
 	if context.ModelType == "Empty" {
-		return fmt.Sprintf(`<current_context>
-<workbook>%s</workbook>
-<worksheet>%s</worksheet>
-<status>The spreadsheet is currently empty.</status>
-</current_context>`,
-			context.WorkbookName, context.WorksheetName)
+		parts = append(parts, "  <status>The spreadsheet is currently empty.</status>")
+		parts = append(parts, "</context>")
+		return strings.Join(parts, "\n")
 	}
 
-	var parts []string
-	parts = append(parts, "<current_context>")
-
-	// Basic info
-	if context.WorkbookName != "" {
-		parts = append(parts, fmt.Sprintf("<workbook>%s</workbook>", context.WorkbookName))
-	}
-	if context.WorksheetName != "" {
-		parts = append(parts, fmt.Sprintf("<worksheet>%s</worksheet>", context.WorksheetName))
+	// Include workbook name if different from worksheet
+	if context.WorkbookName != "" && context.WorkbookName != context.WorksheetName {
+		parts = append(parts, fmt.Sprintf("  <workbook>%s</workbook>", context.WorkbookName))
 	}
 
 	// Model type - only if meaningful
 	if context.ModelType != "" && context.ModelType != "General" {
-		parts = append(parts, fmt.Sprintf("<model_type>%s</model_type>", context.ModelType))
-	}
-
-	// Selected range - only if it contains data
-	if context.SelectedRange != "" && len(context.CellValues) > 0 {
-		parts = append(parts, fmt.Sprintf("<selected_range>%s</selected_range>", context.SelectedRange))
+		parts = append(parts, fmt.Sprintf("  <model_type>%s</model_type>", context.ModelType))
 	}
 
 	// Cell values and formulas - optimize for size
@@ -139,7 +136,7 @@ func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 		parts = append(parts, pb.buildPendingOperationsSection(context.PendingOperations))
 	}
 
-	parts = append(parts, "</current_context>")
+	parts = append(parts, "</context>")
 	return strings.Join(parts, "\n")
 }
 

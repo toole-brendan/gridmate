@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, FileSpreadsheet, Target } from 'lucide-react'
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
+import { ContextChip } from '../common/ContextChip'
 import { 
   EnhancedChatMessage, 
   isToolSuggestion, 
@@ -59,6 +60,9 @@ interface EnhancedChatInterfaceProps {
   onRejectAll?: () => void
   isProcessingBulkAction?: boolean
   aiIsGenerating?: boolean
+  // Context control
+  isContextEnabled?: boolean
+  onContextToggle?: () => void
 }
 
 export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
@@ -82,7 +86,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   onApproveAll,
   onRejectAll,
   isProcessingBulkAction = false,
-  aiIsGenerating = false
+  aiIsGenerating = false,
+  isContextEnabled = true,
+  onContextToggle
 }) => {
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const [focusedMessageId, setFocusedMessageId] = React.useState<string | null>(null)
@@ -420,12 +426,29 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
           <div className="text-center text-gray-400 mt-8">
             <p className="text-lg font-medium mb-2">Welcome to Gridmate AI</p>
             <p className="text-sm">Select cells in Excel and ask me anything about your financial model!</p>
+            
+            
             <div className="mt-6 space-y-2">
               <p className="text-xs text-gray-500">Try asking:</p>
-              <div className="space-y-1">
-                <p className="text-xs italic text-gray-500">"What's the formula in this cell?"</p>
-                <p className="text-xs italic text-gray-500">"Calculate the NPV for this cash flow"</p>
-                <p className="text-xs italic text-gray-500">"Add a sensitivity analysis here"</p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleSendMessage("What's the formula in this cell?")}
+                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 text-gray-400 hover:text-gray-200 transition-all"
+                >
+                  "What's the formula in this cell?"
+                </button>
+                <button
+                  onClick={() => handleSendMessage("Calculate the NPV for this cash flow")}
+                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 text-gray-400 hover:text-gray-200 transition-all"
+                >
+                  "Calculate the NPV for this cash flow"
+                </button>
+                <button
+                  onClick={() => handleSendMessage("Add a sensitivity analysis here")}
+                  className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 text-gray-400 hover:text-gray-200 transition-all"
+                >
+                  "Add a sensitivity analysis here"
+                </button>
               </div>
             </div>
           </div>
@@ -464,6 +487,8 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
               <ContextPillsContainer
                 items={activeContext}
                 onRemove={onContextRemove}
+                onContextToggle={onContextToggle}
+                isContextEnabled={isContextEnabled}
                 className="flex flex-wrap gap-2"
               />
             </div>

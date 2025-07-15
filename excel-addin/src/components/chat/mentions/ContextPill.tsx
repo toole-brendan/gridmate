@@ -12,9 +12,11 @@ export interface ContextItem {
 interface ContextPillProps {
   item: ContextItem
   onRemove?: (id: string) => void
+  onClick?: () => void
+  isEnabled?: boolean
 }
 
-export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove }) => {
+export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClick, isEnabled = true }) => {
   const getIcon = () => {
     switch (item.type) {
       case 'sheet':
@@ -51,6 +53,10 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove }) => {
   }
   
   const getTypeStyles = () => {
+    if (!isEnabled) {
+      return 'bg-gray-800/20 text-gray-500 border-gray-700/30 opacity-50'
+    }
+    
     switch (item.type) {
       case 'sheet':
         return 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
@@ -65,37 +71,49 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove }) => {
     }
   }
   
+  const Component = onClick ? 'button' : 'div'
+  
   return (
-    <div className={`
-      inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-      border transition-all duration-150 cursor-default ${getTypeStyles()}
-    `}>
+    <Component
+      onClick={onClick}
+      className={`
+        inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+        border transition-all duration-150 ${onClick ? 'cursor-pointer' : 'cursor-default'} ${getTypeStyles()}
+      `}
+    >
       {getIcon()}
       <span>{item.label}:</span>
       <span className="font-normal opacity-80">{item.value}</span>
       
       {item.removable && onRemove && (
         <button
-          onClick={() => onRemove(item.id)}
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove(item.id)
+          }}
           className="ml-1 -mr-1 p-0.5 rounded hover:bg-black/20 transition-colors group"
           title="Remove context"
         >
           <XMarkIcon className="w-3 h-3 opacity-60 group-hover:opacity-100" />
         </button>
       )}
-    </div>
+    </Component>
   )
 }
 
 interface ContextPillsContainerProps {
   items: ContextItem[]
   onRemove?: (id: string) => void
+  onContextToggle?: () => void
+  isContextEnabled?: boolean
   className?: string
 }
 
 export const ContextPillsContainer: React.FC<ContextPillsContainerProps> = ({
   items,
   onRemove,
+  onContextToggle,
+  isContextEnabled = true,
   className = ''
 }) => {
   if (items.length === 0) return null
@@ -107,6 +125,8 @@ export const ContextPillsContainer: React.FC<ContextPillsContainerProps> = ({
           key={item.id}
           item={item}
           onRemove={onRemove}
+          onClick={item.type === 'selection' ? onContextToggle : undefined}
+          isEnabled={isContextEnabled}
         />
       ))}
     </div>

@@ -68,12 +68,11 @@ export const MentionableTextarea: React.FC<MentionableTextareaProps> = ({
       setMentionSearch('')
       setMentionStartIndex(lastAtIndex)
       
-      // Calculate position for autocomplete
+      // Calculate position for autocomplete - position above the textarea
       if (textareaRef.current) {
-        const rect = textareaRef.current.getBoundingClientRect()
         setMentionPosition({
           x: 0, // Will be relative to container
-          y: rect.height + 5
+          y: -310 // Position above with space for max height (300px) + padding
         })
       }
     } else if (showAutocomplete && mentionStartIndex !== -1) {

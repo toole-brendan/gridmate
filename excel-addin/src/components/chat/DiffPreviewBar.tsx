@@ -1,24 +1,19 @@
 import React, { useState } from 'react'
-import { useIsPreviewing, useDiffHunks, useDiffStore } from '../../store/diffStore'
-import { DiffKind } from '../../types/diff'
+import { DiffKind, DiffHunk } from '../../types/diff'
 import { EyeIcon, CheckIcon, XMarkIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
-// Safe import with fallback
-let log: (source: string, message: string, data?: any) => void
-try {
-  const logStore = require('../../store/logStore')
-  log = logStore.log
-} catch (error) {
-  console.error('Failed to import logStore:', error)
-  // Fallback to console.log
-  log = (source: string, message: string, data?: any) => {
-    console.log(`[${source}] ${message}`, data)
-  }
+
+// Fallback logger
+const log = (source: string, message: string, data?: any) => {
+  console.log(`[${source}] ${message}`, data)
 }
 
 interface DiffPreviewBarProps {
   onApply: () => void
   onCancel: () => void
   isLoading?: boolean
+  isPreviewing: boolean
+  hunks: DiffHunk[] | null
+  error: string | null
 }
 
 const DIFF_ICONS: Record<DiffKind, string> = {
@@ -40,24 +35,22 @@ const DIFF_LABELS: Record<DiffKind, string> = {
 export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({ 
   onApply, 
   onCancel,
-  isLoading = false 
+  isLoading = false,
+  isPreviewing,
+  hunks,
+  error
 }) => {
-  const isPreviewing = useIsPreviewing()
-  const hunks = useDiffHunks()
-  const error = useDiffStore(state => state.error)
   const [isExpanded, setIsExpanded] = useState(false)
   
   log('visual-diff', `[🎨 Diff Apply] DiffPreviewBar rendered.`, { isPreviewing, hunksCount: hunks?.length || 0, isLoading });
   
   if (!isPreviewing || !hunks) {
-    // Add a log to confirm why it's not showing
     if (isPreviewing && !hunks) {
       log('visual-diff', `[🎨 Diff Apply] DiffPreviewBar is hidden because there are no diffs to show.`);
     }
     return null
   }
   
-  // Count changes by type
   const changeSummary = hunks.reduce((acc, hunk) => {
     acc[hunk.kind] = (acc[hunk.kind] || 0) + 1
     return acc
@@ -65,14 +58,12 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
   
   const totalChanges = hunks.length
   
-  // Group affected ranges
   const affectedRanges = new Set<string>()
   hunks.forEach(hunk => {
     const rangeKey = `${hunk.key.sheet}!${String.fromCharCode(65 + hunk.key.col)}${hunk.key.row + 1}`
     affectedRanges.add(rangeKey)
   })
   
-  // Estimate execution time (rough estimate: 50ms per operation)
   const estimatedTime = Math.max(100, totalChanges * 50)
   const estimatedTimeStr = estimatedTime < 1000 ? `${estimatedTime}ms` : `${(estimatedTime / 1000).toFixed(1)}s`
 

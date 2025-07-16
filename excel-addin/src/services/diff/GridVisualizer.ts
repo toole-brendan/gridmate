@@ -65,8 +65,16 @@ export class GridVisualizer {
   /**
    * Apply visual highlights to cells based on diff hunks with enhanced visualization
    */
-  static async applyHighlights(hunks: DiffHunk[]): Promise<void> {
-    if (!hunks || hunks.length === 0) return
+  static async applyHighlights(hunks: DiffHunk[], addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
+    const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+    
+    if (!hunks || hunks.length === 0) {
+      log('info', '[Visualizer] No hunks to highlight')
+      return
+    }
+
+    log('info', `[Visualizer] Applying highlights to ${hunks.length} cells`)
+    const startTime = performance.now()
 
     return Excel.run(async (context: any) => {
       const workbook = context.workbook
@@ -74,6 +82,7 @@ export class GridVisualizer {
       
       // Group hunks by sheet for efficiency
       const hunksBySheet = this.groupHunksBySheet(hunks)
+      log('info', `[Visualizer] Processing ${hunksBySheet.size} sheets`)
       
       // Batch operations: collect all ranges first
       const rangeOperations: Array<{
@@ -234,7 +243,43 @@ export class GridVisualizer {
       // Single final sync for all formatting changes
       await context.sync()
       console.log(`[GridVisualizer] Applied highlights to ${rangeOperations.length} cells with 2 sync operations`)
+      const endTime = performance.now()
+      log('success', `[Visualizer] Highlights applied successfully in ${Math.round(endTime - startTime)}ms`, {
+        totalCells: hunks.length,
+        sheetsProcessed: hunksBySheet.size
+      })
+    }).catch((error: any) => {
+      log('error', `[Visualizer] Error applying highlights: ${error.message}`, { error })
+      throw error
     })
+  }
+
+  /**
+   * Apply highlights in batches for better performance with large operations
+   */
+  static async applyHighlightsBatched(hunks: DiffHunk[], batchSize: number = 50, addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
+    const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+    
+    log('info', `[Visualizer] Starting batched highlight application for ${hunks.length} hunks (batch size: ${batchSize})`)
+    const startTime = performance.now()
+    
+    const batches: DiffHunk[][] = [];
+    for (let i = 0; i < hunks.length; i += batchSize) {
+      batches.push(hunks.slice(i, i + batchSize));
+    }
+    
+    log('info', `[Visualizer] Processing ${batches.length} batches`)
+    
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      log('info', `[Visualizer] Processing batch ${i + 1}/${batches.length} (${batch.length} hunks)`)
+      await this.applyHighlights(batch, addLog);
+      // Small delay between batches to keep UI responsive
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    const endTime = performance.now()
+    log('success', `[Visualizer] Batched highlighting completed in ${Math.round(endTime - startTime)}ms`)
   }
 
   /**
@@ -262,9 +307,15 @@ export class GridVisualizer {
   }
 
   /**
-   * Clear highlights and restore original formatting with enhanced restoration
+   * Clear visual highlights from cells with full restoration
    */
-  static async clearHighlights(hunks?: DiffHunk[]): Promise<void> {
+  static async clearHighlights(hunks?: DiffHunk[], addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
+    const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+    
+    const hunkCount = hunks?.length || this.originalStates.size
+    log('info', `[Visualizer] Clearing ${hunkCount} highlights`)
+    const startTime = performance.now()
+    
     return Excel.run(async (context: any) => {
       const workbook = context.workbook
       this.previewActive = false
@@ -362,7 +413,15 @@ export class GridVisualizer {
       }
       
       await context.sync()
-      console.log(`[GridVisualizer] Cleared ${this.originalStates.size} cell highlights`)
+      
+      const endTime = performance.now()
+      log('success', `[Visualizer] Highlights cleared successfully in ${Math.round(endTime - startTime)}ms`, {
+        clearedCount: hunkCount,
+        remainingStates: this.originalStates.size
+      })
+    }).catch((error: any) => {
+      log('error', `[Visualizer] Error clearing highlights: ${error.message}`, { error })
+      throw error
     })
   }
 

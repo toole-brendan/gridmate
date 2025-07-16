@@ -3,7 +3,6 @@ import { useDiffPreview } from './useDiffPreview';
 import { useChatManager } from './useChatManager';
 import { SignalRToolRequest, SignalRAIResponse } from '../types/signalr';
 import { AISuggestedOperation } from '../types/diff';
-import { useDiffSessionStore } from '../store/useDiffSessionStore';
 import { AuditLogger } from '../utils/safetyChecks';
 import { ExcelService } from '../services/excel/ExcelService';
 
@@ -19,7 +18,9 @@ export const useMessageHandlers = (
   const currentMessageIdRef = useRef<string | null>(null);
   const readRequestQueue = useRef<SignalRToolRequest[]>([]);
   const batchTimeout = useRef<NodeJS.Timeout | null>(null);
-  const { addLog } = useDiffSessionStore((state) => state.actions);
+  const addLog = (type: string, message: string, data?: any) => {
+    console.log(`[${type}] ${message}`, data);
+  };
 
   const processReadBatch = useCallback(async () => {
     const requests = readRequestQueue.current;
@@ -116,25 +117,24 @@ export const useMessageHandlers = (
         sessionId: signalRClientRef.current?.sessionId || 'unknown'
       });
       
-      // Get the live snapshot directly from the store to check session status
-      const { liveSnapshot } = useDiffSessionStore.getState();
-
+      // Check if tool request includes preview parameter
+      const shouldPreview = toolRequest.preview !== false; // Default to true
+      
       const operation: AISuggestedOperation = { 
         tool: toolRequest.tool, 
         input: toolRequest,  // Pass entire toolRequest as backend sends params directly in data
         description: `Execute ${toolRequest.tool}`
       };
       
-      if (!liveSnapshot) {
-        addDebugLog('No active session found. Starting new preview session.');
-        addLog('info', `[Message Handler] Starting new preview session for message ${currentMessageIdRef.current || 'unknown'}`);
-        // IMPORTANT: Do NOT await this call. Let it run in the background.
-        // Awaiting it creates the race condition. The UI will update reactively.
-        diffPreview.startPreviewSession(operation, currentMessageIdRef.current || 'unknown');
+      if (shouldPreview) {
+        addDebugLog('Generating preview for write operation.');
+        addLog('info', `[Message Handler] Generating preview for message ${currentMessageIdRef.current || 'unknown'}`);
+        await diffPreview.generatePreview(currentMessageIdRef.current || 'unknown', [operation]);
       } else {
-        addDebugLog('Active session found. Updating existing preview session.');
-        addLog('info', `[Message Handler] Updating existing preview session with new operation`);
-        await diffPreview.updatePreview(operation, currentMessageIdRef.current || 'unknown');
+        // Direct execution without preview
+        addDebugLog('Direct execution requested (preview=false).');
+        addLog('info', `[Message Handler] Direct execution for ${toolRequest.tool}`);
+        await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
       }
       
       await signalRClientRef.current?.send({
@@ -225,7 +225,7 @@ export const useMessageHandlers = (
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
     
-    if (response.isFinal) {
+    if (response.isComplete) {
       addDebugLog('AI response complete', 'success');
       chatManager.setAiIsGenerating(false);
     }

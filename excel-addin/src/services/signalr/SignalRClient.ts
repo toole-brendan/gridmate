@@ -17,7 +17,7 @@ export class SignalRClient extends EventEmitter {
   private isIntentionallyClosed: boolean = false
   private messageQueue: SignalRMessage[] = []
   private sessionId: string | null = null
-  private heartbeatInterval: NodeJS.Timer | null = null
+  private heartbeatInterval: number | null = null
 
   constructor(url: string) {
     super()
@@ -34,7 +34,11 @@ export class SignalRClient extends EventEmitter {
           withCredentials: true,
           transport: signalR.HttpTransportType.WebSockets | 
                     signalR.HttpTransportType.ServerSentEvents |
-                    signalR.HttpTransportType.LongPolling
+                    signalR.HttpTransportType.LongPolling,
+          // Increase server timeout to 2 minutes (default is 30 seconds)
+          serverTimeoutInMilliseconds: 120000,
+          // Keep alive interval at 15 seconds
+          keepAliveIntervalInMilliseconds: 15000
         })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {
@@ -287,7 +291,7 @@ export class SignalRClient extends EventEmitter {
   }
 
   private startHeartbeat(): void {
-    this.heartbeatInterval = setInterval(async () => {
+    this.heartbeatInterval = window.setInterval(async () => {
       if (this.connection?.state === signalR.HubConnectionState.Connected && this.sessionId) {
         try {
           await this.connection.invoke('Heartbeat', this.sessionId)
@@ -296,12 +300,12 @@ export class SignalRClient extends EventEmitter {
           console.error('Failed to send heartbeat:', error)
         }
       }
-    }, 60000) // Every minute
+    }, 45000) // Every 45 seconds (less than server timeout)
   }
 
   private stopHeartbeat(): void {
     if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval)
+      window.clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
     }
   }

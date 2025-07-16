@@ -1,117 +1,87 @@
 import { create } from 'zustand';
 import { AISuggestedOperation, DiffHunk, WorkbookSnapshot } from '../types/diff';
 
-// Enhanced diff operation with session tracking
-interface DiffOperation extends AISuggestedOperation {
-  sessionId: string;
+// Simplified: Only one active preview at a time
+interface DiffData {
+  status: 'previewing' | 'applying' | 'rejected' | 'accepted';
+  operations: AISuggestedOperation[];
+  hunks: DiffHunk[];
+  timestamp: number;
   messageId: string;
-  timestamp: Date;
-}
-
-type DiffStatus = 'idle' | 'calculating' | 'previewing' | 'applying' | 'error';
-
-type LogType = 'info' | 'error' | 'success' | 'warning';
-
-interface LogEntry {
-  type: LogType;
-  message: string;
-  timestamp: Date;
-  data?: Record<string, any>;
 }
 
 interface DiffSessionState {
-  sessionId: string | null;
-  status: DiffStatus;
+  // Current active preview (only one at a time)
+  activePreview: DiffData | null;
+  
+  // Original snapshot before preview
   originalSnapshot: WorkbookSnapshot | null;
-  liveSnapshot: WorkbookSnapshot | null;
-  pendingOperations: DiffOperation[];
-  hunks: DiffHunk[];
-  error: string | null;
-  lastError: { message: string; timestamp: Date } | null;
-  retryCount: number;
-  logs: LogEntry[];
-  actions: {
-    startSession: (sessionId: string, snapshot: WorkbookSnapshot) => void;
-    addOperation: (operation: AISuggestedOperation, messageId: string, newLiveSnapshot: WorkbookSnapshot, newHunks: DiffHunk[]) => void;
-    endSession: () => void;
-    setError: (error: string) => void;
-    handleError: (error: Error) => void;
-    retry: () => void;
-    setStatus: (status: DiffStatus) => void;
-    addLog: (type: LogType, message: string, data?: Record<string, any>) => void;
-  }
+  
+  // Actions
+  setActivePreview: (messageId: string, operations: AISuggestedOperation[], hunks: DiffHunk[]) => void;
+  acceptActivePreview: () => Promise<void>;
+  rejectActivePreview: () => void;
+  clearPreview: () => void;
 }
 
 export const useDiffSessionStore = create<DiffSessionState>((set, get) => ({
-  sessionId: null,
-  status: 'idle',
+  activePreview: null,
   originalSnapshot: null,
-  liveSnapshot: null,
-  pendingOperations: [],
-  hunks: [],
-  error: null,
-  lastError: null,
-  retryCount: 0,
-  logs: [],
-  actions: {
-    startSession: (sessionId, snapshot) => set({
-      sessionId,
-      status: 'calculating',
-      originalSnapshot: snapshot,
-      liveSnapshot: snapshot, // Initially, live is same as original
-      pendingOperations: [],
-      hunks: [],
-      error: null,
-      retryCount: 0,
-      logs: [], // Clear logs on new session
-    }),
-    addOperation: (operation, messageId, newLiveSnapshot, newHunks) => set((state) => ({
-      pendingOperations: [...state.pendingOperations, {
-        ...operation,
-        sessionId: state.sessionId!,
-        messageId,
-        timestamp: new Date()
-      }],
-      liveSnapshot: newLiveSnapshot,
-      hunks: newHunks, // Or merge hunks: [...state.hunks, ...newHunks]
-      status: 'previewing',
-    })),
-    endSession: () => set({
-      sessionId: null,
-      status: 'idle',
-      originalSnapshot: null,
-      liveSnapshot: null,
-      pendingOperations: [],
-      hunks: [],
-      error: null,
-      retryCount: 0,
-    }),
-    setError: (error) => set({ 
-      status: 'error', 
-      error,
-      lastError: { message: error, timestamp: new Date() }
-    }),
-    handleError: (error) => set((state) => ({ 
-      status: 'error', 
-      error: error.message,
-      lastError: { message: error.message, timestamp: new Date() },
-      retryCount: state.retryCount + 1
-    })),
-    retry: () => {
-      const state = get();
-      if (state.retryCount < 3 && state.originalSnapshot) {
-        set({ 
-          status: 'calculating', 
-          error: null,
-          liveSnapshot: state.originalSnapshot 
-        });
+
+  setActivePreview: (messageId, operations, hunks) => {
+    set({
+      activePreview: {
+        status: 'previewing',
+        operations,
+        hunks,
+        timestamp: Date.now(),
+        messageId
       }
-    },
-    setStatus: (status) => set({ status }),
-    addLog: (type, message, data) => {
+    });
+  },
+
+  acceptActivePreview: async () => {
+    const { activePreview } = get();
+    if (!activePreview || activePreview.status !== 'previewing') return;
+
+    set((state) => ({
+      activePreview: state.activePreview ? {
+        ...state.activePreview,
+        status: 'applying'
+      } : null
+    }));
+
+    // After applying, keep the preview with 'accepted' status for history
+    setTimeout(() => {
       set((state) => ({
-        logs: [...state.logs, { type, message, timestamp: new Date(), data }],
+        activePreview: state.activePreview ? {
+          ...state.activePreview,
+          status: 'accepted' as any  // Add 'accepted' as a valid status
+        } : null,
+        originalSnapshot: null
       }));
-    },
+    }, 100);
+  },
+
+  rejectActivePreview: () => {
+    const { activePreview } = get();
+    if (!activePreview) return;
+
+    set((state) => ({
+      activePreview: state.activePreview ? {
+        ...state.activePreview,
+        status: 'rejected'
+      } : null
+    }));
+
+    // Keep rejected state visible in chat history
+    // Don't auto-clear - let it be cleared by next preview or manually
+  },
+
+  clearPreview: () => {
+    set({
+      activePreview: null,
+      originalSnapshot: null
+    });
   }
 })); 

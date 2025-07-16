@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from 'react'
-import { Send, Loader2, FileSpreadsheet, Target } from 'lucide-react'
+import React from 'react'
+import { Send } from 'lucide-react'
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'
-import { ContextChip } from '../common/ContextChip'
 import { 
   EnhancedChatMessage, 
   isToolSuggestion, 
@@ -19,6 +18,7 @@ import {
   AuditMessage,
   StatusIndicator
 } from './messages'
+import { ChatMessageDiffPreview } from './ChatMessageDiffPreview'
 import { ResponseToolsGroupCard } from './messages/ResponseToolsGroupCard'
 import { 
   MentionableTextarea, 
@@ -63,6 +63,10 @@ interface EnhancedChatInterfaceProps {
   // Context control
   isContextEnabled?: boolean
   onContextToggle?: () => void
+  // Diff preview
+  activePreview?: any
+  onAcceptDiff?: () => Promise<void>
+  onRejectDiff?: () => Promise<void>
 }
 
 export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
@@ -88,12 +92,14 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   isProcessingBulkAction = false,
   aiIsGenerating = false,
   isContextEnabled = true,
-  onContextToggle
+  onContextToggle,
+  activePreview,
+  onAcceptDiff,
+  onRejectDiff
 }) => {
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const [focusedMessageId, setFocusedMessageId] = React.useState<string | null>(null)
   const [showShortcutsHelp, setShowShortcutsHelp] = React.useState(false)
-  const inputRef = React.useRef<HTMLTextAreaElement>(null)
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -179,6 +185,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
             onApprove={() => onMessageAction?.(message.id, 'approve')}
             onReject={() => onMessageAction?.(message.id, 'reject')}
             onModify={() => onMessageAction?.(message.id, 'modify')}
+            diffData={activePreview?.messageId === message.id ? activePreview : undefined}
+            onAcceptDiff={onAcceptDiff}
+            onRejectDiff={onRejectDiff}
           />
         </div>
       )
@@ -269,6 +278,15 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                   ))}
                 </div>
               </div>
+            )}
+            {activePreview?.messageId === message.id && (
+              <ChatMessageDiffPreview
+                messageId={message.id}
+                hunks={activePreview.hunks || []}
+                onAccept={onAcceptDiff}
+                onReject={onRejectDiff}
+                status={activePreview?.status || 'previewing'}
+              />
             )}
             <p className="font-footnote opacity-70 mt-1 select-text" style={{ 
               userSelect: 'text', 
@@ -435,19 +453,28 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
               <p className="font-footnote text-text-tertiary">Try asking:</p>
               <div className="space-y-2">
                 <button
-                  onClick={() => handleSendMessage("What's the formula in this cell?")}
+                  onClick={() => {
+                    setInput("What's the formula in this cell?")
+                    handleSendMessage()
+                  }}
                   className="block w-full font-footnote text-left px-3 py-2 rounded-lg bg-secondary-background hover:shadow-ios text-text-secondary hover:text-text-primary transition-all border border-border-primary"
                 >
                   "What's the formula in this cell?"
                 </button>
                 <button
-                  onClick={() => handleSendMessage("Calculate the NPV for this cash flow")}
+                  onClick={() => {
+                    setInput("Calculate the NPV for this cash flow")
+                    handleSendMessage()
+                  }}
                   className="block w-full font-footnote text-left px-3 py-2 rounded-lg bg-secondary-background hover:shadow-ios text-text-secondary hover:text-text-primary transition-all border border-border-primary"
                 >
                   "Calculate the NPV for this cash flow"
                 </button>
                 <button
-                  onClick={() => handleSendMessage("Add a sensitivity analysis here")}
+                  onClick={() => {
+                    setInput("Add a sensitivity analysis here")
+                    handleSendMessage()
+                  }}
                   className="block w-full font-footnote text-left px-3 py-2 rounded-lg bg-secondary-background hover:shadow-ios text-text-secondary hover:text-text-primary transition-all border border-border-primary"
                 >
                   "Add a sensitivity analysis here"

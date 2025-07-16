@@ -1,5 +1,5 @@
 /// <reference types="@types/office-js" />
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 // --- Core Hooks ---
@@ -12,7 +12,6 @@ import { useDebounce } from '../../hooks/useDebounce';
 // --- UI Components ---
 import { EnhancedChatInterface } from './EnhancedChatInterface';
 import { EnhancedAutonomySelector } from './EnhancedAutonomySelector';
-import { DiffPreviewBar } from './DiffPreviewBar';
 
 // --- Services and Utils ---
 import { ExcelService } from '../../services/excel/ExcelService';
@@ -41,11 +40,8 @@ export const RefactoredChatInterface: React.FC = () => {
   const chatManager = useChatManager();
   const diffPreview = useDiffPreview();
   
-  // Centralized logging from the session store
-  const { addLog: centralAddLog, logs: visualDiffLogs } = useDiffSessionStore((state) => ({
-    logs: state.logs,
-    addLog: state.actions.addLog,
-  }));
+  // Get activePreview from the session store
+  const { activePreview } = useDiffSessionStore();
 
   // Component-level debug logs
   const [debugLogs, setDebugLogs] = useState<Array<{time: string, message: string, type: 'info' | 'error' | 'warning' | 'success'}>>([]);
@@ -277,7 +273,6 @@ export const RefactoredChatInterface: React.FC = () => {
       ).join('\n');
 
       const debugLogsText = debugLogs.map(log => `[${log.time}] [${log.type.toUpperCase()}] ${log.message}`).join('\n');
-      const visualDiffLogsText = visualDiffLogs.map(log => `[${log.timestamp.toLocaleTimeString()}] [${log.type.toUpperCase()}] ${log.message}`).join('\n');
 
       const sessionId = (signalRClient as any)?.sessionId || 'N/A'; // Access sessionId with type assertion
 
@@ -290,9 +285,6 @@ Connection: ${connectionStatus} ${isAuthenticated ? '(authenticated)' : ''}
 
 === Debug Logs (${debugLogs.length} entries) ===
 ${debugLogsText || 'No debug logs.'}
-
-=== Visual Diff Logs (${visualDiffLogs.length} entries) ===
-${visualDiffLogsText || 'No visual diff activity.'}
 
 === Audit Logs (last 10) ===
 ${auditLogs || 'No audit logs.'}
@@ -386,18 +378,11 @@ ${auditLogs || 'No audit logs.'}
           isContextEnabled={isContextEnabled}
           onContextToggle={handleContextClick}
           onClearChat={chatManager.clearMessages}
+          activePreview={activePreview}
+          onAcceptDiff={diffPreview.acceptCurrentPreview}
+          onRejectDiff={diffPreview.rejectCurrentPreview}
         />
       </div>
-
-      {/* --- Diff Preview Bar --- */}
-      <DiffPreviewBar
-        onApply={diffPreview.applyChanges}
-        onCancel={diffPreview.cancelPreview}
-        isLoading={diffPreview.status === 'calculating' || diffPreview.status === 'applying'}
-        isPreviewing={diffPreview.status === 'previewing'}
-        hunks={diffPreview.hunks}
-        error={diffPreview.error}
-      />
 
       {/* --- Debug Panel --- */}
       <details open={isDebugOpen} style={{ borderTop: '1px solid #374151', backgroundColor: '#1f2937', fontSize: '11px', padding: '8px 12px', color: '#e5e7eb' }}>
@@ -408,7 +393,7 @@ ${auditLogs || 'No audit logs.'}
           <div>Session: {(signalRClient as any)?.sessionId || 'N/A'}</div>
           <div>Mode: {autonomyMode}</div>
           <div>Connection: {connectionStatus} {isAuthenticated ? '(auth)' : ''}</div>
-          <div>Diff Status: {diffPreview.status}</div>
+          <div>Active Preview: {activePreview ? `Message ${activePreview.messageId}` : 'None'}</div>
           <button onClick={handleCopyDebugInfo} style={{ marginTop: '8px', padding: '4px 8px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
             {copyButtonText}
           </button>
@@ -420,12 +405,6 @@ ${auditLogs || 'No audit logs.'}
             </div>
           </details>
 
-          <details open style={{ marginTop: '8px' }}>
-            <summary>Visual Diff Logs ({visualDiffLogs.length})</summary>
-            <div style={{ marginTop: '4px', maxHeight: '200px', overflowY: 'auto', backgroundColor: '#0d1117', padding: '8px', borderRadius: '4px' }}>
-              {visualDiffLogs.map((log, index) => <div key={index} style={{ color: log.type === 'error' ? '#ff6b6b' : log.type === 'success' ? '#6bcf7f' : '#8b949e' }}>[{log.timestamp.toLocaleTimeString()}] {log.message}</div>)}
-            </div>
-          </details>
         </div>
       </details>
     </div>

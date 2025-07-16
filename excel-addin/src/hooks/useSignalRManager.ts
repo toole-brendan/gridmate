@@ -20,8 +20,10 @@ export const useSignalRManager = (onMessage: SignalRMessageHandler, addDebugLog?
     if (globalSignalRClient && globalSignalRClient.isConnected()) {
       clientRef.current = globalSignalRClient;
       setConnectionStatus('connected');
-      setIsAuthenticated(true);
-      addDebugLog?.('Using existing SignalR connection', 'info');
+      // Check if the existing connection is authenticated by looking for sessionId
+      const isAuth = !!(globalSignalRClient as any).sessionId;
+      setIsAuthenticated(isAuth);
+      addDebugLog?.(`Using existing SignalR connection (authenticated: ${isAuth})`, 'info');
     } else {
       const newClient = new SignalRClient('https://localhost:7171/hub');
       globalSignalRClient = newClient;
@@ -29,14 +31,36 @@ export const useSignalRManager = (onMessage: SignalRMessageHandler, addDebugLog?
 
       newClient.on('connected', () => {
         setConnectionStatus('connected');
-        setIsAuthenticated(true);
+        // Don't set authenticated here - wait for auth_success event
         addDebugLog?.('SignalR connected successfully', 'success');
+      });
+      
+      newClient.on('auth_success', (data) => {
+        setIsAuthenticated(true);
+        addDebugLog?.(`SignalR authenticated successfully. Session: ${data.sessionId}`, 'success');
+      });
+      
+      newClient.on('auth_error', (error) => {
+        setIsAuthenticated(false);
+        addDebugLog?.(`SignalR authentication failed: ${error}`, 'error');
       });
       
       newClient.on('disconnected', () => {
         setConnectionStatus('disconnected');
         setIsAuthenticated(false);
         addDebugLog?.('SignalR disconnected', 'warning');
+      });
+      
+      newClient.on('reconnecting', () => {
+        setConnectionStatus('connecting');
+        setIsAuthenticated(false);
+        addDebugLog?.('SignalR reconnecting...', 'warning');
+      });
+      
+      newClient.on('reconnected', () => {
+        setConnectionStatus('connected');
+        // Don't set authenticated here - wait for auth_success event after re-authentication
+        addDebugLog?.('SignalR reconnected, awaiting authentication...', 'info');
       });
       
       newClient.on('error', (error) => {

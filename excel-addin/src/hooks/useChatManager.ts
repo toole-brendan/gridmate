@@ -58,6 +58,10 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
     }));
   }, []);
 
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+  }, []);
+
   return {
     messages,
     setMessages,
@@ -65,6 +69,7 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
     updateMessage,
     removeMessage,
     clearThinkingMessages,
+    clearMessages,
     isLoading,
     setIsLoading,
     aiIsGenerating,

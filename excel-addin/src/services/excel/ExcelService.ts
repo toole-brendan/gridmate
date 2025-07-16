@@ -573,7 +573,7 @@ export class ExcelService {
     console.log(`[ExcelService] Batch reading ${requests.length} ranges`);
     
     return Excel.run(async (context: any) => {
-      const results = new Map<string, RangeData>();
+      const results = new Map<string, RangeData | null>();
       const rangePromises = [];
       
       // Load all ranges in parallel

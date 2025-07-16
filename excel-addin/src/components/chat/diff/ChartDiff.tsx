@@ -152,7 +152,7 @@ const getChartIcon = (type?: string) => {
 }
 
 const getChartChanges = (before: any, after: any): Array<{ property: string, before: any, after: any }> => {
-  const changes = []
+  const changes: Array<{ property: string, before: any, after: any }> = []
   const properties = ['title', 'type', 'dataRange', 'series', 'categories', 'options']
   
   properties.forEach(prop => {

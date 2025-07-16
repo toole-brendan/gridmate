@@ -204,7 +204,7 @@ const ColumnChanges: React.FC<{ before: any, after: any }> = ({ before, after })
 
 // Helper functions
 const getTableChanges = (before: any, after: any): Array<{ property: string, before: any, after: any }> => {
-  const changes = []
+  const changes: Array<{ property: string, before: any, after: any }> = []
   const properties = ['name', 'rows', 'columns', 'style', 'hasHeaders', 'hasFilters', 'hasTotals']
   
   properties.forEach(prop => {

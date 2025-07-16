@@ -46,3 +46,8 @@ export interface AISuggestedOperation {
   input: Record<string, any>
   description?: string
 }
+
+export interface ValidationError {
+  message: string
+  severity: 'error' | 'warning'
+}

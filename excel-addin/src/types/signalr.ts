@@ -10,6 +10,7 @@ export interface SignalRToolRequest {
   parameters: Record<string, any>
   sheet?: string
   range?: string
+  preview?: boolean
 }
 
 export interface SignalRAIResponse {

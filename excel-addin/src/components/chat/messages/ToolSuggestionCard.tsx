@@ -1,21 +1,28 @@
 import React, { useState, useEffect } from 'react'
 import { ToolSuggestionMessage } from '../../../types/enhanced-chat'
-import { CheckCircleIcon, XCircleIcon, PencilIcon, ClockIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { PencilIcon, ClockIcon } from '@heroicons/react/24/outline'
 import { CheckCircleIcon as CheckCircleSolidIcon, XCircleIcon as XCircleSolidIcon } from '@heroicons/react/24/solid'
 import { ExcelDiffRenderer } from '../diff'
+import { ChatMessageDiffPreview } from '../ChatMessageDiffPreview'
 
 interface ToolSuggestionCardProps {
   message: ToolSuggestionMessage
   onApprove?: () => void
   onReject?: () => void
   onModify?: () => void
+  diffData?: any
+  onAcceptDiff?: () => Promise<void>
+  onRejectDiff?: () => Promise<void>
 }
 
 export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
   message,
   onApprove,
   onReject,
-  onModify
+  onModify,
+  diffData,
+  onAcceptDiff,
+  onRejectDiff
 }) => {
   // Filter out read_range tools
   if (message.tool.name === 'read_range') {
@@ -27,7 +34,7 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
   useEffect(() => {
     if (message.expiresAt && message.status === 'pending') {
       const interval = setInterval(() => {
-        const remaining = new Date(message.expiresAt).getTime() - Date.now()
+        const remaining = new Date(message.expiresAt!).getTime() - Date.now()
         if (remaining <= 0) {
           setTimeRemaining('Expired')
           clearInterval(interval)
@@ -41,18 +48,7 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
     }
   }, [message.expiresAt, message.status])
 
-  const getRiskLevelColor = (level?: string) => {
-    switch (level) {
-      case 'high': return 'text-red-400 bg-red-400/10'
-      case 'medium': return 'text-yellow-400 bg-yellow-400/10'
-      case 'low': return 'text-green-400 bg-green-400/10'
-      default: return 'text-gray-400 bg-gray-400/10'
-    }
-  }
 
-  const isReadTool = () => {
-    return message.tool.name.startsWith('read_')
-  }
 
   const getStatusColor = () => {
     // Clean iOS-style card - all cards have same background
@@ -74,10 +70,6 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
     onReject?.()
   }
 
-  const handleModify = () => {
-    message.actions.modify?.()
-    onModify?.()
-  }
 
   return (
     <div
@@ -138,6 +130,16 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
               Accept
             </button>
           </div>
+        )}
+
+        {diffData && diffData.status === 'previewing' && onAcceptDiff && onRejectDiff && (
+          <ChatMessageDiffPreview
+            messageId={message.id}
+            hunks={diffData.hunks}
+            onAccept={onAcceptDiff}
+            onReject={onRejectDiff}
+            status={diffData.status}
+          />
         )}
 
       </div>

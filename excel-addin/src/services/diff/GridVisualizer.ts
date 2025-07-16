@@ -69,8 +69,6 @@ export class GridVisualizer {
   static async applyHighlights(hunks: DiffHunk[], addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
     const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
     
-    log('info', '[Visualizer] applyHighlights called', { hunkCount: hunks?.length })
-    
     if (!hunks || hunks.length === 0) {
       log('info', '[Visualizer] No hunks to highlight')
       return
@@ -78,17 +76,13 @@ export class GridVisualizer {
 
     log('info', `[Visualizer] Applying highlights to ${hunks.length} cells`)
     const startTime = performance.now()
-    
-    log('info', '[Visualizer] Starting Excel.run context')
 
     return Excel.run(async (context: any) => {
-      log('info', '[Visualizer] Inside Excel.run context')
       const workbook = context.workbook
       this.previewActive = true
       
       // Group hunks by sheet for efficiency
       const hunksBySheet = this.groupHunksBySheet(hunks)
-      log('info', `[Visualizer] Processing ${hunksBySheet.size} sheets`)
       
       // Batch operations: collect all ranges first
       const rangeOperations: Array<{
@@ -112,7 +106,6 @@ export class GridVisualizer {
             const range = worksheet.getCell(hunk.key.row, hunk.key.col);
             
             const cellKey = cellKeyToA1(hunk.key)
-            log('info', `[Visualizer] Processing cell ${cellKey} (row: ${hunk.key.row}, col: ${hunk.key.col})`)
             
             // Load all properties we might need in one batch
             if (!this.originalStates.has(cellKey)) {
@@ -159,9 +152,6 @@ export class GridVisualizer {
         try {
           // Store original state if not already stored
           if (!this.originalStates.has(cellKey) && borders) {
-            log('info', `[Visualizer] Storing original state for ${cellKey}`)
-            
-            // Log each property as we read it
             const fillColor = range.format.fill.color
             const fontColor = range.format.font.color
             const fontItalic = range.format.font.italic
@@ -169,16 +159,6 @@ export class GridVisualizer {
             const numberFormat = range.numberFormat
             const value = range.values[0][0]
             const formula = range.formulas[0][0]
-            
-            log('info', `[Visualizer] Original properties for ${cellKey}:`, {
-              fillColor: fillColor === null ? 'null' : fillColor === undefined ? 'undefined' : fillColor,
-              fontColor: fontColor === null ? 'null' : fontColor === undefined ? 'undefined' : fontColor,
-              fontItalic,
-              fontStrikethrough,
-              numberFormat,
-              value,
-              formula
-            })
             
             const originalState: CellState = {
               fillColor,
@@ -208,116 +188,50 @@ export class GridVisualizer {
               formula
             }
             
-            log('info', `[Visualizer] Border states for ${cellKey}:`, {
-              top: { 
-                style: originalState.borders.top.style === null ? 'null' : originalState.borders.top.style === undefined ? 'undefined' : originalState.borders.top.style,
-                color: originalState.borders.top.color === null ? 'null' : originalState.borders.top.color === undefined ? 'undefined' : originalState.borders.top.color
-              },
-              bottom: { 
-                style: originalState.borders.bottom.style === null ? 'null' : originalState.borders.bottom.style === undefined ? 'undefined' : originalState.borders.bottom.style,
-                color: originalState.borders.bottom.color === null ? 'null' : originalState.borders.bottom.color === undefined ? 'undefined' : originalState.borders.bottom.color
-              },
-              left: { 
-                style: originalState.borders.left.style === null ? 'null' : originalState.borders.left.style === undefined ? 'undefined' : originalState.borders.left.style,
-                color: originalState.borders.left.color === null ? 'null' : originalState.borders.left.color === undefined ? 'undefined' : originalState.borders.left.color
-              },
-              right: { 
-                style: originalState.borders.right.style === null ? 'null' : originalState.borders.right.style === undefined ? 'undefined' : originalState.borders.right.style,
-                color: originalState.borders.right.color === null ? 'null' : originalState.borders.right.color === undefined ? 'undefined' : originalState.borders.right.color
-              }
-            })
-            
             this.originalStates.set(cellKey, originalState)
           }
           
           // Apply enhanced visualization based on diff type
-          log('info', `[Visualizer] Applying highlight for ${cellKey}, type: ${hunk.kind}`)
           
           switch (hunk.kind) {
             case DiffKind.Added:
-              try {
-                // Light green background
-                const addedColor = this.COLORS[DiffKind.Added]
-                log('info', `[Visualizer] Setting fill color to: ${addedColor}`)
-                range.format.fill.color = addedColor
-                
-                // Italic font for new values
-                log('info', `[Visualizer] Setting font italic to: true`)
-                range.format.font.italic = true
-                
-                // If we have the new value, show it with indicator
-                if (hunk.after) {
-                  const newValue = hunk.after.v !== undefined ? hunk.after.v : 
-                                   hunk.after.f ? `=${hunk.after.f}` : ''
-                  log('info', `[Visualizer] New value: ${newValue}`)
-                  
-                  // Add green border to indicate addition
-                  const rightBorder = range.format.borders.getItem('EdgeRight')
-                  log('info', `[Visualizer] Setting right border style to: Continuous`)
-                  rightBorder.style = 'Continuous'
-                  log('info', `[Visualizer] Setting right border color to: #00B050`)
-                  rightBorder.color = '#00B050'
-                }
-              } catch (addError) {
-                log('error', `[Visualizer] Error in Added case: ${addError.message}`, { error: addError })
-                throw addError
+              // Light green background
+              range.format.fill.color = this.COLORS[DiffKind.Added]
+              // Italic font for new values
+              range.format.font.italic = true
+              // If we have the new value, show it with indicator
+              if (hunk.after) {
+                // Add green border to indicate addition
+                range.format.borders.getItem('EdgeRight').style = 'Continuous'
+                range.format.borders.getItem('EdgeRight').color = '#00B050'
               }
               break
               
             case DiffKind.Deleted:
-              try {
-                // Light red background
-                const deletedColor = this.COLORS[DiffKind.Deleted]
-                log('info', `[Visualizer] Setting fill color to: ${deletedColor}`)
-                range.format.fill.color = deletedColor
-                
-                // Strikethrough for deleted content
-                log('info', `[Visualizer] Setting font strikethrough to: true`)
-                range.format.font.strikethrough = true
-                
-                // Red borders
-                const borderStyle = 'Continuous'
-                const borderColor = '#FF0000'
-                log('info', `[Visualizer] Setting all borders to style: ${borderStyle}, color: ${borderColor}`)
-                
-                const borders = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight']
-                for (const borderName of borders) {
-                  try {
-                    const border = range.format.borders.getItem(borderName)
-                    log('info', `[Visualizer] Setting ${borderName} style`)
-                    border.style = borderStyle
-                    log('info', `[Visualizer] Setting ${borderName} color`)
-                    border.color = borderColor
-                  } catch (borderError) {
-                    log('error', `[Visualizer] Error setting ${borderName}: ${borderError.message}`)
-                    throw borderError
-                  }
-                }
-              } catch (deleteError) {
-                log('error', `[Visualizer] Error in Deleted case: ${deleteError.message}`, { error: deleteError })
-                throw deleteError
-              }
+              // Light red background
+              range.format.fill.color = this.COLORS[DiffKind.Deleted]
+              // Strikethrough for deleted content
+              range.format.font.strikethrough = true
+              // Red borders
+              range.format.borders.getItem('EdgeTop').style = 'Continuous'
+              range.format.borders.getItem('EdgeTop').color = '#FF0000'
+              range.format.borders.getItem('EdgeBottom').style = 'Continuous'
+              range.format.borders.getItem('EdgeBottom').color = '#FF0000'
+              range.format.borders.getItem('EdgeLeft').style = 'Continuous'
+              range.format.borders.getItem('EdgeLeft').color = '#FF0000'
+              range.format.borders.getItem('EdgeRight').style = 'Continuous'
+              range.format.borders.getItem('EdgeRight').color = '#FF0000'
               break
               
             case DiffKind.ValueChanged:
-              try {
-                // Light yellow background
-                const changedColor = this.COLORS[DiffKind.ValueChanged]
-                log('info', `[Visualizer] Setting fill color to: ${changedColor}`)
-                range.format.fill.color = changedColor
-                
-                // Show new value (old value is shown with strikethrough ideally)
-                if (hunk.after && hunk.after.v !== undefined) {
-                  log('info', `[Visualizer] Highlighting value change`)
-                  const leftBorder = range.format.borders.getItem('EdgeLeft')
-                  log('info', `[Visualizer] Setting left border style to: Continuous`)
-                  leftBorder.style = 'Continuous'
-                  log('info', `[Visualizer] Setting left border color to: #FFC000`)
-                  leftBorder.color = '#FFC000'
-                }
-              } catch (valueError) {
-                log('error', `[Visualizer] Error in ValueChanged case: ${valueError.message}`, { error: valueError })
-                throw valueError
+              // Light yellow background
+              range.format.fill.color = this.COLORS[DiffKind.ValueChanged]
+              // Show new value (old value is shown with strikethrough ideally)
+              if (hunk.after && hunk.after.v !== undefined) {
+                // Note: We can't show both old and new in the same cell
+                // but we highlight the change clearly
+                range.format.borders.getItem('EdgeLeft').style = 'Continuous'
+                range.format.borders.getItem('EdgeLeft').color = '#FFC000'
               }
               break
               
@@ -352,12 +266,9 @@ export class GridVisualizer {
       
       // Single final sync for all formatting changes
       await context.sync()
-      console.log(`[GridVisualizer] Applied highlights to ${rangeOperations.length} cells with 2 sync operations`)
+      
       const endTime = performance.now()
-      log('success', `[Visualizer] Highlights applied successfully in ${Math.round(endTime - startTime)}ms`, {
-        totalCells: hunks.length,
-        sheetsProcessed: hunksBySheet.size
-      })
+      log('success', `[Visualizer] Highlights applied successfully in ${Math.round(endTime - startTime)}ms`)
     }).catch((error: any) => {
       log('error', `[Visualizer] Error applying highlights: ${error.message}`, { error })
       throw error
@@ -424,7 +335,6 @@ export class GridVisualizer {
     
     const hunkCount = hunks?.length || this.originalStates.size
     log('info', `[Visualizer] Clearing ${hunkCount} highlights`)
-    const startTime = performance.now()
     
     return Excel.run(async (context: any) => {
       const workbook = context.workbook
@@ -544,11 +454,7 @@ export class GridVisualizer {
       
       await context.sync()
       
-      const endTime = performance.now()
-      log('success', `[Visualizer] Highlights cleared successfully in ${Math.round(endTime - startTime)}ms`, {
-        clearedCount: hunkCount,
-        remainingStates: this.originalStates.size
-      })
+      log('success', `[Visualizer] Highlights cleared successfully`)
     }).catch((error: any) => {
       log('error', `[Visualizer] Error clearing highlights: ${error.message}`, { error })
       throw error

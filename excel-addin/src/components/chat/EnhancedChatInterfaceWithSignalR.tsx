@@ -24,11 +24,14 @@ import { MentionItem, ContextItem } from '../chat/mentions'
 import { useDiffPreview } from '../../hooks/useDiffPreview'
 import { DiffPreviewBar } from './DiffPreviewBar'
 import { AISuggestedOperation } from '../../types/diff'
-import { useLogStore } from '../../store/logStore'
+import { useLogStore, log as logToStore } from '../../store/logStore'
 
 // Global SignalR client instance to prevent multiple connections
 let globalSignalRClient: SignalRClient | null = null
 let globalSessionId: string = `session_${Date.now()}`
+
+// Define write tools that should trigger visual diff
+const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
 
 export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const [messages, setMessages] = useState<EnhancedChatMessage[]>([])
@@ -40,6 +43,9 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const sessionIdRef = useRef<string>(globalSessionId)
   const [aiIsGenerating, setAiIsGenerating] = useState(false)
   const toolRequestQueue = useRef<Map<string, any>>(new Map())
+  
+  // State for pending diff operations
+  const [pendingDiffOps, setPendingDiffOps] = useState<AISuggestedOperation[]>([])
   
   // State for debug container
   const [isDebugOpen, setIsDebugOpen] = useState(false)
@@ -69,6 +75,11 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   // Get logs from the centralized logStore
   const allLogs = useLogStore((state: any) => state.logs)
   const visualDiffLogs = allLogs.filter((log: any) => log.source === 'visual-diff')
+  
+  // Test visual diff logging
+  useEffect(() => {
+    logToStore('visual-diff', '[TEST] Visual diff logging system test - if you see this, logging works!');
+  }, [])
   
   // Mention system state
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([])
@@ -362,7 +373,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       const suggestionMessage = createToolSuggestionMessage(toolRequest)
       suggestionMessage.status = 'approved'
       // Add a visual indicator that this was auto-approved
-      suggestionMessage.description = (suggestionMessage.description || '') + ' (Auto-approved)'
+      suggestionMessage.tool.description = (suggestionMessage.tool.description || '') + ' (Auto-approved)'
       setMessages(prev => [...prev, suggestionMessage])
       
       // Execute immediately
@@ -376,68 +387,76 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       return
     }
     
-    if (autonomyMode === 'agent-default') {
-      // In Agent Default mode, add as tool suggestion message
+    if (autonomyMode === 'agent-yolo') {
+      // Agent YOLO mode - execute immediately but still show in chat
       const suggestionMessage = createToolSuggestionMessage(toolRequest)
+      suggestionMessage.status = 'approved'
       setMessages(prev => [...prev, suggestionMessage])
       
-      // Store the tool request for later execution
-      toolRequestQueue.current.set(toolRequest.request_id, toolRequest)
-      
-      // Send a "queued" response so backend can continue
-      await signalRClient.current?.send({
-        type: 'tool_response',
-        data: {
-          request_id: toolRequest.request_id,
-          result: { status: 'queued', message: 'Tool queued for user approval' },
-          error: null,
-          queued: true
-        }
-      })
-      
+      // Execute immediately
+      await executeToolRequest(toolRequest)
       return
     }
     
-    // Agent YOLO mode - execute immediately but still show in chat
-    const suggestionMessage = createToolSuggestionMessage(toolRequest)
-    suggestionMessage.status = 'approved'
-    setMessages(prev => [...prev, suggestionMessage])
-    
-    // Execute immediately
-    await executeToolRequest(toolRequest)
-  }, [autonomyMode, addDebugLog, addToLog, setMessages, toolRequestQueue, signalRClient, isReadOnlyTool, currentResponseId])
+    // --- NEW LOGIC for 'agent-default' ---
+    if (autonomyMode === 'agent-default') {
+      // If it's a write tool, add it to the pending diff operations group
+      if (WRITE_TOOLS.has(toolRequest.tool)) {
+        addDebugLog(`Queueing write tool for diff preview: ${toolRequest.tool}`, 'info');
+        const operation: AISuggestedOperation = {
+          tool: toolRequest.tool,
+          input: { ...toolRequest },
+          description: getToolDescription(toolRequest.tool)
+        };
+        // Use a functional update to ensure we have the latest state
+        setPendingDiffOps(prevOps => [...prevOps, operation]);
+
+        // Still add a "pending" message to the UI for user visibility
+        const suggestionMessage = createToolSuggestionMessage(toolRequest);
+        setMessages(prev => [...prev, suggestionMessage]);
+
+        // Inform the backend that the tool is queued, so it can continue generation
+        await signalRClient.current?.send({
+            type: 'tool_response',
+            data: {
+                request_id: toolRequest.request_id,
+                result: { status: 'queued_for_preview', message: 'Tool queued for visual diff preview' },
+                error: null,
+                queued: true
+            }
+        });
+
+      } else {
+        // Handle non-write, non-read-only tools if any exist
+        // For now, treat them as standard suggestions and queue them
+        addDebugLog(`Queueing non-write tool for approval: ${toolRequest.tool}`, 'info');
+        const suggestionMessage = createToolSuggestionMessage(toolRequest);
+        setMessages(prev => [...prev, suggestionMessage]);
+        
+        // Store the tool request for later execution
+        toolRequestQueue.current.set(toolRequest.request_id, toolRequest);
+        
+        // Send a "queued" response so backend can continue
+        await signalRClient.current?.send({
+          type: 'tool_response',
+          data: {
+            request_id: toolRequest.request_id,
+            result: { status: 'queued', message: 'Tool queued for user approval' },
+            error: null,
+            queued: true
+          }
+        });
+      }
+    }
+  }, [autonomyMode, addDebugLog, addToLog, setMessages, toolRequestQueue, signalRClient, isReadOnlyTool, setPendingDiffOps])
   
   const executeToolRequest = useCallback(async (toolRequest: any) => {
     const { tool, request_id, ...input } = toolRequest
     
     console.log('🎯 Executing tool request:', { tool, request_id })
     
-    // Check if this is a write operation that should use diff preview
-    const shouldUseDiffPreview = tool.includes('write') || tool.includes('apply') || tool.includes('format')
-    
-    if (shouldUseDiffPreview && autonomyMode === 'agent-default') {
-      // Use diff preview for write operations
-      const operation: AISuggestedOperation = {
-        tool,
-        input,
-        description: getToolDescription(tool)
-      }
-      
-      // Update the suggestion message to show it's being previewed
-      setMessages(prev => prev.map(msg => 
-        msg.id === `tool_${request_id}` && isToolSuggestion(msg)
-          ? { ...msg, status: 'approved', description: msg.tool.description + ' (Previewing changes...)' } as ToolSuggestionMessage
-          : msg
-      ))
-      
-      // Initiate diff preview
-      await initiatePreview([operation])
-      
-      // The actual execution will happen when the user approves the diff
-      return
-    }
-    
-    // For non-write operations or other autonomy modes, execute immediately
+    // The decision to use diff preview is now handled upstream in handleToolRequest.
+    // This function's role is to execute the tool directly.
     // Update the suggestion message to approved
     setMessages(prev => prev.map(msg => 
       msg.id === `tool_${request_id}` && isToolSuggestion(msg)
@@ -613,7 +632,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     
     // Remove from queue
     toolRequestQueue.current.delete(request_id)
-  }, [setMessages, isToolSuggestion, addStatusMessage, getToolDescription, updateStatusMessage, removeStatusMessage, autonomyMode, sessionIdRef, signalRClient, toolRequestQueue, initiatePreview])
+  }, [setMessages, isToolSuggestion, addStatusMessage, getToolDescription, updateStatusMessage, removeStatusMessage, sessionIdRef, signalRClient, toolRequestQueue])
   
   const rejectToolRequest = useCallback(async (toolRequest: any, reason?: string) => {
     const { request_id } = toolRequest
@@ -646,7 +665,6 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   useEffect(() => {
     handleToolRequestRef.current = handleToolRequest
   }, [handleToolRequest])
-  
   
   // Handle bulk approval/rejection for ALL pending tools
   const handleBulkAction = async (action: 'approve' | 'reject') => {
@@ -682,7 +700,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     addDebugLog(`Bulk ${action} completed`, 'success')
   }
 
-  const handleAIResponse = (response: any) => {
+  const handleAIResponse = useCallback(async (response: any) => {
     console.log('🤖 Handling AI response:', response)
     
     // Remove any thinking/generating status messages
@@ -701,7 +719,29 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     setIsLoading(false)
     setAiIsGenerating(false)
     
-    // Check if there are pending tools from this response
+    // --- NEW LOGIC ---
+    // Check if there are pending diff operations to preview
+    if (pendingDiffOps.length > 0) {
+      addDebugLog(`AI response finished. Initiating diff preview for ${pendingDiffOps.length} operations.`, 'info');
+      addDebugLog(`SignalR client status: ${signalRClient.current ? 'available' : 'null'}`, 'info');
+      addDebugLog(`Operations: ${JSON.stringify(pendingDiffOps.map(op => ({ tool: op.tool, hasInput: !!op.input })))}`, 'info');
+      try {
+        addDebugLog(`About to call initiatePreview with ${pendingDiffOps.length} operations`, 'info');
+        await initiatePreview(pendingDiffOps);
+        addDebugLog(`Successfully called initiatePreview`, 'success');
+        
+        // Check if visual diff logs are being created
+        const currentVisualDiffLogs = useLogStore.getState().logs.filter((log: any) => log.source === 'visual-diff');
+        addDebugLog(`Visual diff logs after initiatePreview: ${currentVisualDiffLogs.length} entries`, 'info');
+      } catch (error) {
+        addDebugLog(`Error calling initiatePreview: ${error}`, 'error');
+        console.error('initiatePreview error:', error);
+      }
+      // Clear the pending operations now that they've been passed to the hook
+      setPendingDiffOps([]);
+    }
+    
+    // Check if there are pending tools from this response (non-write tools)
     if (currentResponseId) {
       const hasPendingTools = messages.some(msg => 
         isToolSuggestion(msg) && 
@@ -716,7 +756,15 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       
       // Don't clear currentResponseId yet - we need it for bulk actions
     }
-  }
+  }, [setMessages, setIsLoading, setAiIsGenerating, pendingDiffOps, currentResponseId, messages, setShowPendingToolsBar, addDebugLog, initiatePreview, setPendingDiffOps, isToolSuggestion])
+  
+  // Create a ref to hold the stable handleAIResponse callback
+  const handleAIResponseRef = useRef(handleAIResponse)
+  
+  // Update the ref whenever handleAIResponse changes
+  useEffect(() => {
+    handleAIResponseRef.current = handleAIResponse
+  }, [handleAIResponse])
   
   const handleSendMessage = async (content?: string) => {
     const messageContent = content || input
@@ -725,6 +773,12 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     if (!messageContent.trim()) {
       addDebugLog('Message is empty, returning', 'warning')
       return
+    }
+    
+    // Clear any pending diff operations from previous interactions
+    if (pendingDiffOps.length > 0) {
+      addDebugLog(`Clearing ${pendingDiffOps.length} pending diff operations from previous interaction`, 'info');
+      setPendingDiffOps([]);
     }
     
     // Check SignalR client existence
@@ -1099,7 +1153,7 @@ Escape : Reject focused action
       }
       
       if (data.type === 'ai_response') {
-        handleAIResponse(data.data)
+        handleAIResponseRef.current(data.data)
       }
       
       if (data.type === 'pending_operations') {

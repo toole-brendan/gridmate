@@ -2,21 +2,38 @@ import { useState, useCallback, useEffect } from 'react'
 import { useDiffStore } from '../store/diffStore'
 import { ExcelService, WorkbookSnapshot } from '../services/excel/ExcelService'
 import { GridVisualizer } from '../services/diff/GridVisualizer'
-import { AISuggestedOperation, DiffPayload, DiffMessage } from '../types/diff'
+import { AISuggestedOperation, DiffPayload, DiffMessage, DiffKind, CellKey } from '../types/diff'
 import { SignalRClient } from '../services/signalr/SignalRClient'
 import axios from 'axios'
 
-// Safe import with fallback
-let log: (source: string, message: string, data?: any) => void
-try {
-  const logStore = require('../store/logStore')
-  log = logStore.log
-} catch (error) {
-  console.error('Failed to import logStore:', error)
-  // Fallback to console.log
-  log = (source: string, message: string, data?: any) => {
-    console.log(`[${source}] ${message}`, data)
+import { log } from '../store/logStore'
+
+// Helper function to parse Excel-style key into CellKey
+function parseKey(key: string): CellKey {
+  // Expected format: "Sheet1!A1" or "Sheet1!B10"
+  const [sheet, cellRef] = key.split('!');
+  if (!cellRef) {
+    throw new Error(`Invalid cell key format: ${key}`);
   }
+  
+  // Parse column letters and row number
+  const match = cellRef.match(/^([A-Z]+)(\d+)$/);
+  if (!match) {
+    throw new Error(`Invalid cell reference: ${cellRef}`);
+  }
+  
+  const [, colLetters, rowStr] = match;
+  
+  // Convert column letters to number (A=0, B=1, Z=25, AA=26, etc.)
+  let col = 0;
+  for (let i = 0; i < colLetters.length; i++) {
+    col = col * 26 + (colLetters.charCodeAt(i) - 65 + 1);
+  }
+  col--; // Make it 0-based
+  
+  const row = parseInt(rowStr) - 1; // Convert to 0-based
+  
+  return { sheet, row, col };
 }
 
 interface UseDiffPreviewReturn {
@@ -76,13 +93,18 @@ export function useDiffPreview(
 
   // Initiate diff preview
   const initiatePreview = useCallback(async (operations: AISuggestedOperation[]) => {
+    // Log to visual-diff so it appears in the UI
+    log('visual-diff', `[🔍 DEBUG] initiatePreview called with ${operations.length} operations`, { operations });
     log('visual-diff', `[🚀 Diff Start]`, { operations });
     setIsLoading(true);
     setError(null);
     setStatus('computing');
 
     try {
+      log('visual-diff', `[🔍 DEBUG] Getting Excel service instance...`);
       const excelService = ExcelService.getInstance();
+      
+      log('visual-diff', `[🔍 DEBUG] Getting active context...`);
       const activeSheetName = (await excelService.getContext()).worksheet;
       log('visual-diff', `[🚀 Diff Start] Active sheet context acquired: ${activeSheetName}`);
 
@@ -112,11 +134,54 @@ export function useDiffPreview(
       useDiffStore.setState({ pendingOperations: operations });
       log('visual-diff', `[📡 Diff Backend Call] Stored pending operations. Invoking 'GetVisualDiff' on backend.`);
 
-      const diffResult = await signalRClient?.invoke('GetVisualDiff', {
-        workbookId,
-        before,
-        after,
-      });
+      // TODO: Replace with actual backend call once SignalR method is implemented
+      // For now, compute diff client-side
+      log('visual-diff', `[📡 Diff Backend Call] Using client-side diff calculation (backend not yet implemented)`);
+      
+      let diffResult;
+      try {
+        // Generate diff hunks client-side
+        diffResult = [];
+        
+        // Check for added/modified cells
+        for (const [key, afterCell] of Object.entries(after)) {
+          const beforeCell = before[key];
+          if (!beforeCell) {
+            // New cell
+            diffResult.push({
+              key: parseKey(key),
+              kind: DiffKind.Added,
+              after: afterCell
+            });
+          } else if (JSON.stringify(beforeCell) !== JSON.stringify(afterCell)) {
+            // Modified cell
+            const kind = beforeCell.f !== afterCell.f ? DiffKind.FormulaChanged : DiffKind.ValueChanged;
+            diffResult.push({
+              key: parseKey(key),
+              kind,
+              before: beforeCell,
+              after: afterCell
+            });
+          }
+        }
+        
+        // Check for deleted cells
+        for (const [key, beforeCell] of Object.entries(before)) {
+          if (!after[key]) {
+            diffResult.push({
+              key: parseKey(key),
+              kind: DiffKind.Deleted,
+              before: beforeCell
+            });
+          }
+        }
+        
+        log('visual-diff', `[📡 Diff Backend Call] Client-side diff computed ${diffResult.length} changes`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        log('visual-diff', `[❌ Diff Error] Failed to compute diff: ${errorMsg}`);
+        throw new Error(`Diff calculation failed: ${errorMsg}`);
+      }
 
       log('visual-diff', `[📡 Diff Backend Call] Received response from 'GetVisualDiff'.`, { diffResult });
 
@@ -129,8 +194,9 @@ export function useDiffPreview(
       }
 
     } catch (err) {
-      log('visual-diff', `[❌ Diff Error] An error occurred in initiatePreview.`, { error: err });
-      setError((err as Error).message);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log('visual-diff', `[❌ Diff Error] An error occurred in initiatePreview: ${errorMessage}`, { error: err });
+      setError(errorMessage);
     } finally {
       log('visual-diff', `[🚀 Diff End] Process finished.`);
       setIsLoading(false);

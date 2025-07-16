@@ -214,3 +214,10 @@ When assisting with this project, AI should:
 ---
 
 This project aims to revolutionize financial modeling by bringing the power of AI to every analyst's desktop, making them more productive while maintaining the control and accuracy the industry demands.
+
+
+
+
+To start the dev application:
+# From the root of the project
+./start-dev.sh

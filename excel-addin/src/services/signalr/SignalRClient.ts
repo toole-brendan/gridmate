@@ -238,6 +238,13 @@ export class SignalRClient extends EventEmitter {
     return this.connection?.state === signalR.HubConnectionState.Connected
   }
 
+  async invoke(methodName: string, ...args: any[]): Promise<any> {
+    if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+      throw new Error('SignalR connection is not established')
+    }
+    return this.connection.invoke(methodName, ...args)
+  }
+
   getConnectionState(): string {
     if (!this.connection) return 'Disconnected'
     

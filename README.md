@@ -30,3 +30,6 @@ successful AI apps (uses Cursor and Perplexity as case studies) do this:
 4. Autonomy slider — user is in charge of how autonomous the LLM can be with respect to making alterations to your work (which is very clear in Cursor but also uses term “autonomy slider” to describe how Perplexity lets users decide how long and how in-depth they want the LLM to search for a certain topic— from quick “search” to “deep research”)
 
 
+To start the dev application:
+# From the root of the project
+./start-dev.sh

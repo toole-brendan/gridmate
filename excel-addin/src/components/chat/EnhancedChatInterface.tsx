@@ -169,6 +169,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     if (isToolSuggestion(message)) {
       return (
         <div
+          key={message.id}
           className={`w-full animate-fadeIn ${
             focusedMessageId === message.id ? 'ring-2 ring-blue-500/50 rounded-lg' : ''
           }`}
@@ -185,7 +186,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
 
     if (isToolResult(message)) {
       return (
-        <div className="w-full animate-fadeIn">
+        <div key={message.id} className="w-full animate-fadeIn">
           <ToolResultCard message={message} />
         </div>
       )
@@ -194,6 +195,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     if (isBatchOperation(message)) {
       return (
         <div
+          key={message.id}
           className={`w-full animate-fadeIn ${
             focusedMessageId === message.id ? 'ring-2 ring-blue-500/50 rounded-lg' : ''
           }`}
@@ -205,6 +207,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     if (isResponseToolsGroup(message)) {
       return (
         <div
+          key={message.id}
           className={`w-full animate-fadeIn ${
             focusedMessageId === message.id ? 'ring-2 ring-blue-500/50 rounded-lg' : ''
           }`}
@@ -216,7 +219,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
 
     if (isAuditMessage(message)) {
       return (
-        <div className="w-full animate-fadeIn">
+        <div key={message.id} className="w-full animate-fadeIn">
           <AuditMessage message={message} />
         </div>
       )
@@ -224,7 +227,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
 
     if (isStatusMessage(message)) {
       return (
-        <div className="w-full animate-fadeIn">
+        <div key={message.id} className="w-full animate-fadeIn">
           <StatusIndicator message={message} />
         </div>
       )
@@ -234,6 +237,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     if (isStandardMessage(message)) {
       return (
         <div
+          key={message.id}
           className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} animate-fadeIn`}
         >
           <div
@@ -258,8 +262,8 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
               <div className="mt-2 pt-2 border-t border-border-primary">
                 <p className="font-footnote opacity-70 mb-1">Suggested actions:</p>
                 <div className="space-y-1">
-                  {message.metadata.suggestedActions.map((action) => (
-                    <div key={action.id} className="font-footnote opacity-80">
+                  {message.metadata.suggestedActions.map((action, index) => (
+                    <div key={action.id || `action-${index}`} className="font-footnote opacity-80">
                       • {action.description}
                     </div>
                   ))}
@@ -453,9 +457,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
           </div>
         ) : (
           messages.map((message) => (
-            <div key={message.id} className="w-full">
+            <React.Fragment key={message.id}>
               {renderMessage(message)}
-            </div>
+            </React.Fragment>
           ))
         )}
         {isLoading && (

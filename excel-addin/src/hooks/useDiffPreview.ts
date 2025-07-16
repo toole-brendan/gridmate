@@ -6,6 +6,7 @@ import { AISuggestedOperation, WorkbookSnapshot } from '../types/diff';
 import { simulateOperation } from '../utils/diffSimulator';
 import { getDiffCalculator } from '../utils/clientDiff';
 import { createDebouncedValidator } from '../utils/debouncedValidation';
+import { ToolExecutionError } from '../types/errors';
 
 export const useDiffPreview = () => {
   const { actions, ...state } = useDiffSessionStore();
@@ -66,7 +67,10 @@ export const useDiffPreview = () => {
   ) => {
     const currentSnapshot = baseSnapshot ?? useDiffSessionStore.getState().liveSnapshot;
     if (!currentSnapshot) {
-      actions.addLog('warning', '[Diff Preview] No snapshot available for preview update');
+      actions.addLog('error', '[Diff Preview] updatePreview called without a snapshot. This should not happen. Aborting update.');
+      // Attempt to recover by starting a new session
+      // This prevents a crash if the logic ever fails.
+      await startPreviewSession(newOperation, messageId);
       return;
     }
 
@@ -154,8 +158,20 @@ export const useDiffPreview = () => {
       actions.addLog('success', '[Diff Preview] All operations applied successfully');
       actions.endSession();
     } catch (error) {
-      actions.addLog('error', `[Diff Preview] Error applying changes: ${(error as Error).message}`, { error: error as Error });
-      actions.handleError(error as Error);
+      if (error instanceof ToolExecutionError) {
+        // Enhanced logging for ToolExecutionError
+        actions.addLog('error', `[Diff Preview] Tool execution failed for "${error.toolName}"`, {
+          toolName: error.toolName,
+          params: error.params,
+          error: error.innerError,
+          fullError: error
+        });
+        actions.handleError(error);
+      } else {
+        // Generic error handling
+        actions.addLog('error', `[Diff Preview] Error applying changes: ${(error as Error).message}`, { error: error as Error });
+        actions.handleError(error as Error);
+      }
     }
   }, [actions, excelService]);
 

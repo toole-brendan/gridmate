@@ -65,56 +65,60 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		"has_context":    req.ExcelContext != nil,
 		"excel_context":  req.ExcelContext,
 		"autonomy_mode":  req.AutonomyMode,
-	}).Info("Received chat message from SignalR")
+	}).Info("Received chat message from SignalR, processing synchronously.")
 
-	// Process the chat message
-	go func() {
-		// For SignalR connections, we don't have a WebSocket client
-		// Instead, we'll process the message directly and send responses via SignalR
-		
-		// Create a mock Excel session for SignalR clients
-		h.excelBridge.CreateSignalRSession(req.SessionID)
-		
-		// Create chat message with Excel context
-		excelContext := req.ExcelContext
-		if excelContext == nil {
-			excelContext = make(map[string]interface{})
-		}
-		
-		chatMsg := services.ChatMessage{
-			Content:      req.Content,
-			SessionID:    req.SessionID,
-			Context:      excelContext,
-			AutonomyMode: req.AutonomyMode,
-		}
+	// --- Start of Synchronous Processing ---
 
-		// Process through Excel bridge
-		response, err := h.excelBridge.ProcessChatMessage(req.SessionID, chatMsg)
-		if err != nil {
-			h.logger.WithError(err).Error("Failed to process chat message")
-			// Send error back to client via SignalR
-			h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
-				"error": err.Error(),
-			})
-			return
-		}
+	// Create a mock Excel session for SignalR clients
+	h.excelBridge.CreateSignalRSession(req.SessionID)
+	
+	// Create chat message with Excel context
+	excelContext := req.ExcelContext
+	if excelContext == nil {
+		excelContext = make(map[string]interface{})
+	}
+	
+	chatMsg := services.ChatMessage{
+		Content:      req.Content,
+		SessionID:    req.SessionID,
+		Context:      excelContext,
+		AutonomyMode: req.AutonomyMode,
+	}
 
-		// Send response back to client via SignalR
-		err = h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
-			"content": response.Content,
-			"actions": response.Actions,
-			"isFinal": response.IsFinal,
+	// Process through Excel bridge
+	response, err := h.excelBridge.ProcessChatMessage(req.SessionID, chatMsg)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to process chat message")
+		// Send error back to client via SignalR
+		h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
+			"error": err.Error(),
 		})
-		if err != nil {
-			h.logger.WithError(err).Error("Failed to send response via SignalR")
-		}
-	}()
+		// Still return a success to the .NET hub, as the error was handled.
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SignalRResponse{
+			Success: true,
+			Message: "Chat message processed with an error.",
+		})
+		return
+	}
 
-	// Immediately return success to SignalR
+	// Send response back to client via SignalR
+	err = h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
+		"content": response.Content,
+		"actions": response.Actions,
+		"isFinal": response.IsFinal,
+	})
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to send response via SignalR")
+	}
+
+	// --- End of Synchronous Processing ---
+
+	// Return success to the .NET Hub, indicating the entire process is complete.
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(SignalRResponse{
 		Success: true,
-		Message: "Chat message received and processing",
+		Message: "Chat message processed and response sent.",
 	})
 }
 

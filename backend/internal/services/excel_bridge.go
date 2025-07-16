@@ -58,16 +58,7 @@ type ExcelSession struct {
 }
 
 // NewExcelBridge creates a new Excel bridge service
-func NewExcelBridge(logger *logrus.Logger) *ExcelBridge {
-	// Initialize AI service
-	aiService, err := ai.NewServiceFromEnv()
-	if err != nil {
-		logger.WithError(err).Error("Failed to initialize AI service")
-		aiService = nil // Continue without AI service
-	} else {
-		logger.Info("AI service initialized successfully")
-	}
-
+func NewExcelBridge(logger *logrus.Logger, aiService *ai.Service) *ExcelBridge {
 	bridge := &ExcelBridge{
 		logger:            logger,
 		cellCache:         make(map[string]interface{}),

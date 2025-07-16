@@ -40,10 +40,13 @@ export const useSignalRManager = (onMessage: SignalRMessageHandler, addDebugLog?
       });
       
       newClient.on('error', (error) => {
+        const errorMessage = (typeof error === 'object' && error !== null && error.message) 
+          ? `${error.message} - ${error.details}` 
+          : error.toString();
         console.error('SignalR error:', error);
         setConnectionStatus('disconnected');
         setIsAuthenticated(false);
-        addDebugLog?.(`SignalR error: ${error}`, 'error');
+        addDebugLog?.(`SignalR error: ${errorMessage}`, 'error');
       });
       
       addDebugLog?.('Initiating SignalR connection...', 'info');

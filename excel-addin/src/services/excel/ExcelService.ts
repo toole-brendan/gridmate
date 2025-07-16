@@ -1,5 +1,6 @@
 declare const Excel: any
 import { FormatErrorHandler } from '../../utils/formatErrorHandler'
+import { ToolExecutionError } from '../../types/errors'
 
 export interface ExcelContext {
   workbook: string
@@ -378,7 +379,7 @@ export class ExcelService {
       try {
         const nearbyRange = worksheet.getRangeByIndexes(startRow, startCol, 
           endRow - startRow, endCol - startCol)
-        nearbyRange.load(['values', 'formulas', 'address'])
+        nearbyRange.load(['values', 'formulas', 'address', 'rowCount', 'columnCount'])
         await context.sync()
 
         result.nearbyData = {
@@ -562,17 +563,56 @@ export class ExcelService {
     } catch (error) {
       console.error(`[❌ Diff Error] Error during tool execution in ExcelService.`, { tool, error });
       
-      // Create enhanced error with details
-      const enhancedError = {
-        message: error instanceof Error ? error.message : String(error),
-        tool: tool,
-        input: input,
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
+      // Throw custom error with detailed information
+      throw new ToolExecutionError(tool, input, error);
+    }
+  }
+
+  // Batch read multiple ranges in a single Excel.run call for performance
+  async batchReadRange(requests: { requestId: string; range: string }[]): Promise<Map<string, RangeData | null>> {
+    console.log(`[ExcelService] Batch reading ${requests.length} ranges`);
+    
+    return Excel.run(async (context: any) => {
+      const results = new Map<string, RangeData>();
+      const rangePromises = [];
+      
+      // Load all ranges in parallel
+      for (const request of requests) {
+        try {
+          const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, request.range);
+          const range = worksheet.getRange(rangeAddress);
+          
+          // Load all required properties
+          range.load(['values', 'formulas', 'address', 'rowCount', 'columnCount']);
+          rangePromises.push({ requestId: request.requestId, range });
+        } catch (error) {
+          console.error(`[ExcelService] Failed to load range ${request.range}:`, error);
+          results.set(request.requestId, null);
+        }
       }
       
-      throw enhancedError
-    }
+      // Single sync call for all ranges
+      await context.sync();
+      
+      // Process results
+      for (const { requestId, range } of rangePromises) {
+        try {
+          const data: RangeData = {
+            values: range.values,
+            formulas: range.formulas,
+            address: range.address,
+            rowCount: range.rowCount,
+            colCount: range.columnCount
+          };
+          results.set(requestId, data);
+        } catch (error) {
+          console.error(`[ExcelService] Failed to process range result:`, error);
+          results.set(requestId, null);
+        }
+      }
+      
+      return results;
+    });
   }
 
   private async getWorksheetFromRange(context: any, rangeStr: string): Promise<{worksheet: any, rangeAddress: string}> {

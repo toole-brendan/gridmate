@@ -79,11 +79,12 @@ type AIConfig struct {
 	Temperature     float32
 	TopP            float32
 	RequestTimeout  time.Duration
+	RetryDelay      time.Duration // New field
 	EnableActions   bool
 	EnableEmbedding bool
 	// Provider-specific configs
-	AnthropicAPIKey    string
-	AzureOpenAIKey     string
+	AnthropicAPIKey     string
+	AzureOpenAIKey      string
 	AzureOpenAIEndpoint string
 }
 
@@ -131,16 +132,17 @@ func Load() (*Config, error) {
 		},
 		AI: AIConfig{
 			Provider:            getEnv("AI_PROVIDER", "anthropic"),
-			Model:              getEnv("AI_MODEL", ""),
-			StreamingMode:      getEnvAsBool("AI_STREAMING", true),
-			MaxTokens:          getEnvAsInt("AI_MAX_TOKENS", 8192), // Increased for complex tool sequences
-			Temperature:        getEnvAsFloat32("AI_TEMPERATURE", 0.7),
-			TopP:               getEnvAsFloat32("AI_TOP_P", 0.9),
-			RequestTimeout:     getEnvAsDuration("AI_REQUEST_TIMEOUT", 30*time.Second),
-			EnableActions:      getEnvAsBool("AI_ENABLE_ACTIONS", true),
-			EnableEmbedding:    getEnvAsBool("AI_ENABLE_EMBEDDING", true),
-			AnthropicAPIKey:    getEnv("ANTHROPIC_API_KEY", ""),
-			AzureOpenAIKey:     getEnv("AZURE_OPENAI_KEY", ""),
+			Model:               getEnv("AI_MODEL", ""),
+			StreamingMode:       getEnvAsBool("AI_STREAMING", true),
+			MaxTokens:           getEnvAsInt("AI_MAX_TOKENS", 8192), // Increased for complex tool sequences
+			Temperature:         getEnvAsFloat32("AI_TEMPERATURE", 0.7),
+			TopP:                getEnvAsFloat32("AI_TOP_P", 0.9),
+			RequestTimeout:      getEnvAsDuration("AI_REQUEST_TIMEOUT", 30*time.Second),
+			RetryDelay:          getEnvAsDuration("AI_RETRY_DELAY", 2*time.Second), // New line
+			EnableActions:       getEnvAsBool("AI_ENABLE_ACTIONS", true),
+			EnableEmbedding:     getEnvAsBool("AI_ENABLE_EMBEDDING", true),
+			AnthropicAPIKey:     getEnv("ANTHROPIC_API_KEY", ""),
+			AzureOpenAIKey:      getEnv("AZURE_OPENAI_KEY", ""),
 			AzureOpenAIEndpoint: getEnv("AZURE_OPENAI_ENDPOINT", ""),
 		},
 	}

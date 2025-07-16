@@ -46,7 +46,7 @@ func NewAnthropicProvider(config ProviderConfig) *AnthropicProvider {
 		config.MaxRetries = 3
 	}
 	if config.RetryDelay == 0 {
-		config.RetryDelay = 1 * time.Second
+		config.RetryDelay = 2 * time.Second // Use a default if not set
 	}
 
 	return &AnthropicProvider{
@@ -79,7 +79,7 @@ func (a *AnthropicProvider) IsHealthy(ctx context.Context) error {
 // GetCompletion gets a completion from Anthropic
 func (a *AnthropicProvider) GetCompletion(ctx context.Context, request CompletionRequest) (*CompletionResponse, error) {
 	anthropicRequest := a.convertToAnthropicRequest(request)
-	
+
 	var lastErr error
 	for attempt := 0; attempt <= a.config.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -88,20 +88,20 @@ func (a *AnthropicProvider) GetCompletion(ctx context.Context, request Completio
 			if baseDelay == 0 {
 				baseDelay = 1 * time.Second
 			}
-			
+
 			// Exponential backoff: baseDelay * 2^(attempt-1)
 			backoffDelay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt-1)))
-			
+
 			// Cap the maximum delay to 60 seconds
 			maxDelay := 60 * time.Second
 			if backoffDelay > maxDelay {
 				backoffDelay = maxDelay
 			}
-			
+
 			// Add jitter: randomize between 0.5x and 1.5x of the backoff delay
 			jitterMultiplier := 0.5 + rand.Float64() // 0.5 to 1.5
 			delayWithJitter := time.Duration(float64(backoffDelay) * jitterMultiplier)
-			
+
 			// Check if we have a Retry-After value from the previous error
 			if aiErr, ok := lastErr.(*AIError); ok && aiErr.RetryAfter > 0 {
 				// Use the server-specified retry delay
@@ -111,12 +111,12 @@ func (a *AnthropicProvider) GetCompletion(ctx context.Context, request Completio
 					Int("attempt", attempt).
 					Msg("Using Retry-After header value from server")
 			}
-			
+
 			log.Debug().
 				Int("attempt", attempt).
 				Dur("delay", delayWithJitter).
 				Msg("Retrying after delay")
-			
+
 			select {
 			case <-time.After(delayWithJitter):
 			case <-ctx.Done():
@@ -150,10 +150,10 @@ func (a *AnthropicProvider) GetStreamingCompletion(ctx context.Context, request 
 	anthropicRequest.Stream = true
 
 	ch := make(chan CompletionChunk, 10)
-	
+
 	go func() {
 		defer close(ch)
-		
+
 		err := a.makeStreamingRequest(ctx, anthropicRequest, ch)
 		if err != nil {
 			ch <- CompletionChunk{Error: err, Done: true}
@@ -174,19 +174,19 @@ func (a *AnthropicProvider) GetEmbedding(ctx context.Context, text string) ([]fl
 
 // anthropicRequest represents the request format for Anthropic API
 type anthropicRequest struct {
-	Model       string              `json:"model"`
-	MaxTokens   int                 `json:"max_tokens"`
-	Messages    []anthropicMessage  `json:"messages"`
-	Temperature *float32            `json:"temperature,omitempty"`
-	TopP        *float32            `json:"top_p,omitempty"`
-	Stream      bool                `json:"stream,omitempty"`
-	System      string              `json:"system,omitempty"`
-	Tools       []anthropicTool     `json:"tools,omitempty"`
+	Model       string             `json:"model"`
+	MaxTokens   int                `json:"max_tokens"`
+	Messages    []anthropicMessage `json:"messages"`
+	Temperature *float32           `json:"temperature,omitempty"`
+	TopP        *float32           `json:"top_p,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
+	System      string             `json:"system,omitempty"`
+	Tools       []anthropicTool    `json:"tools,omitempty"`
 }
 
 type anthropicMessage struct {
-	Role    string                   `json:"role"`
-	Content anthropicMessageContent  `json:"content"`
+	Role    string                  `json:"role"`
+	Content anthropicMessageContent `json:"content"`
 }
 
 type anthropicMessageContent interface{}
@@ -225,14 +225,14 @@ func (m anthropicMessage) MarshalJSON() ([]byte, error) {
 }
 
 type anthropicContentBlock struct {
-	Type     string                 `json:"type"`
-	Text     string                 `json:"text,omitempty"`
-	ID       string                 `json:"id,omitempty"`
-	Name     string                 `json:"name,omitempty"`
-	Input    map[string]interface{} `json:"input,omitempty"`
-	Content  interface{}            `json:"content,omitempty"`
-	ToolUseID string                `json:"tool_use_id,omitempty"`
-	IsError  bool                   `json:"is_error,omitempty"`
+	Type      string                 `json:"type"`
+	Text      string                 `json:"text,omitempty"`
+	ID        string                 `json:"id,omitempty"`
+	Name      string                 `json:"name,omitempty"`
+	Input     map[string]interface{} `json:"input,omitempty"`
+	Content   interface{}            `json:"content,omitempty"`
+	ToolUseID string                 `json:"tool_use_id,omitempty"`
+	IsError   bool                   `json:"is_error,omitempty"`
 }
 
 type anthropicTool struct {
@@ -242,22 +242,22 @@ type anthropicTool struct {
 }
 
 type anthropicResponse struct {
-	ID           string                `json:"id"`
-	Type         string                `json:"type"`
-	Role         string                `json:"role"`
-	Content      []anthropicContent    `json:"content"`
-	Model        string                `json:"model"`
-	StopReason   string                `json:"stop_reason"`
-	StopSequence string                `json:"stop_sequence"`
-	Usage        anthropicUsage        `json:"usage"`
+	ID           string             `json:"id"`
+	Type         string             `json:"type"`
+	Role         string             `json:"role"`
+	Content      []anthropicContent `json:"content"`
+	Model        string             `json:"model"`
+	StopReason   string             `json:"stop_reason"`
+	StopSequence string             `json:"stop_sequence"`
+	Usage        anthropicUsage     `json:"usage"`
 }
 
 type anthropicContent struct {
-	Type     string                 `json:"type"`
-	Text     string                 `json:"text,omitempty"`
-	ID       string                 `json:"id,omitempty"`
-	Name     string                 `json:"name,omitempty"`
-	Input    map[string]interface{} `json:"input,omitempty"`
+	Type  string                 `json:"type"`
+	Text  string                 `json:"text,omitempty"`
+	ID    string                 `json:"id,omitempty"`
+	Name  string                 `json:"name,omitempty"`
+	Input map[string]interface{} `json:"input,omitempty"`
 }
 
 type anthropicUsage struct {
@@ -266,12 +266,12 @@ type anthropicUsage struct {
 }
 
 type anthropicStreamEvent struct {
-	Type    string                 `json:"type"`
-	Index   int                    `json:"index,omitempty"`
-	Delta   *anthropicDelta        `json:"delta,omitempty"`
-	Message *anthropicResponse     `json:"message,omitempty"`
-	Usage   *anthropicUsage        `json:"usage,omitempty"`
-	Error   *anthropicError        `json:"error,omitempty"`
+	Type    string             `json:"type"`
+	Index   int                `json:"index,omitempty"`
+	Delta   *anthropicDelta    `json:"delta,omitempty"`
+	Message *anthropicResponse `json:"message,omitempty"`
+	Usage   *anthropicUsage    `json:"usage,omitempty"`
+	Error   *anthropicError    `json:"error,omitempty"`
 }
 
 type anthropicDelta struct {
@@ -328,9 +328,9 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 			anthropicMsg := anthropicMessage{
 				Role: msg.Role,
 			}
-			
+
 			var contentBlocks []anthropicContentBlock
-			
+
 			// Add text content if present
 			if msg.Content != "" {
 				contentBlocks = append(contentBlocks, anthropicContentBlock{
@@ -338,7 +338,7 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 					Text: msg.Content,
 				})
 			}
-			
+
 			// Add tool calls
 			for _, toolCall := range msg.ToolCalls {
 				contentBlocks = append(contentBlocks, anthropicContentBlock{
@@ -348,7 +348,7 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 					Input: toolCall.Input,
 				})
 			}
-			
+
 			// Add tool results
 			for _, toolResult := range msg.ToolResults {
 				// Convert content to string format for Anthropic
@@ -370,7 +370,7 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 					jsonBytes, _ := json.Marshal(v)
 					content = string(jsonBytes)
 				}
-				
+
 				contentBlocks = append(contentBlocks, anthropicContentBlock{
 					Type:      "tool_result",
 					ToolUseID: toolResult.ToolUseID,
@@ -378,7 +378,7 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 					IsError:   toolResult.IsError,
 				})
 			}
-			
+
 			anthropicMsg.Content = anthropicToolContent(contentBlocks)
 			anthropicReq.Messages = append(anthropicReq.Messages, anthropicMsg)
 		} else {
@@ -500,7 +500,7 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		
+
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
@@ -552,7 +552,7 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 func (a *AnthropicProvider) convertFromAnthropicResponse(resp *anthropicResponse) *CompletionResponse {
 	var content strings.Builder
 	var toolCalls []ToolCall
-	
+
 	for _, c := range resp.Content {
 		switch c.Type {
 		case "text":
@@ -596,20 +596,20 @@ func (a *AnthropicProvider) parseActionsFromContent(content string) []Action {
 		line := strings.TrimSpace(lines[i])
 		if strings.HasPrefix(line, "ACTION:") {
 			action := Action{
-				Parameters: make(map[string]interface{}),
+				Parameters:       make(map[string]interface{}),
 				RequiresApproval: true,
-				Confidence: 0.9,
+				Confidence:       0.9,
 			}
-			
+
 			// Extract action type
 			actionType := strings.TrimSpace(strings.TrimPrefix(line, "ACTION:"))
 			action.Type = actionType
-			
+
 			// Parse subsequent lines for this action
 			i++
 			for i < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[i]), "ACTION:") {
 				line = strings.TrimSpace(lines[i])
-				
+
 				if strings.HasPrefix(line, "RANGE:") {
 					action.Parameters["range"] = strings.TrimSpace(strings.TrimPrefix(line, "RANGE:"))
 				} else if strings.HasPrefix(line, "VALUES:") {
@@ -624,10 +624,10 @@ func (a *AnthropicProvider) parseActionsFromContent(content string) []Action {
 				} else if strings.HasPrefix(line, "DESCRIPTION:") {
 					action.Description = strings.TrimSpace(strings.TrimPrefix(line, "DESCRIPTION:"))
 				}
-				
+
 				i++
 			}
-			
+
 			if action.Type != "" && len(action.Parameters) > 0 {
 				actions = append(actions, action)
 			}
@@ -662,12 +662,12 @@ func (a *AnthropicProvider) handleHTTPError(err error) *AIError {
 // handleAPIError converts API error responses to AIError
 func (a *AnthropicProvider) handleAPIError(resp *http.Response) *AIError {
 	body, _ := io.ReadAll(resp.Body)
-	
+
 	log.Error().
 		Int("status_code", resp.StatusCode).
 		Str("response_body", string(body)).
 		Msg("Anthropic API error details")
-	
+
 	var apiErr anthropicError
 	json.Unmarshal(body, &apiErr)
 

@@ -115,45 +115,76 @@ namespace GridmateSignalR.Hubs
             });
         }
 
-        // Send chat message to backend
         public async Task SendChatMessage(string sessionId, string content, object? excelContext = null, string autonomyMode = "agent-default")
         {
-            UpdateSessionActivity(sessionId);
-            _logger.LogInformation($"Chat message from session {sessionId}: {content}");
-            if (excelContext != null)
+            _logger.LogInformation("[HUB] SendChatMessage invoked for Session ID: {SessionId}", sessionId);
+
+            var connectionSessionId = _sessionConnections.FirstOrDefault(x => x.Value == Context.ConnectionId).Key;
+            if (string.IsNullOrEmpty(connectionSessionId) || connectionSessionId != sessionId)
             {
-                _logger.LogInformation($"Excel context provided: {System.Text.Json.JsonSerializer.Serialize(excelContext)}");
+                _logger.LogWarning("[HUB] Session validation failed. Connection ID {ConnectionId} does not match Session ID {SessionId}.", Context.ConnectionId, sessionId);
+                await Clients.Caller.SendAsync("error", "Session validation failed.");
+                return;
             }
-            _logger.LogInformation($"Autonomy mode: {autonomyMode}");
-            
+            _logger.LogInformation("[HUB] Session validated successfully.");
+
+            UpdateSessionActivity(sessionId);
+
+            object requestPayload;
+            string payloadJson;
+
             try
             {
-                // Forward to Go backend
-                var httpClient = _httpClientFactory.CreateClient("GoBackend");
-                var response = await httpClient.PostAsJsonAsync("/api/chat", new
+                _logger.LogInformation("[HUB] Preparing payload for Go backend...");
+                requestPayload = new
                 {
                     sessionId,
                     content,
                     excelContext,
                     autonomyMode,
                     timestamp = DateTime.UtcNow
-                });
-
-                if (response.IsSuccessStatusCode)
-                {
-                    var result = await response.Content.ReadAsStringAsync();
-                    _logger.LogInformation($"Backend response: {result}");
-                }
-                else
-                {
-                    _logger.LogError($"Backend error: {response.StatusCode}");
-                    await Clients.Caller.SendAsync("error", $"Backend error: {response.StatusCode}");
-                }
+                };
+                payloadJson = System.Text.Json.JsonSerializer.Serialize(requestPayload);
+                _logger.LogInformation("[HUB] Payload prepared successfully. JSON: {PayloadJson}", payloadJson);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error forwarding to backend");
-                await Clients.Caller.SendAsync("error", "Failed to process message");
+                _logger.LogError(ex, "[HUB] FATAL: Failed to serialize the request payload for Session ID {SessionId}.", sessionId);
+                await Clients.Caller.SendAsync("error", "Failed to serialize request payload.");
+                return; // Stop execution if payload can't be created
+            }
+
+            try
+            {
+                var httpClient = _httpClientFactory.CreateClient("GoBackend");
+                _logger.LogInformation("[HUB] HttpClient created. Attempting to POST to {BaseAddress}/api/chat...", httpClient.BaseAddress);
+
+                var httpContent = new StringContent(payloadJson, System.Text.Encoding.UTF8, "application/json");
+                var response = await httpClient.PostAsync("/api/chat", httpContent);
+
+                _logger.LogInformation("[HUB] POST request completed with status code: {StatusCode}", response.StatusCode);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseBody = await response.Content.ReadAsStringAsync();
+                    _logger.LogInformation("[HUB] Go backend returned success. Response: {ResponseBody}", responseBody);
+                }
+                else
+                {
+                    var errorBody = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("[HUB] Go backend returned a non-success status code {StatusCode}. Body: {ErrorBody}", response.StatusCode, errorBody);
+                    await Clients.Caller.SendAsync("error", $"The AI service returned an error (Code: {response.StatusCode}).");
+                }
+            }
+            catch (System.Net.Http.HttpRequestException ex)
+            {
+                _logger.LogError(ex, "[HUB] FATAL: HttpRequestException occurred. The Go backend is likely down or unreachable at {BaseAddress}. Check if the service is running.", _httpClientFactory.CreateClient("GoBackend").BaseAddress);
+                await Clients.Caller.SendAsync("error", "Network error: Could not connect to the AI service.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HUB] FATAL: An unexpected error occurred while forwarding the message for Session ID {SessionId}.", sessionId);
+                await Clients.Caller.SendAsync("error", "An unexpected error occurred while processing your message.");
             }
         }
 

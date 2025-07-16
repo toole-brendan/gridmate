@@ -1,4 +1,5 @@
 declare const Excel: any
+import { cellKeyToA1, parseA1Reference } from '../../utils/cellUtils'
 
 export enum DiffKind {
   Added = 'Added',
@@ -89,6 +90,12 @@ export class GridVisualizer {
         range: any
         hunk: DiffHunk
         cellKey: string
+        borders?: {
+          top: any
+          bottom: any
+          left: any
+          right: any
+        }
       }> = []
       
       for (const [sheetName, sheetHunks] of hunksBySheet) {
@@ -104,21 +111,38 @@ export class GridVisualizer {
               1  // width
             )
             
-            const cellKey = `${sheetName}!${hunk.key.row},${hunk.key.col}`
-            rangeOperations.push({ range, hunk, cellKey })
+            const cellKey = cellKeyToA1(hunk.key)
             
             // Load all properties we might need in one batch
             if (!this.originalStates.has(cellKey)) {
+              // Load primary properties
               range.load([
                 'format/fill/color',
                 'format/font/color',
                 'format/font/italic',
                 'format/font/strikethrough',
-                'format/borders',
                 'numberFormat',
                 'values',
                 'formulas'
               ])
+              
+              // Create and store border proxy objects
+              const borders = {
+                top: range.format.borders.getItem('EdgeTop'),
+                bottom: range.format.borders.getItem('EdgeBottom'),
+                left: range.format.borders.getItem('EdgeLeft'),
+                right: range.format.borders.getItem('EdgeRight')
+              }
+              
+              // Load properties on these stored proxy objects
+              borders.top.load(['style', 'color'])
+              borders.bottom.load(['style', 'color'])
+              borders.left.load(['style', 'color'])
+              borders.right.load(['style', 'color'])
+              
+              rangeOperations.push({ range, hunk, cellKey, borders })
+            } else {
+              rangeOperations.push({ range, hunk, cellKey })
             }
           }
         } catch (error) {
@@ -130,10 +154,10 @@ export class GridVisualizer {
       await context.sync()
       
       // Now apply all formatting in batch
-      for (const { range, hunk, cellKey } of rangeOperations) {
+      for (const { range, hunk, cellKey, borders } of rangeOperations) {
         try {
           // Store original state if not already stored
-          if (!this.originalStates.has(cellKey)) {
+          if (!this.originalStates.has(cellKey) && borders) {
             const originalState: CellState = {
               fillColor: range.format.fill.color,
               fontColor: range.format.font.color,
@@ -142,20 +166,20 @@ export class GridVisualizer {
               numberFormat: range.numberFormat,
               borders: {
                 top: { 
-                  style: range.format.borders.getItem('EdgeTop').style,
-                  color: range.format.borders.getItem('EdgeTop').color
+                  style: borders.top.style,
+                  color: borders.top.color
                 },
                 bottom: { 
-                  style: range.format.borders.getItem('EdgeBottom').style,
-                  color: range.format.borders.getItem('EdgeBottom').color
+                  style: borders.bottom.style,
+                  color: borders.bottom.color
                 },
                 left: { 
-                  style: range.format.borders.getItem('EdgeLeft').style,
-                  color: range.format.borders.getItem('EdgeLeft').color
+                  style: borders.left.style,
+                  color: borders.left.color
                 },
                 right: { 
-                  style: range.format.borders.getItem('EdgeRight').style,
-                  color: range.format.borders.getItem('EdgeRight').color
+                  style: borders.right.style,
+                  color: borders.right.color
                 }
               },
               value: range.values[0][0],
@@ -329,7 +353,7 @@ export class GridVisualizer {
             const worksheet = workbook.worksheets.getItem(sheetName)
             
             for (const hunk of sheetHunks) {
-              const cellKey = `${sheetName}!${hunk.key.row},${hunk.key.col}`
+              const cellKey = cellKeyToA1(hunk.key)
               const originalState = this.originalStates.get(cellKey)
               
               const range = worksheet.getRangeByIndexes(
@@ -380,8 +404,8 @@ export class GridVisualizer {
       } else {
         // Clear all stored highlights
         for (const [cellKey, originalState] of this.originalStates) {
-          const [sheetName, position] = cellKey.split('!')
-          const [row, col] = position.split(',').map(Number)
+          const parsedKey = parseA1Reference(cellKey)
+          const { sheet: sheetName, row, col } = parsedKey
           
           try {
             const worksheet = workbook.worksheets.getItem(sheetName)

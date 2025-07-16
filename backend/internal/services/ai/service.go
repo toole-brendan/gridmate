@@ -33,6 +33,7 @@ type ServiceConfig struct {
 	Temperature     float32       `json:"temperature"`
 	TopP            float32       `json:"top_p"`
 	RequestTimeout  time.Duration `json:"request_timeout"`
+	RetryDelay      time.Duration `json:"retry_delay"`      // Added for configurable retry
 	EnableActions   bool          `json:"enable_actions"`   // Parse actions from responses
 	EnableEmbedding bool          `json:"enable_embedding"` // Use embedding provider
 }
@@ -304,7 +305,7 @@ func createProvider(config ServiceConfig) (AIProvider, error) {
 			Model:      config.DefaultModel,
 			Timeout:    config.RequestTimeout,
 			MaxRetries: 3,
-			RetryDelay: 1 * time.Second,
+			RetryDelay: config.RetryDelay,
 		}
 
 		return NewAnthropicProvider(providerConfig), nil
@@ -322,7 +323,7 @@ func createProvider(config ServiceConfig) (AIProvider, error) {
 			Model:      config.DefaultModel,
 			Timeout:    config.RequestTimeout,
 			MaxRetries: 3,
-			RetryDelay: 1 * time.Second,
+			RetryDelay: config.RetryDelay,
 		}
 
 		logger := logrus.New()

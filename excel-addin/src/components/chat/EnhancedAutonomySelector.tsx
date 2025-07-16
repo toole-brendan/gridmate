@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import './animations.css'
 import { AutonomyMode } from './AutonomyModeSelector'
 import { 
   EyeIcon, 
@@ -189,23 +190,6 @@ export const EnhancedAutonomySelector: React.FC<EnhancedAutonomySelectorProps> =
           <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse" />
         </div>
       )}
-      
-      <style jsx>{`
-        @keyframes slideUp {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        .animate-slideUp {
-          animation: slideUp 0.2s ease-out;
-        }
-      `}</style>
     </div>
   )
 }

@@ -21,7 +21,8 @@ builder.Services.AddCors(options =>
             "http://localhost:3000",
             "https://localhost:5001",
             "http://localhost:5000",
-            "http://localhost:5252"
+            "http://localhost:5252",
+            "http://localhost:8080" // Allow Go backend
         )
         .AllowAnyMethod()
         .AllowAnyHeader()
@@ -59,6 +60,8 @@ app.UseCors("AllowExcelAddIn");
 
 app.UseRouting();
 
+app.UseAuthorization();
+
 app.MapHub<GridmateHub>("/hub");
 app.MapControllers();
 
@@ -92,7 +95,8 @@ app.MapPost("/api/forward-to-client", async (
     {
         return Results.Problem(ex.Message);
     }
-});
+})
+.AllowAnonymous();
 
 app.Run();
 

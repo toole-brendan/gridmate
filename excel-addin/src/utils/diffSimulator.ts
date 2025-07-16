@@ -1,4 +1,5 @@
-import { AISuggestedOperation, WorkbookSnapshot, CellSnapshot } from '../types/diff';
+import { AISuggestedOperation, WorkbookSnapshot, CellSnapshot, CellKey } from '../types/diff';
+import { cellKeyToA1 } from './cellUtils';
 
 /**
  * Simulates applying an operation to a workbook snapshot without actually modifying Excel
@@ -154,12 +155,6 @@ async function simulateFormatOperation(
 
 // Helper functions
 
-interface CellKey {
-  sheet: string;
-  row: number;
-  col: number;
-}
-
 function rangeToCellKeys(range: string): CellKey[] {
   // Parse the range (e.g., "Sheet1!A1:B2" or "A1:B2")
   let sheetName = 'Sheet1'; // Default sheet
@@ -200,17 +195,15 @@ function parseCell(cellRef: string): { row: number; col: number } {
   const colStr = match[1];
   const rowStr = match[2];
   
-  // Convert column letter(s) to number (A=1, B=2, ..., Z=26, AA=27, etc.)
+  // Convert column letter(s) to number (0-based: A=0, B=1, ..., Z=25, AA=26, etc.)
   let col = 0;
   for (let i = 0; i < colStr.length; i++) {
-    col = col * 26 + (colStr.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
+    col = col * 26 + (colStr.charCodeAt(i) - 'A'.charCodeAt(0));
   }
   
-  return { row: parseInt(rowStr, 10), col };
+  return { row: parseInt(rowStr, 10) - 1, col }; // Return 0-indexed
 }
 
 function cellKeyToString(cellKey: CellKey): string {
-  // Convert to the format used in WorkbookSnapshot keys
-  // The exact format might vary, but commonly it's "SheetName!RowCol"
-  return `${cellKey.sheet}!${cellKey.row}:${cellKey.col}`;
+  return cellKeyToA1(cellKey);
 } 

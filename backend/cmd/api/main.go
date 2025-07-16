@@ -66,21 +66,25 @@ func main() {
 	sessionManager := services.NewSessionManager(logger)
 
 	// Initialize AI service
-	aiService, err := ai.NewServiceFromEnv()
+	aiServiceConfig := ai.ServiceConfig{
+		Provider:        cfg.AI.Provider,
+		DefaultModel:    cfg.AI.Model,
+		StreamingMode:   cfg.AI.StreamingMode,
+		MaxTokens:       cfg.AI.MaxTokens,
+		Temperature:     cfg.AI.Temperature,
+		TopP:            cfg.AI.TopP,
+		RequestTimeout:  cfg.AI.RequestTimeout,
+		RetryDelay:      cfg.AI.RetryDelay,
+		EnableActions:   cfg.AI.EnableActions,
+		EnableEmbedding: cfg.AI.EnableEmbedding,
+	}
+	aiService, err := ai.NewService(aiServiceConfig)
 	if err != nil {
 		logger.WithError(err).Warn("Failed to initialize AI service")
 	}
 
-	// Initialize document service
-	var docService *documents.DocumentService
-	if aiService != nil {
-		docService = documents.NewDocumentService(logger, aiService, repos.Documents, repos.Embeddings)
-	} else {
-		logger.Warn("Document service not initialized - AI service unavailable")
-	}
-
-	// Initialize Excel bridge service
-	excelBridge := services.NewExcelBridge(logger)
+	// Initialize Excel bridge service, injecting the AI service
+	excelBridge := services.NewExcelBridge(logger, aiService)
 	excelBridge.SetSessionManager(sessionManager)
 	if aiService != nil {
 		// Set the AI service on the bridge
@@ -132,10 +136,13 @@ func main() {
 	}
 
 	// Initialize SignalR bridge
-	signalRBridge := handlers.NewSignalRBridge("http://localhost:5000")
+	signalRBridge := handlers.NewSignalRBridge("http://localhost:5252")
 
 	// Set SignalR bridge in Excel bridge for tool requests
 	excelBridge.SetSignalRBridge(signalRBridge)
+
+	// Initialize document service
+	docService := documents.NewDocumentService(logger, aiService, repos.Documents, repos.Embeddings)
 
 	// Initialize handlers
 	signalRHandler := handlers.NewSignalRHandler(excelBridge, signalRBridge, logger)

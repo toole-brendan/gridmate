@@ -135,8 +135,13 @@ export class SignalRClient extends EventEmitter {
     })
 
     this.connection.on('error', (error) => {
-      console.error('❌ SignalR error:', error)
-      this.emit('error', error)
+      const errorData = {
+        message: "An unexpected error occurred on the server.",
+        details: error ? error.toString() : "No details provided.",
+        timestamp: new Date().toISOString()
+      };
+      console.error('❌ SignalR error:', errorData);
+      this.emit('error', errorData);
     })
   }
 
@@ -192,8 +197,8 @@ export class SignalRClient extends EventEmitter {
           })
           await this.connection.invoke('SendToolResponse', 
             message.data.request_id, 
-            message.data.result,
-            message.data.error,
+            message.data.result === undefined ? null : message.data.result,
+            message.data.error === undefined ? null : message.data.error,
             message.data.queued || false,
             message.data.errorDetails || null,
             message.data.metadata || null

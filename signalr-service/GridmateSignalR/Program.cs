@@ -20,7 +20,8 @@ builder.Services.AddCors(options =>
             "https://localhost:3000",
             "http://localhost:3000",
             "https://localhost:5001",
-            "http://localhost:5000"
+            "http://localhost:5000",
+            "http://localhost:5252"
         )
         .AllowAnyMethod()
         .AllowAnyHeader()
@@ -43,12 +44,18 @@ builder.Services.AddHostedService<SessionCleanupService>();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
-app.UseCors("AllowExcelAddIn");
-
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
 }
+
+// Only use HTTPS redirection in production
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
+app.UseCors("AllowExcelAddIn");
 
 app.UseRouting();
 
@@ -87,7 +94,7 @@ app.MapPost("/api/forward-to-client", async (
     }
 });
 
-app.Run("http://localhost:5000");
+app.Run();
 
 // Request models
 public record ForwardToClientRequest(string SessionId, string Type, object Data);

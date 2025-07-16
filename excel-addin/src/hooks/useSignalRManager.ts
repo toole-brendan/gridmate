@@ -23,7 +23,7 @@ export const useSignalRManager = (onMessage: SignalRMessageHandler, addDebugLog?
       setIsAuthenticated(true);
       addDebugLog?.('Using existing SignalR connection', 'info');
     } else {
-      const newClient = new SignalRClient('http://localhost:5000/hub');
+      const newClient = new SignalRClient('https://localhost:7171/hub');
       globalSignalRClient = newClient;
       clientRef.current = newClient;
 

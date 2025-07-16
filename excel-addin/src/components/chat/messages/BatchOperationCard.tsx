@@ -6,8 +6,7 @@ import {
   ChevronRightIcon,
   CheckCircleIcon,
   XCircleIcon,
-  ClockIcon,
-  ExclamationTriangleIcon
+  ClockIcon
 } from '@heroicons/react/24/outline'
 
 interface BatchOperationCardProps {
@@ -16,7 +15,6 @@ interface BatchOperationCardProps {
 
 export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({ message }) => {
   const [isExpanded, setIsExpanded] = useState(!message.batch.collapsed)
-  const [expandedOperations, setExpandedOperations] = useState<Set<string>>(new Set())
 
   const progress = useMemo(() => {
     if (!message.batch.progress) {

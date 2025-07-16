@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useDiffPreview } from './useDiffPreview';
 import { useChatManager } from './useChatManager';
 import { SignalRToolRequest, SignalRAIResponse } from '../types/signalr';
@@ -18,6 +18,7 @@ export const useMessageHandlers = (
   const currentMessageIdRef = useRef<string | null>(null);
   const readRequestQueue = useRef<SignalRToolRequest[]>([]);
   const batchTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [messageTimeouts, setMessageTimeouts] = useState<Map<string, NodeJS.Timeout>>(new Map());
   const addLog = (type: string, message: string, data?: any) => {
     console.log(`[${type}] ${message}`, data);
   };
@@ -225,9 +226,22 @@ export const useMessageHandlers = (
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
     
+    // Check if the response is complete
     if (response.isComplete) {
       addDebugLog('AI response complete', 'success');
       chatManager.setAiIsGenerating(false);
+      chatManager.setIsLoading(false);
+      
+      // Clear timeout for this message
+      const timeout = messageTimeouts.get(response.messageId);
+      if (timeout) {
+        clearTimeout(timeout);
+        setMessageTimeouts(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(response.messageId);
+          return newMap;
+        });
+      }
     }
     
     const existingMessage = chatManager.messages.find(m => m.id === response.messageId);
@@ -242,7 +256,7 @@ export const useMessageHandlers = (
         type: 'assistant'
       });
     }
-  }, [addDebugLog, chatManager]);
+  }, [addDebugLog, chatManager, messageTimeouts]);
 
   const handleSignalRMessage = useCallback((message: any) => {
     // Enhanced diagnostic logging - log the entire raw message
@@ -258,6 +272,8 @@ export const useMessageHandlers = (
         break;
       case 'error':
         addDebugLog(`Error from backend: ${message.data?.message || 'Unknown error'}`, 'error');
+        chatManager.setIsLoading(false);
+        chatManager.setAiIsGenerating(false);
         chatManager.addMessage({
           role: 'system',
           content: `Error: ${message.data?.message || 'An unknown error occurred.'}`,
@@ -287,6 +303,22 @@ export const useMessageHandlers = (
     currentMessageIdRef.current = messageId;
     addDebugLog(`User message sent: ${messageId}`);
     chatManager.setAiIsGenerating(true);
+    
+    // Set timeout for stuck requests (60 seconds)
+    const timeout = setTimeout(() => {
+      addDebugLog(`Message ${messageId} timed out`, 'warning');
+      chatManager.setIsLoading(false);
+      chatManager.setAiIsGenerating(false);
+      chatManager.addMessage({
+        id: `timeout_${messageId}`,
+        role: 'system',
+        content: '⏱️ Request timed out. Please try again.',
+        timestamp: new Date(),
+        type: 'error',
+      });
+    }, 60000);
+    
+    setMessageTimeouts(prev => new Map(prev).set(messageId, timeout));
   }, [addDebugLog, chatManager]);
 
   const setSignalRClient = (client: any) => {

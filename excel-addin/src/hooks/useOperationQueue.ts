@@ -1,13 +1,13 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { PendingAction, OperationSummary } from '../types/operations';
 
-export const useOperationQueue = (sessionId: string) => {
+export const useOperationQueue = (_sessionId: string) => {
   const [queue, setQueue] = useState<PendingAction[]>([]);
   const [summary, setSummary] = useState<OperationSummary | null>(null);
   const [dependencies, setDependencies] = useState<Record<string, string[]>>({});
   const [processing, setProcessing] = useState(false);
-  const [undoStack, setUndoStack] = useState<string[]>([]);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
+  const [undoStack] = useState<string[]>([]);
+  const [redoStack] = useState<string[]>([]);
 
   // Update from backend operation summary
   const updateFromBackendSummary = useCallback((backendSummary: any) => {

@@ -180,11 +180,86 @@ This file contains the most critical logic changes, orchestrating the new statef
 3.  **Step 3: Refactor `useDiffPreview.ts`:** Implement the new stateful `generatePreview` logic as detailed above. This is the most complex part of the fix.
 4.  **Step 4: Testing:** Thoroughly test the new implementation to ensure both performance and correctness.
 
-## 5. Verification and Testing
+## 5. Implementation Recommendations & Considerations
 
--   **Performance Test:** Execute a multi-step AI command (e.g., "write a value to A1, then format it bold, then change the color"). The response should be near-instantaneous, not take minutes. Monitor console logs to confirm `createWorkbookSnapshot` is only called *once* for the entire sequence.
--   **Correctness Test:** After a multi-step preview, click "Accept". The final state of the Excel sheet must exactly match the visual preview.
--   **Interruption Test:** Start a multi-step command. Before it finishes, send a new, unrelated command. The first preview should be cleanly accepted, and a new, correct preview for the second command should begin, with only one new snapshot being created.
--   **Rejection Test:** Reject a multi-step preview. The sheet should correctly revert to its state before the entire preview session began.
+### 5.1. Required Code Updates
 
-This plan addresses the performance bottleneck at its source and will restore the responsiveness of the chat interface.
+1. **Update setActivePreview Signature**
+   - The current implementation of `setActivePreview` doesn't accept the `simulatedSnapshot` parameter
+   - Need to update both the interface definition and all calling locations
+
+2. **Good News: Auto-Accept Already Implemented**
+   - The current `generatePreview` already implements auto-acceptance logic (lines 33-43)
+   - This reduces implementation complexity
+
+3. **Smart Range Detection Enhancement**
+   Consider implementing smarter range detection in `extractTargetRange`:
+   ```typescript
+   // For operations on specific cells, snapshot affected area + buffer
+   // Example: For A1:A10, snapshot A1:B11 instead of entire UsedRange
+   // This provides further performance optimization for targeted operations
+   ```
+
+### 5.2. Edge Cases & Considerations
+
+1. **Memory Management**
+   - With stateful snapshots, memory usage will increase (storing both originalSnapshot and currentSimulatedSnapshot)
+   - Consider implementing:
+     - Automatic cleanup after message completion
+     - Maximum snapshot size limits
+     - Memory usage monitoring
+
+2. **Concurrency Handling**
+   - Ensure proper sequencing if multiple tool requests arrive rapidly
+   - Consider using a queue or semaphore to prevent race conditions
+   - The `isCalculating` flag helps but may need enhancement
+
+3. **Empty Worksheet Handling**
+   - Current implementation already handles empty worksheets gracefully
+   - No additional work needed here
+
+4. **Error Recovery**
+   - If auto-acceptance fails, maintain current preview state
+   - Provide clear error messaging to users
+   - Ensure rollback mechanism is robust
+
+### 5.3. Performance Optimization Opportunities
+
+1. **Incremental Snapshots**
+   - For subsequent operations in the same turn, consider capturing only the delta
+   - This could further reduce memory usage and processing time
+
+2. **Lazy Loading**
+   - Only load cell properties that are actually needed for the diff
+   - Skip loading styles if not required for the operation
+
+3. **Background Processing**
+   - Consider moving snapshot creation to a web worker if possible
+   - This would prevent UI blocking during large snapshot operations
+
+## 6. Verification and Testing
+
+### 6.1. Performance Tests
+-   **Multi-step Command Test:** Execute "write a value to A1, then format it bold, then change the color". Should complete in <3 seconds (not minutes). Console logs should show `createWorkbookSnapshot` called only ONCE.
+-   **Large Range Test:** Test with operations affecting 1000+ cells to ensure UsedRange optimization works
+-   **Memory Usage Test:** Monitor memory consumption during extended sessions with multiple previews
+
+### 6.2. Correctness Tests
+-   **Preview Accuracy Test:** After multi-step preview, verify Excel state matches visual preview exactly
+-   **Formula Dependency Test:** Ensure formulas depending on previewed cells update correctly
+-   **Format Preservation Test:** Verify cell formats are maintained through accept/reject cycles
+
+### 6.3. Edge Case Tests
+-   **Interruption Test:** Start multi-step command, interrupt with new command. First preview should auto-accept cleanly, new preview should start with single snapshot
+-   **Rejection Test:** Reject multi-step preview, verify sheet reverts to pre-preview state
+-   **Rapid Fire Test:** Send multiple tool requests in quick succession, verify no race conditions
+-   **Empty Sheet Test:** Test operations on completely empty worksheets
+-   **Large Sheet Test:** Test with sheets containing 50,000+ cells to verify performance remains acceptable
+
+### 6.4. Success Metrics
+- Response time: <3 seconds for typical operations (down from 5 minutes)
+- Memory usage: <100MB increase per preview session
+- Snapshot calls: 1 per message turn (not per tool request)
+- Zero data corruption or loss during accept/reject operations
+
+This plan addresses the performance bottleneck at its source and will restore the responsiveness of the chat interface while maintaining data integrity and user control.

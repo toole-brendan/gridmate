@@ -64,7 +64,6 @@ interface EnhancedChatInterfaceProps {
   isContextEnabled?: boolean
   onContextToggle?: () => void
   // Diff preview
-  activePreview?: any
   onAcceptDiff?: () => Promise<void>
   onRejectDiff?: () => Promise<void>
 }
@@ -93,7 +92,6 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   aiIsGenerating = false,
   isContextEnabled = true,
   onContextToggle,
-  activePreview,
   onAcceptDiff,
   onRejectDiff
 }) => {
@@ -160,8 +158,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   
   const { showCommands, commandSearch, handleCommandSelect, closeCommands } = useSlashCommands(
     input,
-    setInput,
-    slashCommands
+    setInput
   )
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -184,10 +181,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
             message={message}
             onApprove={() => onMessageAction?.(message.id, 'approve')}
             onReject={() => onMessageAction?.(message.id, 'reject')}
-            onModify={() => onMessageAction?.(message.id, 'modify')}
-            diffData={activePreview?.messageId === message.id ? activePreview : undefined}
-            onAcceptDiff={onAcceptDiff}
-            onRejectDiff={onRejectDiff}
+            diffData={message.diff}
+            onAcceptDiff={message.diff?.status === 'previewing' ? onAcceptDiff : undefined}
+            onRejectDiff={message.diff?.status === 'previewing' ? onRejectDiff : undefined}
           />
         </div>
       )
@@ -279,13 +275,13 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                 </div>
               </div>
             )}
-            {activePreview?.messageId === message.id && (
+            {message.diff && (
               <ChatMessageDiffPreview
                 messageId={message.id}
-                hunks={activePreview.hunks || []}
-                onAccept={onAcceptDiff}
-                onReject={onRejectDiff}
-                status={activePreview?.status || 'previewing'}
+                hunks={message.diff.hunks || []}
+                onAccept={message.diff.status === 'previewing' ? onAcceptDiff : undefined}
+                onReject={message.diff.status === 'previewing' ? onRejectDiff : undefined}
+                status={message.diff.status}
               />
             )}
             <p className="font-footnote opacity-70 mt-1 select-text" style={{ 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SignalRClient } from '../services/signalr/SignalRClient';
 import { SignalRMessageHandler } from '../types/signalr';
 

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { AISuggestedOperation, DiffHunk, WorkbookSnapshot } from '../types/diff';
 
 // Simplified: Only one active preview at a time
-interface DiffData {
+export interface DiffData {
   status: 'previewing' | 'applying' | 'rejected' | 'accepted';
   operations: AISuggestedOperation[];
   hunks: DiffHunk[];
@@ -17,18 +17,20 @@ interface DiffSessionState {
   // Original snapshot before preview
   originalSnapshot: WorkbookSnapshot | null;
   
+  // Current simulated snapshot (result of latest simulation)
+  currentSimulatedSnapshot: WorkbookSnapshot | null;
+  
   // Actions
-  setActivePreview: (messageId: string, operations: AISuggestedOperation[], hunks: DiffHunk[]) => void;
-  acceptActivePreview: () => Promise<void>;
-  rejectActivePreview: () => void;
+  setActivePreview: (messageId: string, operations: AISuggestedOperation[], hunks: DiffHunk[], simulatedSnapshot: WorkbookSnapshot) => void;
   clearPreview: () => void;
 }
 
-export const useDiffSessionStore = create<DiffSessionState>((set, get) => ({
+export const useDiffSessionStore = create<DiffSessionState>((set) => ({
   activePreview: null,
   originalSnapshot: null,
+  currentSimulatedSnapshot: null,
 
-  setActivePreview: (messageId, operations, hunks) => {
+  setActivePreview: (messageId, operations, hunks, simulatedSnapshot) => {
     set({
       activePreview: {
         status: 'previewing',
@@ -36,52 +38,16 @@ export const useDiffSessionStore = create<DiffSessionState>((set, get) => ({
         hunks,
         timestamp: Date.now(),
         messageId
-      }
+      },
+      currentSimulatedSnapshot: simulatedSnapshot
     });
-  },
-
-  acceptActivePreview: async () => {
-    const { activePreview } = get();
-    if (!activePreview || activePreview.status !== 'previewing') return;
-
-    set((state) => ({
-      activePreview: state.activePreview ? {
-        ...state.activePreview,
-        status: 'applying'
-      } : null
-    }));
-
-    // After applying, keep the preview with 'accepted' status for history
-    setTimeout(() => {
-      set((state) => ({
-        activePreview: state.activePreview ? {
-          ...state.activePreview,
-          status: 'accepted' as any  // Add 'accepted' as a valid status
-        } : null,
-        originalSnapshot: null
-      }));
-    }, 100);
-  },
-
-  rejectActivePreview: () => {
-    const { activePreview } = get();
-    if (!activePreview) return;
-
-    set((state) => ({
-      activePreview: state.activePreview ? {
-        ...state.activePreview,
-        status: 'rejected'
-      } : null
-    }));
-
-    // Keep rejected state visible in chat history
-    // Don't auto-clear - let it be cleared by next preview or manually
   },
 
   clearPreview: () => {
     set({
       activePreview: null,
-      originalSnapshot: null
+      originalSnapshot: null,
+      currentSimulatedSnapshot: null
     });
   }
 })); 

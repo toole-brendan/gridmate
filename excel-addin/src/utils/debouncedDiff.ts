@@ -95,7 +95,7 @@ export class DebouncedDiffQueue {
     })
     
     // Merge adjacent operations where possible
-    rangeMap.forEach((ops, key) => {
+    rangeMap.forEach((ops) => {
       if (ops.length === 1) {
         optimized.push(ops[0])
       } else {

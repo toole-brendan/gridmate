@@ -9,7 +9,6 @@ interface ToolSuggestionCardProps {
   message: ToolSuggestionMessage
   onApprove?: () => void
   onReject?: () => void
-  onModify?: () => void
   diffData?: any
   onAcceptDiff?: () => Promise<void>
   onRejectDiff?: () => Promise<void>
@@ -19,7 +18,6 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
   message,
   onApprove,
   onReject,
-  onModify,
   diffData,
   onAcceptDiff,
   onRejectDiff

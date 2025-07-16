@@ -3,6 +3,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: Date
+  diff?: any // Will be typed properly when used in enhanced-chat
   metadata?: {
     excelContext?: {
       workbook: string

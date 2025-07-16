@@ -198,7 +198,7 @@ const numberToColumn = (num: number): string => {
   return col
 }
 
-const getCellValue = (data: any, col: string, row: number, type: string): string => {
+const getCellValue = (_data: any, _col: string, _row: number, type: string): string => {
   // Mock implementation - in reality would extract from actual data
   if (type === 'before') {
     return Math.floor(Math.random() * 100).toString()

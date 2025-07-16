@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { EnhancedChatMessage } from '../types/enhanced-chat';
 import { v4 as uuidv4 } from 'uuid';
+import { DiffData } from '../store/useDiffSessionStore';
 
 export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
   const [messages, setMessages] = useState<EnhancedChatMessage[]>(initialMessages);
@@ -62,11 +63,20 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
     setMessages([]);
   }, []);
 
+  const updateMessageDiff = useCallback((messageId: string, diffData: Omit<DiffData, 'messageId'>) => {
+    setMessages(prev => 
+      prev.map(msg => 
+        msg.id === messageId ? { ...msg, diff: diffData } : msg
+      )
+    );
+  }, []);
+
   return {
     messages,
     setMessages,
     addMessage,
     updateMessage,
+    updateMessageDiff,
     removeMessage,
     clearThinkingMessages,
     clearMessages,

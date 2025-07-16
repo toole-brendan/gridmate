@@ -1,5 +1,5 @@
-import { ChatMessage, ChatAction } from './chat'
-import { PendingAction } from './operations'
+import { ChatMessage } from './chat'
+import { DiffData } from '../store/useDiffSessionStore'
 
 export type EnhancedMessageType = 
   | 'user' 
@@ -15,6 +15,7 @@ export type EnhancedMessageType =
 export interface BaseEnhancedMessage extends Omit<ChatMessage, 'role'> {
   type: EnhancedMessageType
   role?: 'user' | 'assistant' | 'system'
+  diff?: Omit<DiffData, 'messageId'> // Persisted diff data for this message
 }
 
 export interface ExcelDiff {

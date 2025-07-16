@@ -49,14 +49,6 @@ export class GridVisualizer {
     [DiffKind.StyleChanged]: '#E4DFEC'  // Light Purple
   }
 
-  // Visual indicators for diff types
-  private static readonly INDICATORS = {
-    [DiffKind.Added]: '+',
-    [DiffKind.Deleted]: '✖',
-    [DiffKind.ValueChanged]: '✏️',
-    [DiffKind.FormulaChanged]: 'ƒ',
-    [DiffKind.StyleChanged]: '🎨'
-  }
 
   // Track original cell state for complete restoration
   private static originalStates = new Map<string, CellState>()

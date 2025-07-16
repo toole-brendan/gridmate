@@ -17,7 +17,6 @@ interface StatusIndicatorProps {
 
 export const StatusIndicator: React.FC<StatusIndicatorProps> = ({ message }) => {
   const [dots, setDots] = useState('')
-  const [elapsedTime, setElapsedTime] = useState(0)
 
   useEffect(() => {
     if (message.animated && ['thinking', 'processing', 'generating'].includes(message.status.type)) {
@@ -28,15 +27,6 @@ export const StatusIndicator: React.FC<StatusIndicatorProps> = ({ message }) => 
     }
   }, [message.animated, message.status.type])
 
-  useEffect(() => {
-    if (message.status.type === 'thinking') {
-      const startTime = Date.now()
-      const interval = setInterval(() => {
-        setElapsedTime((Date.now() - startTime) / 1000)
-      }, 100)
-      return () => clearInterval(interval)
-    }
-  }, [message.status.type])
 
   const getIcon = () => {
     const baseClasses = "w-4 h-4"

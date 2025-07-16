@@ -114,8 +114,6 @@ export class ExcelService {
     timestamp: number
   }>()
   
-  // Cache expiry time (5 seconds)
-  private readonly CACHE_TTL = 5000
 
   static getInstance(): ExcelService {
     if (!ExcelService.instance) {
@@ -135,45 +133,7 @@ export class ExcelService {
     this.worksheetCache.clear()
   }
 
-  // Get cached worksheet or fetch if expired
-  private async getCachedWorksheet(context: any, name?: string): Promise<any> {
-    const cacheKey = name || 'active'
-    const cached = this.worksheetCache.get(cacheKey)
-    
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      // Return cached worksheet from context
-      return name ? context.workbook.worksheets.getItem(cached.name) : context.workbook.worksheets.getActiveWorksheet()
-    }
-    
-    // Fetch and cache
-    const worksheet = name 
-      ? context.workbook.worksheets.getItem(name)
-      : context.workbook.worksheets.getActiveWorksheet()
-    
-    worksheet.load(['name', 'usedRange'])
-    await context.sync()
-    
-    this.worksheetCache.set(cacheKey, {
-      name: worksheet.name,
-      usedRange: worksheet.usedRange ? { address: worksheet.usedRange.address } : undefined,
-      timestamp: Date.now()
-    })
-    
-    return worksheet
-  }
 
-  // Robust helper to get worksheet with all necessary properties loaded
-  private async getSheet(context: Excel.RequestContext, sheetName?: string): Promise<Excel.Worksheet> {
-    const sheet = sheetName 
-      ? context.workbook.worksheets.getItem(sheetName)
-      : context.workbook.worksheets.getActiveWorksheet()
-    
-    // Load all properties that might be needed
-    sheet.load(['name', 'id', 'position'])
-    await context.sync()
-    
-    return sheet
-  }
 
   async getContext(): Promise<ExcelContext> {
     return Excel.run(async (context: any) => {
@@ -1284,7 +1244,7 @@ export class ExcelService {
     maxCells?: number
   } = {}): Promise<WorkbookSnapshot> {
     const {
-      rangeAddress = 'A1:Z100', // Default range to scan
+      rangeAddress = 'UsedRange', // More efficient default
       includeFormulas = true,
       includeStyles = true,
       maxCells = 10000

@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react';
 import { useDiffSessionStore } from '../store/useDiffSessionStore';
-import { ExcelService } from '../services/excel/ExcelService';
+import { ExcelService, WorkbookSnapshot } from '../services/excel/ExcelService';
 import { GridVisualizer } from '../services/diff/GridVisualizer';
 import { AISuggestedOperation, ValidationError } from '../types/diff';
 import { simulateOperation } from '../utils/diffSimulator';
 import { getDiffCalculator } from '../utils/clientDiff';
+import { useChatManager } from './useChatManager';
 
 interface UseDiffPreviewReturn {
   // Simplified actions
@@ -18,7 +19,7 @@ interface UseDiffPreviewReturn {
   validationErrors: ValidationError[];
 }
 
-export const useDiffPreview = (): UseDiffPreviewReturn => {
+export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): UseDiffPreviewReturn => {
   const store = useDiffSessionStore();
   const [isCalculating, setIsCalculating] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
@@ -29,50 +30,80 @@ export const useDiffPreview = (): UseDiffPreviewReturn => {
       setIsCalculating(true);
       setValidationErrors([]);
 
-      // 1. Auto-accept any existing preview
-      if (store.activePreview) {
-        console.log('[Diff Preview] Auto-accepting existing preview');
-        // Apply the existing preview operations to Excel
-        for (const op of store.activePreview.operations) {
-          await excelService.executeToolRequest(op.tool, op.input);
+      let baseSnapshot: WorkbookSnapshot;
+      let isNewPreviewSession = !store.activePreview || store.activePreview.messageId !== messageId;
+
+      // --- START NEW LOGIC ---
+      if (isNewPreviewSession) {
+        // 1A. New message, so auto-accept any old preview.
+        if (store.activePreview) {
+          console.log('[Diff Preview] New message, auto-accepting existing preview');
+          // Apply the existing preview operations to Excel
+          for (const op of store.activePreview.operations) {
+            await excelService.executeToolRequest(op.tool, op.input);
+          }
+          // Clear existing highlights
+          await GridVisualizer.clearHighlights(store.activePreview.hunks);
+          
+          // Persist the accepted state to the message
+          chatManager.updateMessageDiff(store.activePreview.messageId, {
+            operations: store.activePreview.operations,
+            hunks: store.activePreview.hunks,
+            status: 'accepted',
+            timestamp: Date.now(),
+          });
+          
+          // Clear the active preview
+          store.clearPreview();
         }
-        // Clear existing highlights
-        await GridVisualizer.clearHighlights(store.activePreview.hunks);
-        // IMPORTANT: Update the state to clear the activePreview
-        await store.acceptActivePreview();
+        
+        // 1B. Take a single, fresh snapshot for this new session.
+        console.log('[Diff Preview] Starting new preview session, creating initial snapshot.');
+        const targetRange = extractTargetRange(operations);
+        baseSnapshot = await excelService.createWorkbookSnapshot({
+          rangeAddress: targetRange || 'UsedRange',
+          includeFormulas: true,
+          includeStyles: false,
+          maxCells: 50000
+        });
+        
+        if (!baseSnapshot) {
+          throw new Error('Failed to create workbook snapshot');
+        }
+        
+        useDiffSessionStore.setState({ originalSnapshot: baseSnapshot });
+
+      } else {
+        // 2. Same message, so continue the existing session.
+        console.log('[Diff Preview] Continuing existing preview session.');
+        // Use the result of the last simulation as our starting point.
+        const tempSnapshot = store.currentSimulatedSnapshot ?? store.originalSnapshot;
+        if (!tempSnapshot) throw new Error('Snapshot missing in active session');
+        baseSnapshot = tempSnapshot;
       }
+      // --- END NEW LOGIC ---
 
-      // 2. Capture current workbook state as originalSnapshot
-      const targetRange = extractTargetRange(operations);
-      const snapshot = await excelService.createWorkbookSnapshot({ 
-        rangeAddress: targetRange || 'A1:Z100',
-        includeFormulas: true,
-        includeStyles: false,
-        maxCells: 50000
-      });
-
-      if (!snapshot) {
-        throw new Error('Failed to create workbook snapshot');
-      }
-
-      // Store the original snapshot
-      useDiffSessionStore.setState({ originalSnapshot: snapshot });
-
-      // 3. Simulate new operations
-      let currentSnapshot = snapshot;
+      // 3. Simulate new operations on the appropriate base snapshot.
+      let newSimulatedSnapshot = baseSnapshot;
       for (const operation of operations) {
-        currentSnapshot = await simulateOperation(currentSnapshot, operation);
+        newSimulatedSnapshot = await simulateOperation(newSimulatedSnapshot, operation);
       }
 
-      // 4. Calculate diff
+      // 4. Calculate diff against the *original* snapshot of the session.
+      const originalSnapshot = useDiffSessionStore.getState().originalSnapshot;
+      if (!originalSnapshot) {
+        throw new Error('Original snapshot missing');
+      }
+      
       const diffCalculator = getDiffCalculator({
         maxDiffs: 10000,
         includeStyles: true,
         chunkSize: 1000
       });
-      const hunks = diffCalculator.calculateDiff(snapshot, currentSnapshot);
+      const hunks = diffCalculator.calculateDiff(originalSnapshot, newSimulatedSnapshot);
 
-      // 5. Apply visual highlights
+      // 5. Apply visual highlights (clear old ones first).
+      await GridVisualizer.clearHighlights();
       const isBatched = hunks.length > 100;
       if (isBatched) {
         await GridVisualizer.applyHighlightsBatched(hunks, 50);
@@ -80,8 +111,16 @@ export const useDiffPreview = (): UseDiffPreviewReturn => {
         await GridVisualizer.applyHighlights(hunks);
       }
 
-      // 6. Set as active preview
-      store.setActivePreview(messageId, operations, hunks);
+      // 6. Set the new active preview, saving the latest simulated state.
+      store.setActivePreview(messageId, operations, hunks, newSimulatedSnapshot);
+      
+      // Also persist to the message for history
+      chatManager.updateMessageDiff(messageId, {
+        operations,
+        hunks,
+        status: 'previewing',
+        timestamp: Date.now(),
+      });
 
     } catch (error) {
       console.error('[Diff Preview] Error generating preview:', error);
@@ -93,21 +132,29 @@ export const useDiffPreview = (): UseDiffPreviewReturn => {
     } finally {
       setIsCalculating(false);
     }
-  }, [store, excelService]);
+  }, [store, excelService, chatManager]);
 
   const acceptCurrentPreview = useCallback(async () => {
     if (!store.activePreview) return;
+    const { messageId, operations, hunks } = store.activePreview;
 
     try {
-      await store.acceptActivePreview();
-
       // Apply the operations to Excel
-      for (const op of store.activePreview.operations) {
+      for (const op of operations) {
         await excelService.executeToolRequest(op.tool, op.input);
       }
 
-      // Clear highlights
-      await GridVisualizer.clearHighlights(store.activePreview.hunks);
+      // Persist the final state to the message
+      chatManager.updateMessageDiff(messageId, {
+        operations,
+        hunks,
+        status: 'accepted',
+        timestamp: Date.now(),
+      });
+
+      // Clear the live preview session
+      store.clearPreview();
+      await GridVisualizer.clearHighlights(hunks);
 
     } catch (error) {
       console.error('[Diff Preview] Error accepting preview:', error);
@@ -116,20 +163,24 @@ export const useDiffPreview = (): UseDiffPreviewReturn => {
         severity: 'error' 
       }]);
     }
-  }, [store, excelService]);
+  }, [store, excelService, chatManager]);
 
   const rejectCurrentPreview = useCallback(async () => {
-    if (!store.activePreview || !store.originalSnapshot) return;
+    if (!store.activePreview) return;
+    const { messageId, operations, hunks } = store.activePreview;
 
     try {
-      // Revert to original snapshot
-      const hunks = store.activePreview.hunks;
-      
-      // Clear highlights first
-      await GridVisualizer.clearHighlights(hunks);
+      // Persist the final state to the message
+      chatManager.updateMessageDiff(messageId, {
+        operations,
+        hunks,
+        status: 'rejected',
+        timestamp: Date.now(),
+      });
 
-      // Mark as rejected
-      store.rejectActivePreview();
+      // Clear the live preview session
+      store.clearPreview();
+      await GridVisualizer.clearHighlights(hunks);
 
       // Note: In a real implementation, we might need to revert Excel to originalSnapshot
       // For now, we just clear the preview state
@@ -141,7 +192,7 @@ export const useDiffPreview = (): UseDiffPreviewReturn => {
         severity: 'error' 
       }]);
     }
-  }, [store]);
+  }, [store, chatManager]);
 
   return {
     generatePreview,
@@ -153,13 +204,41 @@ export const useDiffPreview = (): UseDiffPreviewReturn => {
   };
 };
 
-// Helper function
+// Helper function with smart range detection
 function extractTargetRange(operations: AISuggestedOperation[]): string | null {
-  // Look for range in operations
+  const ranges: string[] = [];
+  
+  // Collect all ranges from operations
   for (const op of operations) {
     if (op.input?.range) {
-      return op.input.range;
+      ranges.push(op.input.range);
     }
   }
+  
+  if (ranges.length === 0) {
+    return null; // Will default to UsedRange
+  }
+  
+  // If single range, add a small buffer around it
+  if (ranges.length === 1) {
+    const range = ranges[0];
+    // Simple heuristic: if it's a specific cell or small range, 
+    // expand it slightly to catch nearby dependencies
+    if (range.match(/^[A-Z]+\d+$/)) {
+      // Single cell like "A1", expand to include neighbors
+      const match = range.match(/^([A-Z]+)(\d+)$/);
+      if (match) {
+        const col = match[1];
+        const row = parseInt(match[2]);
+        const prevCol = col === 'A' ? 'A' : String.fromCharCode(col.charCodeAt(0) - 1);
+        const nextCol = String.fromCharCode(col.charCodeAt(0) + 1);
+        return `${prevCol}${Math.max(1, row - 1)}:${nextCol}${row + 1}`;
+      }
+    }
+    return range;
+  }
+  
+  // Multiple ranges - for now, return null to use UsedRange
+  // Future enhancement: calculate bounding box of all ranges
   return null;
 }

@@ -206,23 +206,19 @@ export const defaultSlashCommands: SlashCommand[] = [
 // Hook to handle slash command input
 export const useSlashCommands = (
   input: string,
-  setInput: (value: string) => void,
-  commands: SlashCommand[] = defaultSlashCommands
+  setInput: (value: string) => void
 ) => {
   const [showCommands, setShowCommands] = useState(false)
   const [commandSearch, setCommandSearch] = useState('')
-  const [commandStartIndex, setCommandStartIndex] = useState(-1)
   
   useEffect(() => {
     // Check if we're typing a slash command
     if (input.startsWith('/') && !input.includes(' ') && !input.includes('\n')) {
       setShowCommands(true)
       setCommandSearch(input.slice(1))
-      setCommandStartIndex(0)
     } else {
       setShowCommands(false)
       setCommandSearch('')
-      setCommandStartIndex(-1)
     }
   }, [input])
   
@@ -236,7 +232,6 @@ export const useSlashCommands = (
     // Hide commands
     setShowCommands(false)
     setCommandSearch('')
-    setCommandStartIndex(-1)
   }
   
   return {
@@ -246,7 +241,6 @@ export const useSlashCommands = (
     closeCommands: () => {
       setShowCommands(false)
       setCommandSearch('')
-      setCommandStartIndex(-1)
     }
   }
 }

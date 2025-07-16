@@ -34,11 +34,7 @@ export class SignalRClient extends EventEmitter {
           withCredentials: true,
           transport: signalR.HttpTransportType.WebSockets | 
                     signalR.HttpTransportType.ServerSentEvents |
-                    signalR.HttpTransportType.LongPolling,
-          // Increase server timeout to 2 minutes (default is 30 seconds)
-          serverTimeoutInMilliseconds: 120000,
-          // Keep alive interval at 15 seconds
-          keepAliveIntervalInMilliseconds: 15000
+                    signalR.HttpTransportType.LongPolling
         })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {

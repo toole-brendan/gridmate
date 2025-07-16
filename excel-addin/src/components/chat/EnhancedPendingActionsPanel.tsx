@@ -353,7 +353,7 @@ const BatchedOperations: React.FC<{
       
       {expanded && (
         <div className="mt-2 space-y-2 pl-4">
-          {actions.map((action, index) => (
+          {actions.map((action) => (
             <OperationCard
               key={action.id}
               action={action}

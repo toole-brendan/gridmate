@@ -149,7 +149,7 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
             </div>
             
             <div className="grid grid-cols-5 gap-2 pt-2">
-              {Object.entries(changeSummary).map(([kind, count]) => (
+              {Object.entries(changeSummary).map(([kind]) => (
                 <div key={kind} className="flex items-center gap-1 text-gray-600">
                   <span className={`inline-block w-3 h-3 rounded ${getKindColor(kind as DiffKind)}`} />
                   <span className="capitalize text-xs">{kind.replace(/([A-Z])/g, ' $1').trim()}</span>

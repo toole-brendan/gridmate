@@ -1,5 +1,4 @@
 import React from 'react'
-import { theme } from '../../utils/theme'
 
 type BadgeVariant = 'default' | 'success' | 'error' | 'warning' | 'info' | 'purple' | 'cyan'
 type BadgeSize = 'sm' | 'md' | 'lg'

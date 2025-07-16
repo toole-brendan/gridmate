@@ -38,7 +38,7 @@ export const RefactoredChatInterface: React.FC = () => {
   
   // --- Hooks ---
   const chatManager = useChatManager();
-  const diffPreview = useDiffPreview();
+  const diffPreview = useDiffPreview(chatManager);
   
   // Get activePreview from the session store
   const { activePreview } = useDiffSessionStore();
@@ -59,6 +59,14 @@ export const RefactoredChatInterface: React.FC = () => {
   useEffect(() => {
     messageHandlers.setSignalRClient(signalRClient);
   }, [signalRClient, messageHandlers]);
+
+  // Clear loading states on disconnection
+  useEffect(() => {
+    if (connectionStatus === 'disconnected') {
+      chatManager.setIsLoading(false);
+      chatManager.setAiIsGenerating(false);
+    }
+  }, [connectionStatus, chatManager]);
 
   // --- Mention and Context System ---
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([]);
@@ -204,34 +212,49 @@ export const RefactoredChatInterface: React.FC = () => {
     if (!content || !signalRClient || !isAuthenticated) return;
 
     const messageId = uuidv4();
-    chatManager.addMessage({
-      id: messageId,
-      role: 'user',
-      content,
-      timestamp: new Date(),
-      type: 'user',
-    });
-    chatManager.setIsLoading(true);
-    setInput(''); // Clear input after sending
-
-    await messageHandlers.handleUserMessageSent(messageId);
-
-    const excelContext = isContextEnabled ? await ExcelService.getInstance().getSmartContext() : null;
     
-    await signalRClient.send({
-      type: 'chat_message',
-      data: {
-        messageId,
+    try {
+      chatManager.addMessage({
+        id: messageId,
+        role: 'user',
         content,
-        excelContext: {
-          worksheet: excelContext?.worksheet,
-          workbook: excelContext?.workbook,
-          selectedRange: excelContext?.selectedRange,
-          activeContext: activeContext.map(c => ({ type: c.type, value: c.value })),
+        timestamp: new Date(),
+        type: 'user',
+      });
+      chatManager.setIsLoading(true);
+      setInput(''); // Clear input after sending
+
+      await messageHandlers.handleUserMessageSent(messageId);
+
+      const excelContext = isContextEnabled ? await ExcelService.getInstance().getSmartContext() : null;
+      
+      await signalRClient.send({
+        type: 'chat_message',
+        data: {
+          messageId,
+          content,
+          excelContext: {
+            worksheet: excelContext?.worksheet,
+            workbook: excelContext?.workbook,
+            selectedRange: excelContext?.selectedRange,
+            activeContext: activeContext.map(c => ({ type: c.type, value: c.value })),
+          },
+          autonomyMode,
         },
-        autonomyMode,
-      },
-    });
+      });
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      chatManager.setIsLoading(false);
+      chatManager.setAiIsGenerating(false);
+      // Add error message to chat
+      chatManager.addMessage({
+        id: `error_${Date.now()}`,
+        role: 'system',
+        content: '❌ Failed to send message. Please check your connection and try again.',
+        timestamp: new Date(),
+        type: 'error',
+      });
+    }
   }, [input, signalRClient, isAuthenticated, chatManager, messageHandlers, isContextEnabled, activeContext, autonomyMode]);
 
   // --- UI Actions ---
@@ -378,7 +401,6 @@ ${auditLogs || 'No audit logs.'}
           isContextEnabled={isContextEnabled}
           onContextToggle={handleContextClick}
           onClearChat={chatManager.clearMessages}
-          activePreview={activePreview}
           onAcceptDiff={diffPreview.acceptCurrentPreview}
           onRejectDiff={diffPreview.rejectCurrentPreview}
         />

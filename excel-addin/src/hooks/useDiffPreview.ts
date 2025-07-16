@@ -4,6 +4,8 @@ import { ExcelService, WorkbookSnapshot } from '../services/excel/ExcelService'
 import { GridVisualizer } from '../services/diff/GridVisualizer'
 import { AISuggestedOperation, DiffPayload, DiffMessage, DiffKind, CellKey } from '../types/diff'
 import { SignalRClient } from '../services/signalr/SignalRClient'
+import { getDebouncedDiffQueue, DebouncedDiffQueue } from '../utils/debouncedDiff'
+import { getDiffCalculator } from '../utils/clientDiff'
 import axios from 'axios'
 
 import { log } from '../store/logStore'
@@ -36,6 +38,71 @@ function parseKey(key: string): CellKey {
   return { sheet, row, col };
 }
 
+// Helper function to extract target range from an operation
+function extractTargetRange(operation: AISuggestedOperation): string | null {
+  const { tool, input } = operation;
+  
+  switch (tool) {
+    case 'write_range':
+    case 'apply_formula':
+    case 'clear_range':
+    case 'format_range':
+    case 'smart_format_cells':
+      return input?.range || null;
+    case 'insert_chart':
+      return input?.dataRange || null;
+    case 'create_pivot_table':
+      return input?.sourceRange || null;
+    default:
+      // For other tools, try to find any 'range' property
+      if (input && typeof input === 'object') {
+        for (const key of ['range', 'dataRange', 'sourceRange', 'targetRange']) {
+          if (input[key]) return input[key];
+        }
+      }
+      return null;
+  }
+}
+
+// Helper function to calculate bounding box from multiple ranges
+function calculateBoundingBox(ranges: (string | null)[], activeSheetName: string): string | null {
+  const validRanges = ranges.filter(r => r !== null) as string[];
+  if (validRanges.length === 0) return null;
+  
+  let minRow = Infinity;
+  let maxRow = -Infinity;
+  let minCol = Infinity;
+  let maxCol = -Infinity;
+  let targetSheet = activeSheetName;
+  
+  for (const range of validRanges) {
+    const parsed = parseRange(range, activeSheetName);
+    if (!parsed) continue;
+    
+    targetSheet = parsed.sheet;
+    minRow = Math.min(minRow, parsed.startRow);
+    maxRow = Math.max(maxRow, parsed.endRow ?? parsed.startRow);
+    minCol = Math.min(minCol, parsed.startCol);
+    maxCol = Math.max(maxCol, parsed.endCol ?? parsed.startCol);
+  }
+  
+  if (!isFinite(minRow) || !isFinite(maxRow) || !isFinite(minCol) || !isFinite(maxCol)) {
+    return null;
+  }
+  
+  // Add some padding to ensure we capture context
+  minRow = Math.max(0, minRow - 1);
+  maxRow = maxRow + 1;
+  minCol = Math.max(0, minCol - 1);
+  maxCol = maxCol + 1;
+  
+  // Convert back to Excel notation
+  const startCell = `${indexToColumn(minCol)}${minRow + 1}`;
+  const endCell = `${indexToColumn(maxCol)}${maxRow + 1}`;
+  
+  return `${targetSheet}!${startCell}:${endCell}`;
+}
+
 interface UseDiffPreviewReturn {
   initiatePreview: (operations: AISuggestedOperation[]) => Promise<void>
   applyChanges: () => Promise<void>
@@ -44,12 +111,45 @@ interface UseDiffPreviewReturn {
   error: string | null
 }
 
+// Style interface for cell formatting
+interface CellStyle {
+  font?: {
+    bold?: boolean
+    italic?: boolean
+    size?: number
+    color?: string
+  }
+  fill?: {
+    color?: string
+  }
+  borders?: {
+    top?: { style: string; color: string }
+    bottom?: { style: string; color: string }
+    left?: { style: string; color: string }
+    right?: { style: string; color: string }
+  }
+  numberFormat?: string
+  horizontalAlignment?: string
+  verticalAlignment?: string
+}
+
 export function useDiffPreview(
   signalRClient: SignalRClient | null,
   workbookId: string
 ): UseDiffPreviewReturn {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [debouncedQueue] = useState<DebouncedDiffQueue>(() => 
+    getDebouncedDiffQueue({
+      delay: 300,
+      maxWait: 2000,
+      onBatch: (operations) => {
+        log('visual-diff', `[⚡ Debounce] Processing batch of ${operations.length} operations`)
+        // Process the batched operations
+        initiatePreviewInternal(operations)
+      }
+    })
+  )
   
   const { 
     setPreview, 
@@ -91,10 +191,9 @@ export function useDiffPreview(
     }
   }, [signalRClient, workbookId, pendingOperations, setPreview])
 
-  // Initiate diff preview
-  const initiatePreview = useCallback(async (operations: AISuggestedOperation[]) => {
-    // Log to visual-diff so it appears in the UI
-    log('visual-diff', `[🔍 DEBUG] initiatePreview called with ${operations.length} operations`, { operations });
+  // Internal preview function that actually processes operations
+  const initiatePreviewInternal = useCallback(async (operations: AISuggestedOperation[]) => {
+    log('visual-diff', `[🔍 DEBUG] initiatePreviewInternal called with ${operations.length} operations`, { operations });
     log('visual-diff', `[🚀 Diff Start]`, { operations });
     setIsLoading(true);
     setError(null);
@@ -108,12 +207,52 @@ export function useDiffPreview(
       const activeSheetName = (await excelService.getContext()).worksheet;
       log('visual-diff', `[🚀 Diff Start] Active sheet context acquired: ${activeSheetName}`);
 
-      const before = await excelService.createWorkbookSnapshot({
-        rangeAddress: 'UsedRange',
+      // Extract all target ranges from operations
+      log('visual-diff', `[🔬 Diff Simulate] Analyzing operations to determine snapshot range...`);
+      const targetRanges = operations.map(op => extractTargetRange(op));
+      const boundingBox = calculateBoundingBox(targetRanges, activeSheetName);
+      
+      log('visual-diff', `[🔬 Diff Simulate] Target ranges:`, { targetRanges, boundingBox });
+      
+      // Create snapshot with operation-aware range
+      const snapshotOptions = {
+        rangeAddress: boundingBox || 'A1:Z100', // Use bounding box or fallback to reasonable default
         includeFormulas: true,
         includeStyles: false,
+        includeEmptyCells: true, // Important: include empty cells that will be targets
         maxCells: 50000
-      });
+      };
+      
+      log('visual-diff', `[🔬 Diff Simulate] Creating "before" snapshot with options:`, snapshotOptions);
+      const before = await excelService.createWorkbookSnapshot(snapshotOptions);
+      
+      // If the snapshot is still empty and we have operations, create a minimal snapshot
+      if (Object.keys(before).length === 0 && operations.length > 0) {
+        log('visual-diff', `[🔬 Diff Simulate] Empty snapshot detected, creating minimal snapshot for target ranges`);
+        const minimalSnapshot: WorkbookSnapshot = {};
+        
+        // Initialize empty cells for all target ranges
+        for (const range of targetRanges) {
+          if (!range) continue;
+          const parsed = parseRange(range, activeSheetName);
+          if (!parsed) continue;
+          
+          const { sheet, startRow, startCol, endRow, endCol } = parsed;
+          const rowEnd = endRow ?? startRow;
+          const colEnd = endCol ?? startCol;
+          
+          for (let row = startRow; row <= rowEnd; row++) {
+            for (let col = startCol; col <= colEnd; col++) {
+              const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+              minimalSnapshot[key] = { v: '' }; // Empty cell
+            }
+          }
+        }
+        
+        Object.assign(before, minimalSnapshot);
+        log('visual-diff', `[🔬 Diff Simulate] Created minimal snapshot with ${Object.keys(before).length} cells`);
+      }
+      
       log('visual-diff', `[🔬 Diff Simulate] "Before" snapshot created.`, { before: JSON.parse(JSON.stringify(before)) });
 
       const after = await simulateOperations(before, operations, activeSheetName);
@@ -140,40 +279,20 @@ export function useDiffPreview(
       
       let diffResult;
       try {
-        // Generate diff hunks client-side
-        diffResult = [];
+        // Use optimized diff calculator
+        const diffCalculator = getDiffCalculator({
+          maxDiffs: 10000,
+          includeStyles: true,
+          chunkSize: 1000
+        })
         
-        // Check for added/modified cells
-        for (const [key, afterCell] of Object.entries(after)) {
-          const beforeCell = before[key];
-          if (!beforeCell) {
-            // New cell
-            diffResult.push({
-              key: parseKey(key),
-              kind: DiffKind.Added,
-              after: afterCell
-            });
-          } else if (JSON.stringify(beforeCell) !== JSON.stringify(afterCell)) {
-            // Modified cell
-            const kind = beforeCell.f !== afterCell.f ? DiffKind.FormulaChanged : DiffKind.ValueChanged;
-            diffResult.push({
-              key: parseKey(key),
-              kind,
-              before: beforeCell,
-              after: afterCell
-            });
-          }
-        }
-        
-        // Check for deleted cells
-        for (const [key, beforeCell] of Object.entries(before)) {
-          if (!after[key]) {
-            diffResult.push({
-              key: parseKey(key),
-              kind: DiffKind.Deleted,
-              before: beforeCell
-            });
-          }
+        // For large snapshots, use async calculation
+        const totalCells = beforeCellCount + afterCellCount
+        if (totalCells > 5000) {
+          log('visual-diff', `[📡 Diff Backend Call] Large snapshot detected (${totalCells} cells), using async diff calculation`)
+          diffResult = await diffCalculator.calculateDiffAsync(before, after)
+        } else {
+          diffResult = diffCalculator.calculateDiff(before, after)
         }
         
         log('visual-diff', `[📡 Diff Backend Call] Client-side diff computed ${diffResult.length} changes`);
@@ -191,6 +310,13 @@ export function useDiffPreview(
       } else {
         log('visual-diff', `[🎨 Diff Apply] Setting ${diffResult.length} diffs for rendering.`);
         setPreview(diffResult, operations, workbookId);
+
+        // --- FIX: Apply visual highlights immediately after computing them ---
+        log('visual-diff', `[🎨 Diff Apply] Applying visual highlights to grid...`);
+        GridVisualizer.applyHighlights(diffResult).catch(err => {
+          log('visual-diff', `[❌ Diff Error] Failed to apply highlights:`, err);
+          setError('Failed to visualize changes');
+        });
       }
 
     } catch (err) {
@@ -202,7 +328,29 @@ export function useDiffPreview(
       setIsLoading(false);
       setStatus('idle');
     }
-  }, [signalRClient, workbookId]);
+  }, [signalRClient, workbookId, setPreview, setStatus, setStoreError])
+
+  // Public preview function that uses debouncing
+  const initiatePreview = useCallback(async (operations: AISuggestedOperation[]) => {
+    log('visual-diff', `[⚡ Debounce] Adding ${operations.length} operations to queue`)
+    
+    // If we have a lot of operations, process immediately
+    if (operations.length > 10) {
+      log('visual-diff', `[⚡ Debounce] Large batch detected, processing immediately`)
+      debouncedQueue.flush()
+      await initiatePreviewInternal(operations)
+    } else {
+      // Add to debounce queue for smaller batches
+      debouncedQueue.addBatch(operations)
+    }
+  }, [debouncedQueue, initiatePreviewInternal])
+
+  // Cleanup debounce queue on unmount
+  useEffect(() => {
+    return () => {
+      debouncedQueue.clear()
+    }
+  }, [debouncedQueue])
 
   // Apply the previewed changes
   const applyChanges = useCallback(async () => {
@@ -288,6 +436,12 @@ async function simulateOperations(
         break
       case 'clear_range':
         simulateClearRange(after, op.input, activeSheetName)
+        break
+      case 'format_range':
+        simulateFormatRange(after, op.input, activeSheetName)
+        break
+      case 'smart_format_cells':
+        simulateSmartFormatCells(after, op.input, activeSheetName)
         break
       // Add more tools as needed
     }
@@ -407,6 +561,141 @@ function simulateClearRange(snapshot: WorkbookSnapshot, input: any, activeSheetN
     for (let col = colStart; col <= colEnd; col++) {
       const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
       delete snapshot[key];
+    }
+  }
+}
+
+function simulateFormatRange(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
+  const { range, format } = input;
+  if (!range || !format) return;
+
+  const parsedRange = parseRange(range, activeSheetName);
+  if (!parsedRange) return;
+
+  const { sheet, startRow, startCol, endRow, endCol } = parsedRange;
+  const rowEnd = endRow ?? startRow;
+  const colEnd = endCol ?? startCol;
+  
+  // Apply format to all cells in the range
+  for (let row = startRow; row <= rowEnd; row++) {
+    for (let col = startCol; col <= colEnd; col++) {
+      const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+      
+      // Ensure cell exists
+      if (!snapshot[key]) {
+        snapshot[key] = {};
+      }
+      
+      // Parse existing style or create new
+      let style: CellStyle = {};
+      if (snapshot[key]!.s) {
+        try {
+          style = JSON.parse(snapshot[key]!.s);
+        } catch (e) {
+          style = {};
+        }
+      }
+      
+      // Apply format properties
+      if (format.font) {
+        style.font = { ...style.font, ...format.font };
+      }
+      if (format.fill) {
+        style.fill = { ...style.fill, ...format.fill };
+      }
+      if (format.borders) {
+        style.borders = { ...style.borders, ...format.borders };
+      }
+      if (format.numberFormat !== undefined) {
+        style.numberFormat = format.numberFormat;
+      }
+      if (format.horizontalAlignment !== undefined) {
+        style.horizontalAlignment = format.horizontalAlignment;
+      }
+      if (format.verticalAlignment !== undefined) {
+        style.verticalAlignment = format.verticalAlignment;
+      }
+      
+      // Store style as JSON string
+      snapshot[key]!.s = JSON.stringify(style);
+    }
+  }
+}
+
+function simulateSmartFormatCells(snapshot: WorkbookSnapshot, input: any, activeSheetName: string) {
+  const { range, formatType } = input;
+  if (!range || !formatType) return;
+
+  const parsedRange = parseRange(range, activeSheetName);
+  if (!parsedRange) return;
+
+  const { sheet, startRow, startCol, endRow, endCol } = parsedRange;
+  const rowEnd = endRow ?? startRow;
+  const colEnd = endCol ?? startCol;
+  
+  // Define format presets based on formatType
+  const formatPresets: Record<string, any> = {
+    'currency': {
+      numberFormat: '$#,##0.00',
+      font: { color: '#000000' }
+    },
+    'percentage': {
+      numberFormat: '0.00%',
+      font: { color: '#000000' }
+    },
+    'date': {
+      numberFormat: 'mm/dd/yyyy',
+      font: { color: '#000000' }
+    },
+    'accounting': {
+      numberFormat: '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)',
+      font: { color: '#000000' }
+    },
+    'number': {
+      numberFormat: '#,##0.00',
+      font: { color: '#000000' }
+    },
+    'header': {
+      font: { bold: true, size: 12 },
+      fill: { color: '#F2F2F2' },
+      borders: { bottom: { style: 'thin', color: '#000000' } }
+    },
+    'total': {
+      font: { bold: true },
+      borders: { 
+        top: { style: 'double', color: '#000000' },
+        bottom: { style: 'double', color: '#000000' }
+      }
+    }
+  };
+  
+  const format = formatPresets[formatType] || {};
+  
+  // Apply smart format to all cells in the range
+  for (let row = startRow; row <= rowEnd; row++) {
+    for (let col = startCol; col <= colEnd; col++) {
+      const key = `${sheet}!${indexToColumn(col)}${row + 1}`;
+      
+      // Ensure cell exists
+      if (!snapshot[key]) {
+        snapshot[key] = {};
+      }
+      
+      // Parse existing style or use format preset
+      let style: CellStyle = {};
+      if (snapshot[key]!.s) {
+        try {
+          style = JSON.parse(snapshot[key]!.s);
+        } catch (e) {
+          style = {};
+        }
+      }
+      
+      // Apply format properties from preset
+      Object.assign(style, format);
+      
+      // Store style as JSON string
+      snapshot[key]!.s = JSON.stringify(style);
     }
   }
 }

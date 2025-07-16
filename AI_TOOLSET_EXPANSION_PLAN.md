@@ -586,3 +586,11 @@ private async toolRemoveDuplicates(input: any): Promise<any> {
     -   Verify that the AI calls the correct tool with the correct parameters.
     -   Verify that the `ExcelService` executes the action correctly in the Excel sheet.
     -   Verify that the final response to the user is accurate and helpful.
+
+
+
+
+
+
+REMEMBER TO ADD ALL OF THESE TO Operation Simulators!!!! 
+    -   **File of Interest:** `/Users/brendantoole/projects2/gridmate/excel-addin/src/hooks/useDiffPreview.ts`

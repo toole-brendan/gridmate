@@ -25,6 +25,8 @@ import { useDiffPreview } from '../../hooks/useDiffPreview'
 import { DiffPreviewBar } from './DiffPreviewBar'
 import { AISuggestedOperation } from '../../types/diff'
 import { useLogStore, log as logToStore } from '../../store/logStore'
+import { useDiffStore } from '../../store/diffStore'
+import { useDiffOrchestrationStore } from '../../store/useDiffOrchestrationStore'
 
 // Global SignalR client instance to prevent multiple connections
 let globalSignalRClient: SignalRClient | null = null
@@ -44,8 +46,8 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   const [aiIsGenerating, setAiIsGenerating] = useState(false)
   const toolRequestQueue = useRef<Map<string, any>>(new Map())
   
-  // State for pending diff operations
-  const [pendingDiffOps, setPendingDiffOps] = useState<AISuggestedOperation[]>([])
+  // Use the diff orchestration store for pending operations
+  const { pendingDiffOps, addOperation, clearOperations } = useDiffOrchestrationStore()
   
   // State for debug container
   const [isDebugOpen, setIsDebugOpen] = useState(false)
@@ -358,7 +360,18 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
   
   // Helper function to identify read-only tools that should be auto-approved
   const isReadOnlyTool = useCallback((toolName: string): boolean => {
-    return toolName.startsWith('read_')
+    const readOnlyTools = [
+      'read_range',
+      'analyze_data',
+      'get_named_ranges',
+      'validate_model',
+      'get_context',
+      'get_workbook_info'
+    ]
+    return toolName.startsWith('read_') || 
+           toolName.startsWith('get_') || 
+           toolName.startsWith('analyze_') ||
+           readOnlyTools.includes(toolName)
   }, [])
 
   const handleToolRequest = useCallback(async (toolRequest: any) => {
@@ -408,8 +421,8 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
           input: { ...toolRequest },
           description: getToolDescription(toolRequest.tool)
         };
-        // Use a functional update to ensure we have the latest state
-        setPendingDiffOps(prevOps => [...prevOps, operation]);
+        // Add operation to the store
+        addOperation(operation);
 
         // Still add a "pending" message to the UI for user visibility
         const suggestionMessage = createToolSuggestionMessage(toolRequest);
@@ -448,7 +461,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
         });
       }
     }
-  }, [autonomyMode, addDebugLog, addToLog, setMessages, toolRequestQueue, signalRClient, isReadOnlyTool, setPendingDiffOps])
+  }, [autonomyMode, addDebugLog, addToLog, setMessages, toolRequestQueue, signalRClient, isReadOnlyTool, addOperation])
   
   const executeToolRequest = useCallback(async (toolRequest: any) => {
     const { tool, request_id, ...input } = toolRequest
@@ -700,6 +713,28 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     addDebugLog(`Bulk ${action} completed`, 'success')
   }
 
+  // Error boundary for diff preview
+  const safeInitiatePreview = useCallback(async (operations: AISuggestedOperation[]) => {
+    try {
+      await initiatePreview(operations)
+    } catch (error) {
+      addDebugLog(`Error in diff preview: ${error}`, 'error')
+      console.error('Diff preview error:', error)
+      
+      // Clear operations on error
+      clearOperations()
+      
+      // Show error to user
+      const errorMsg: ChatMessage = {
+        id: `error_${Date.now()}`,
+        role: 'system',
+        content: `Failed to preview changes: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorMsg])
+    }
+  }, [initiatePreview, clearOperations, addDebugLog, setMessages])
+
   const handleAIResponse = useCallback(async (response: any) => {
     console.log('🤖 Handling AI response:', response)
     
@@ -727,7 +762,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       addDebugLog(`Operations: ${JSON.stringify(pendingDiffOps.map(op => ({ tool: op.tool, hasInput: !!op.input })))}`, 'info');
       try {
         addDebugLog(`About to call initiatePreview with ${pendingDiffOps.length} operations`, 'info');
-        await initiatePreview(pendingDiffOps);
+        await safeInitiatePreview(pendingDiffOps);
         addDebugLog(`Successfully called initiatePreview`, 'success');
         
         // Check if visual diff logs are being created
@@ -738,7 +773,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
         console.error('initiatePreview error:', error);
       }
       // Clear the pending operations now that they've been passed to the hook
-      setPendingDiffOps([]);
+      clearOperations();
     }
     
     // Check if there are pending tools from this response (non-write tools)
@@ -756,7 +791,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
       
       // Don't clear currentResponseId yet - we need it for bulk actions
     }
-  }, [setMessages, setIsLoading, setAiIsGenerating, pendingDiffOps, currentResponseId, messages, setShowPendingToolsBar, addDebugLog, initiatePreview, setPendingDiffOps, isToolSuggestion])
+  }, [setMessages, setIsLoading, setAiIsGenerating, pendingDiffOps, currentResponseId, messages, setShowPendingToolsBar, addDebugLog, safeInitiatePreview, clearOperations, isToolSuggestion])
   
   // Create a ref to hold the stable handleAIResponse callback
   const handleAIResponseRef = useRef(handleAIResponse)
@@ -778,7 +813,7 @@ export const EnhancedChatInterfaceWithSignalR: React.FC = () => {
     // Clear any pending diff operations from previous interactions
     if (pendingDiffOps.length > 0) {
       addDebugLog(`Clearing ${pendingDiffOps.length} pending diff operations from previous interaction`, 'info');
-      setPendingDiffOps([]);
+      clearOperations();
     }
     
     // Check SignalR client existence
@@ -1098,9 +1133,9 @@ Escape : Reject focused action
         setIsAuthenticated(true)
         addDebugLog('Already authenticated with existing session', 'success')
       }
-      return
+      return // Don't create new connection
     }
-    
+
     if (signalRClient.current || globalSignalRClient) {
       addDebugLog('SignalR client already exists, skipping initialization', 'warning')
       return
@@ -1182,7 +1217,38 @@ Escape : Reject focused action
       }
     }
   }, [addDebugLog])
-  
+
+  // Cleanup active preview on component unmount
+  useEffect(() => {
+    return () => {
+      // Only clear active preview, not pending operations (they're in the store now)
+      if (useDiffStore.getState().status !== 'idle') {
+        addDebugLog('Component unmounting with active diff preview - canceling', 'warning')
+        cancelPreview().catch(err => {
+          console.error('Error canceling preview on unmount:', err)
+        })
+      }
+    }
+  }, [cancelPreview, addDebugLog])
+
+  // Clear pendingDiffOps when autonomy mode changes
+  useEffect(() => {
+    if (pendingDiffOps.length > 0) {
+      addDebugLog(`Autonomy mode changed - clearing ${pendingDiffOps.length} pending diff operations`, 'info')
+      clearOperations()
+    }
+  }, [autonomyMode, pendingDiffOps, clearOperations, addDebugLog])
+
+  // Clear pendingDiffOps on SignalR connection loss
+  useEffect(() => {
+    if (connectionStatus === 'disconnected') {
+      if (pendingDiffOps.length > 0) {
+        addDebugLog(`SignalR connection lost - clearing ${pendingDiffOps.length} pending diff operations`, 'warning')
+        clearOperations()
+      }
+    }
+  }, [connectionStatus, pendingDiffOps, clearOperations, addDebugLog])
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--app-background)' }}>
       {/* Connection Status Bar */}

@@ -105,6 +105,16 @@ export interface WorkbookSnapshot {
 
 export class ExcelService {
   private static instance: ExcelService
+  
+  // Cache for worksheet properties
+  private worksheetCache = new Map<string, {
+    name: string
+    usedRange?: { address: string }
+    timestamp: number
+  }>()
+  
+  // Cache expiry time (5 seconds)
+  private readonly CACHE_TTL = 5000
 
   static getInstance(): ExcelService {
     if (!ExcelService.instance) {
@@ -117,6 +127,51 @@ export class ExcelService {
       ExcelService.instance = new ExcelService()
     }
     return ExcelService.instance
+  }
+
+  // Clear cache when needed
+  clearCache(): void {
+    this.worksheetCache.clear()
+  }
+
+  // Get cached worksheet or fetch if expired
+  private async getCachedWorksheet(context: any, name?: string): Promise<any> {
+    const cacheKey = name || 'active'
+    const cached = this.worksheetCache.get(cacheKey)
+    
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      // Return cached worksheet from context
+      return name ? context.workbook.worksheets.getItem(cached.name) : context.workbook.worksheets.getActiveWorksheet()
+    }
+    
+    // Fetch and cache
+    const worksheet = name 
+      ? context.workbook.worksheets.getItem(name)
+      : context.workbook.worksheets.getActiveWorksheet()
+    
+    worksheet.load(['name', 'usedRange'])
+    await context.sync()
+    
+    this.worksheetCache.set(cacheKey, {
+      name: worksheet.name,
+      usedRange: worksheet.usedRange ? { address: worksheet.usedRange.address } : undefined,
+      timestamp: Date.now()
+    })
+    
+    return worksheet
+  }
+
+  // Robust helper to get worksheet with all necessary properties loaded
+  private async getSheet(context: Excel.RequestContext, sheetName?: string): Promise<Excel.Worksheet> {
+    const sheet = sheetName 
+      ? context.workbook.worksheets.getItem(sheetName)
+      : context.workbook.worksheets.getActiveWorksheet()
+    
+    // Load all properties that might be needed
+    sheet.load(['name', 'id', 'position'])
+    await context.sync()
+    
+    return sheet
   }
 
   async getContext(): Promise<ExcelContext> {
@@ -339,7 +394,7 @@ export class ExcelService {
 
       console.log('[ExcelService] getSmartContext completed successfully')
       return result
-    }).catch(error => {
+    }).catch((error: any) => {
       console.error('[ExcelService] getSmartContext error:', error)
       throw error
     })
@@ -533,6 +588,10 @@ export class ExcelService {
       const worksheet = sheetName 
           ? context.workbook.worksheets.getItem(sheetName)
           : context.workbook.worksheets.getActiveWorksheet();
+      
+      // Load worksheet properties to avoid errors
+      worksheet.load(['name', 'id', 'position']);
+      await context.sync();
       
       return { worksheet, rangeAddress };
   }
@@ -742,11 +801,24 @@ export class ExcelService {
     return this.retryOperation(async () => {
       return Excel.run(async (context: any) => {
       try {
-        const worksheet = context.workbook.worksheets.getActiveWorksheet()
-        const excelRange = worksheet.getRange(range)
+        const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
+        const excelRange = worksheet.getRange(rangeAddress)
         
-        // Load the range first
-        excelRange.load(['address'])
+        // Load the range and its format properties
+        excelRange.load(['address', 'format'])
+        
+        // If we need font properties, load them
+        if (font) {
+          excelRange.format.load('font')
+          excelRange.format.font.load(['bold', 'italic', 'size', 'color', 'name'])
+        }
+        
+        // If we need fill properties, load them
+        if (fill_color) {
+          excelRange.format.load('fill')
+          excelRange.format.fill.load('color')
+        }
+        
         await context.sync()
         console.log(`📍 Formatting range: ${excelRange.address}`)
       

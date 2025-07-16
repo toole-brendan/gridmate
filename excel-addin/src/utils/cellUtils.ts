@@ -32,10 +32,14 @@ export const cellKeyToA1 = (cellKey: CellKey): string => {
  */
 export const parseA1Reference = (cellRef: string): CellKey => {
   const [sheetName, cellAddress] = cellRef.split('!');
+  if (!cellAddress) {
+    throw new Error(`Invalid cell reference format: ${cellRef}`);
+  }
+  
   const match = cellAddress.match(/^([A-Z]+)(\d+)$/);
   
   if (!match) {
-    throw new Error(`Invalid cell reference: ${cellRef}`);
+    throw new Error(`Invalid cell address format: ${cellAddress}`);
   }
   
   const colStr = match[1];
@@ -44,8 +48,9 @@ export const parseA1Reference = (cellRef: string): CellKey => {
   // Convert column letters to 0-based index
   let col = 0;
   for (let i = 0; i < colStr.length; i++) {
-    col = col * 26 + (colStr.charCodeAt(i) - 'A'.charCodeAt(0));
+    col = col * 26 + (colStr.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
   }
+  col--; // Adjust to be 0-indexed
   
   return {
     sheet: sheetName,

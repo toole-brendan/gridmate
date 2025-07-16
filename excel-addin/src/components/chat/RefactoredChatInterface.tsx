@@ -67,7 +67,7 @@ export const RefactoredChatInterface: React.FC = () => {
   // --- Mention and Context System ---
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([]);
   const [activeContext, setActiveContext] = useState<ContextItem[]>([]);
-  const [isContextEnabled, setIsContextEnabled] = useState(true);
+  const [isContextEnabled, setIsContextEnabled] = useState(false);
   const [rawSelection, setRawSelection] = useState<string | null>(null);
   const debouncedSelection = useDebounce(rawSelection, 300);
 
@@ -99,8 +99,45 @@ export const RefactoredChatInterface: React.FC = () => {
         contextItems.push({ id: 'selection', type: 'selection', label: label, value: context.selectedRange });
       }
       setActiveContext(contextItems);
+      // Automatically enable context when a real selection is made
+      if (contextItems.length > 0 && contextItems[0].id !== 'no-selection') {
+        setIsContextEnabled(true);
+      }
     } catch (error) {
       addDebugLog(`Failed to update mentions: ${error}`, 'error');
+    }
+  }, [addDebugLog]);
+
+  const initializeContextAndMentions = useCallback(async () => {
+    addDebugLog('Initializing context and mentions on load...');
+    try {
+      const context = await ExcelService.getInstance().getSmartContext();
+      const mentions: MentionItem[] = [];
+      
+      if (context.worksheet) {
+        mentions.push({ 
+          id: `sheet-${context.worksheet}`, 
+          type: 'sheet', 
+          label: context.worksheet, 
+          value: `@${context.worksheet}`, 
+          description: 'Current worksheet' 
+        });
+      }
+      
+      setAvailableMentions(mentions);
+
+      // Set a placeholder context item that shows as grayed out
+      const placeholderContext: ContextItem[] = [{
+        id: 'no-selection',
+        type: 'selection',
+        label: 'No range selected',
+        value: '',
+        removable: false
+      }];
+      setActiveContext(placeholderContext);
+
+    } catch (error) {
+      addDebugLog(`Failed to initialize context: ${error}`, 'error');
     }
   }, [addDebugLog]);
 
@@ -127,8 +164,8 @@ export const RefactoredChatInterface: React.FC = () => {
       }
     };
     setupListener();
-    updateAvailableMentions(); // Initial fetch
-  }, [addDebugLog, updateAvailableMentions]);
+    initializeContextAndMentions(); // Use the new initialization function
+  }, [addDebugLog, initializeContextAndMentions]);
 
   const handleMentionSelect = (mention: MentionItem) => {
     addDebugLog(`Mention selected: ${mention.value}`);
@@ -143,6 +180,26 @@ export const RefactoredChatInterface: React.FC = () => {
   const handleContextRemove = (id: string) => {
     addDebugLog(`Context removed: ${id}`);
     setActiveContext(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleContextClick = () => {
+    // Check if we have the placeholder context
+    const hasPlaceholder = activeContext.some(item => item.id === 'no-selection');
+    
+    if (hasPlaceholder) {
+      // If placeholder is clicked, prompt user to select a range
+      addDebugLog('Placeholder context clicked - prompting user to select a range');
+      chatManager.addMessage({
+        id: `system_${Date.now()}`,
+        role: 'system',
+        content: 'Please select a range in Excel to add it as context for your messages.',
+        timestamp: new Date(),
+        type: 'system',
+      });
+    } else {
+      // Otherwise, toggle context enabled state
+      setIsContextEnabled(!isContextEnabled);
+    }
   };
 
   // --- Message Sending ---
@@ -327,7 +384,7 @@ ${auditLogs || 'No audit logs.'}
           onContextRemove={handleContextRemove}
           onMentionSelect={handleMentionSelect}
           isContextEnabled={isContextEnabled}
-          onContextToggle={() => setIsContextEnabled(!isContextEnabled)}
+          onContextToggle={handleContextClick}
           onClearChat={chatManager.clearMessages}
         />
       </div>

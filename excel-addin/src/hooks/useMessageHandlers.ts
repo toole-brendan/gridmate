@@ -225,7 +225,7 @@ export const useMessageHandlers = (
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
     
-    if (response.isComplete) {
+    if (response.isFinal) {
       addDebugLog('AI response complete', 'success');
       chatManager.setAiIsGenerating(false);
     }

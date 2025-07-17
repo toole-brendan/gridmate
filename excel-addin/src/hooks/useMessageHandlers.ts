@@ -53,6 +53,15 @@ export const useMessageHandlers = (
 
   // Store pending preview operations
   const pendingPreviewRef = useRef<Map<string, SignalRToolRequest>>(new Map());
+  
+  // Operation queue for sequential processing
+  const operationQueueRef = useRef<SignalRToolRequest[]>([]);
+  const isProcessingQueueRef = useRef<boolean>(false);
+  const currentOperationIndexRef = useRef<number>(0);
+  const totalOperationsRef = useRef<number>(0);
+  
+  // Track processed requests to prevent duplicates
+  const processedRequestsRef = useRef<Set<string>>(new Set());
 
   // Helper function to send immediate acknowledgment
   const sendAcknowledgment = useCallback(async (requestId: string, tool: string) => {
@@ -78,6 +87,9 @@ export const useMessageHandlers = (
   // Forward declare these functions - they'll be defined later
   const handlePreviewAcceptRef = useRef<(requestId: string) => Promise<void>>();
   const handlePreviewRejectRef = useRef<(requestId: string) => Promise<void>>();
+  
+  // Forward declare processNextOperation - it will be defined after showOperationPreview
+  const processNextOperationRef = useRef<() => Promise<void>>();
 
   // Handle individual operation preview
   const showOperationPreview = useCallback(async (toolRequest: SignalRToolRequest) => {
@@ -87,16 +99,18 @@ export const useMessageHandlers = (
     pendingPreviewRef.current.set(toolRequest.request_id, toolRequest);
     
     // Create an operation for the diff preview
-    const operation: AISuggestedOperation = {
+    const operation = {
       tool: toolRequest.tool,
       input: toolRequest,
       description: `Execute ${toolRequest.tool}`
     };
     
-    // Don't generate visual diff preview - we'll just show the operation card
-    // await diffPreview.generatePreview(messageId, [operation]);
+    // Generate visual diff preview in Excel
+    // Note: We'll pass the preview message ID to avoid attaching diff data to the AI message
+    const previewMessageId = `preview_${toolRequest.request_id}`;
+    await diffPreview.generatePreview(previewMessageId, [operation]);
     
-    // Add a preview message to the chat
+    // Add a preview message to the chat with operation counter
     const previewMessage: DiffPreviewMessage = {
       id: `preview_${toolRequest.request_id}`,
       type: 'diff-preview',
@@ -105,6 +119,8 @@ export const useMessageHandlers = (
       requestId: toolRequest.request_id,
       operation: operation,
       status: 'pending',
+      operationIndex: currentOperationIndexRef.current + 1,
+      totalOperations: totalOperationsRef.current,
       actions: {
         accept: () => handlePreviewAcceptRef.current?.(toolRequest.request_id),
         reject: () => handlePreviewRejectRef.current?.(toolRequest.request_id)
@@ -112,7 +128,44 @@ export const useMessageHandlers = (
     };
     
     chatManager.addMessage(previewMessage);
-  }, [chatManager]);
+  }, [chatManager, diffPreview]);
+  
+  // Process the next operation in the queue
+  const processNextOperation = useCallback(async () => {
+    // Check if queue is empty
+    if (operationQueueRef.current.length === 0) {
+      if (isProcessingQueueRef.current) {
+        addDebugLog('All operations processed', 'success');
+        // Reset all counters and clear processed requests
+        currentOperationIndexRef.current = 0;
+        totalOperationsRef.current = 0;
+        processedRequestsRef.current.clear();
+        pendingPreviewRef.current.clear();
+        isProcessingQueueRef.current = false;
+        
+        // Clear the chat loading states since all operations are complete
+        chatManager.setAiIsGenerating(false);
+        chatManager.setIsLoading(false);
+      }
+      return;
+    }
+    
+    // If already processing, don't start another
+    if (isProcessingQueueRef.current) {
+      return;
+    }
+    
+    isProcessingQueueRef.current = true;
+    const nextOperation = operationQueueRef.current[0];
+    
+    addDebugLog(`Processing operation ${currentOperationIndexRef.current + 1} of ${totalOperationsRef.current}`);
+    
+    // Show the preview for this operation
+    await showOperationPreview(nextOperation);
+  }, [addDebugLog, showOperationPreview, chatManager]);
+  
+  // Assign to ref so it can be called from other functions
+  processNextOperationRef.current = processNextOperation;
 
   const processReadBatch = useCallback(async () => {
     const requests = readRequestQueue.current;
@@ -192,12 +245,12 @@ export const useMessageHandlers = (
     
     // Process the tool based on type
     if (WRITE_TOOLS.has(toolRequest.tool)) {
-      // Check if preview is requested (check both preview and preview_mode fields)
-      // If preview_mode is explicitly set to true, use preview mode
-      const shouldPreview = (toolRequest.preview_mode === true || (toolRequest.preview !== false && autonomyMode !== 'full-autonomy'));
+      // Check if preview is requested
+      // If preview is explicitly set to true, use preview mode
+      const shouldPreview = (toolRequest.preview === true || (toolRequest.preview !== false && autonomyMode !== 'full-autonomy'));
       
       // Debug logging for preview mode
-      addDebugLog(`Tool ${toolRequest.tool} - preview_mode: ${toolRequest.preview_mode}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
+      addDebugLog(`Tool ${toolRequest.tool} - preview: ${toolRequest.preview}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
       
       // Log tool execution
       AuditLogger.logToolExecution({
@@ -210,9 +263,27 @@ export const useMessageHandlers = (
       });
       
       if (shouldPreview) {
-        // Show individual preview
-        addDebugLog(`Tool ${toolRequest.tool} showing preview`);
-        await showOperationPreview(toolRequest);
+        // Add to queue instead of showing immediately
+        addDebugLog(`Tool ${toolRequest.tool} adding to preview queue`);
+        operationQueueRef.current.push(toolRequest);
+        
+        // Update total operations count if we have more than before
+        if (operationQueueRef.current.length > totalOperationsRef.current) {
+          totalOperationsRef.current = operationQueueRef.current.length;
+        }
+        
+        // If this is the first operation or we're not currently processing
+        if (!isProcessingQueueRef.current) {
+          // Wait a bit to collect all operations in the batch
+          setTimeout(() => {
+            if (!isProcessingQueueRef.current && operationQueueRef.current.length > 0) {
+              totalOperationsRef.current = operationQueueRef.current.length;
+              addDebugLog(`Queued ${totalOperationsRef.current} operations for preview`);
+              // Start processing the queue
+              processNextOperationRef.current?.();
+            }
+          }, 200);
+        }
       } else {
         // Execute immediately without preview
         addDebugLog(`Tool ${toolRequest.tool} executing immediately`);
@@ -286,9 +357,12 @@ export const useMessageHandlers = (
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
     
-    // Check if the response is complete
-    if (response.isComplete) {
-      addDebugLog('AI response complete', 'success');
+    // Check if this is an error response
+    const isError = response.content.includes("error") || response.content.includes("Please try again");
+    
+    // Check if the response is complete or is an error
+    if (response.isComplete || isError) {
+      addDebugLog(isError ? 'AI response error' : 'AI response complete', isError ? 'error' : 'success');
       chatManager.setAiIsGenerating(false);
       chatManager.setIsLoading(false);
       
@@ -394,13 +468,33 @@ export const useMessageHandlers = (
 
   // Handle preview accept for individual operation
   const handlePreviewAccept = useCallback(async (requestId: string) => {
+    // Check if already processed
+    if (processedRequestsRef.current.has(requestId)) {
+      addDebugLog(`Request ${requestId} already processed, ignoring`, 'warning');
+      return;
+    }
+    
     const toolRequest = pendingPreviewRef.current.get(requestId);
     if (!toolRequest) {
       addDebugLog(`No pending operation found for requestId: ${requestId}`, 'error');
       return;
     }
     
+    // Mark as processed immediately
+    processedRequestsRef.current.add(requestId);
+    
+    // Update message status to processing
+    const previewMessageId = `preview_${requestId}`;
+    const messages = chatManager.messages;
+    const previewMessage = messages.find(m => m.id === previewMessageId);
+    if (previewMessage && 'status' in previewMessage) {
+      chatManager.updateMessage(previewMessageId, { status: 'accepted' });
+    }
+    
     try {
+      // Clear visual highlights before executing
+      await diffPreview.rejectCurrentPreview();
+      
       // Execute the operation
       const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
       
@@ -413,23 +507,61 @@ export const useMessageHandlers = (
       // Remove the preview message from chat
       chatManager.removeMessage(`preview_${requestId}`);
       
+      // Remove from queue and advance
+      operationQueueRef.current.shift();
+      currentOperationIndexRef.current++;
+      
       addDebugLog(`Preview accepted and executed for ${requestId}`, 'success');
+      
+      // Process next operation after a short delay
+      isProcessingQueueRef.current = false;
+      setTimeout(() => {
+        processNextOperationRef.current?.();
+      }, 200);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Operation failed';
       await sendFinalToolResponse(requestId, null, errorMessage);
       pendingPreviewRef.current.delete(requestId);
       chatManager.removeMessage(`preview_${requestId}`);
+      operationQueueRef.current.shift();
+      currentOperationIndexRef.current++;
+      isProcessingQueueRef.current = false;
       addDebugLog(`Preview execution failed for ${requestId}: ${errorMessage}`, 'error');
+      
+      // Continue with next operation even on failure
+      setTimeout(() => {
+        processNextOperationRef.current?.();
+      }, 200);
     }
-  }, [sendFinalToolResponse, chatManager, addDebugLog]);
+  }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview]);
 
   // Handle preview reject for individual operation
   const handlePreviewReject = useCallback(async (requestId: string) => {
+    // Check if already processed
+    if (processedRequestsRef.current.has(requestId)) {
+      addDebugLog(`Request ${requestId} already processed, ignoring`, 'warning');
+      return;
+    }
+    
     const toolRequest = pendingPreviewRef.current.get(requestId);
     if (!toolRequest) {
       addDebugLog(`No pending operation found for requestId: ${requestId}`, 'error');
       return;
     }
+    
+    // Mark as processed immediately
+    processedRequestsRef.current.add(requestId);
+    
+    // Update message status to processing
+    const previewMessageId = `preview_${requestId}`;
+    const messages = chatManager.messages;
+    const previewMessage = messages.find(m => m.id === previewMessageId);
+    if (previewMessage && 'status' in previewMessage) {
+      chatManager.updateMessage(previewMessageId, { status: 'rejected' });
+    }
+    
+    // Clear visual highlights
+    await diffPreview.rejectCurrentPreview();
     
     // Send rejection response to backend
     await sendFinalToolResponse(requestId, null, 'Operation rejected by user');
@@ -440,8 +572,18 @@ export const useMessageHandlers = (
     // Remove the preview message from chat
     chatManager.removeMessage(`preview_${requestId}`);
     
+    // Remove from queue and advance
+    operationQueueRef.current.shift();
+    currentOperationIndexRef.current++;
+    
     addDebugLog(`Preview rejected for ${requestId}`, 'info');
-  }, [sendFinalToolResponse, chatManager, addDebugLog]);
+    
+    // Process next operation after a short delay
+    isProcessingQueueRef.current = false;
+    setTimeout(() => {
+      processNextOperationRef.current?.();
+    }, 200);
+  }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview]);
 
   // Assign the refs
   useEffect(() => {

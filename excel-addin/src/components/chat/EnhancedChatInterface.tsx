@@ -243,65 +243,77 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     if (isDiffPreview(message)) {
       return (
         <div key={message.id} className="w-full animate-fadeIn my-3">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <h4 className="font-semibold text-gray-900 text-base mb-1">
-                  Operation Preview
-                </h4>
-                <p className="text-sm text-gray-600">
-                  {message.operation.description}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={message.actions.accept}
-                  disabled={message.status !== 'pending'}
-                  className="px-4 py-2 text-sm font-medium rounded-md bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-                >
-                  <CheckCircleIcon className="w-4 h-4" />
-                  Accept
-                </button>
-                <button
-                  onClick={message.actions.reject}
-                  disabled={message.status !== 'pending'}
-                  className="px-4 py-2 text-sm font-medium rounded-md bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
-                >
-                  <XCircleIcon className="w-4 h-4" />
-                  Reject
-                </button>
-              </div>
-            </div>
-            <div className="bg-gray-50 rounded-md p-3 space-y-2">
+          <div className="bg-transparent rounded-md border border-[#0066CC] p-3">
+            {/* Details section */}
+            <div className="bg-secondary-background rounded-md p-3 space-y-2 mb-3">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-500">Tool:</span>
-                <code className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700">
+                <span className="text-text-secondary font-caption">Tool:</span>
+                <code className="bg-app-background px-2 py-0.5 rounded border border-border-primary text-text-primary font-caption">
                   {message.operation.tool}
                 </code>
               </div>
               {message.operation.input.range && (
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-500">Range:</span>
-                  <code className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700">
+                  <span className="text-text-secondary font-caption">Range:</span>
+                  <code className="bg-app-background px-2 py-0.5 rounded border border-border-primary text-text-primary font-caption">
                     {message.operation.input.range}
                   </code>
                 </div>
               )}
               {message.operation.input.values && (
                 <div className="text-sm">
-                  <span className="text-gray-500">Values:</span>
-                  <div className="mt-1 text-xs bg-white rounded border border-gray-200 p-2 max-h-32 overflow-auto" style={{ fontFamily: 'IBM Plex Mono, monospace' }}>
+                  <span className="text-text-secondary font-caption">Values:</span>
+                  <div className="mt-1 text-xs bg-app-background rounded border border-border-primary p-2 max-h-32 overflow-auto font-caption" style={{ fontFamily: 'IBM Plex Mono, monospace' }}>
                     {JSON.stringify(message.operation.input.values, null, 2)}
                   </div>
                 </div>
               )}
               {message.operation.input.formula && (
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-500">Formula:</span>
-                  <code className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700">
+                  <span className="text-text-secondary font-caption">Formula:</span>
+                  <code className="bg-app-background px-2 py-0.5 rounded border border-border-primary text-text-primary font-caption">
                     {message.operation.input.formula}
                   </code>
                 </div>
+              )}
+            </div>
+            
+            {/* Bottom section with buttons and counter */}
+            <div className="flex items-center justify-between">
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (message.status === 'pending') {
+                      message.actions.accept();
+                    }
+                  }}
+                  disabled={message.status !== 'pending'}
+                  className="px-3 py-1 text-sm font-caption rounded-md bg-[#0066CC] text-white hover:bg-[#0059b3] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (message.status === 'pending') {
+                      message.actions.reject();
+                    }
+                  }}
+                  disabled={message.status !== 'pending'}
+                  className="px-3 py-1 text-sm font-caption rounded-md bg-transparent text-[#0066CC] border border-[#0066CC] hover:bg-[#0066CC]/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+              
+              {/* Operation counter */}
+              {message.operationIndex && message.totalOperations && (
+                <span className="text-sm font-caption text-[#0066CC]">
+                  {message.operationIndex}/{message.totalOperations}
+                </span>
               )}
             </div>
           </div>
@@ -346,15 +358,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                 </div>
               </div>
             )}
-            {message.diff && (
-              <ChatMessageDiffPreview
-                messageId={message.id}
-                hunks={message.diff.hunks || []}
-                onAccept={message.diff.status === 'previewing' ? onAcceptDiff : undefined}
-                onReject={message.diff.status === 'previewing' ? onRejectDiff : undefined}
-                status={message.diff.status}
-              />
-            )}
+            {/* Diff preview disabled - using separate preview cards instead */}
             <p className="font-footnote opacity-70 mt-1 select-text" style={{ 
               userSelect: 'text', 
               WebkitUserSelect: 'text',
@@ -581,15 +585,13 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
           {/* Context Pills and Bulk Actions - Above input area */}
           <div className="px-4 pt-3 pb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {activeContext.length > 0 && (
-                <ContextPillsContainer
-                  items={activeContext}
-                  onRemove={onContextRemove}
-                  onContextToggle={onContextToggle}
-                  isContextEnabled={isContextEnabled}
-                  className="flex flex-wrap gap-2"
-                />
-              )}
+              <ContextPillsContainer
+                items={activeContext}
+                onRemove={onContextRemove}
+                onContextToggle={onContextToggle}
+                isContextEnabled={isContextEnabled}
+                className="flex flex-wrap gap-2"
+              />
             </div>
             
             {/* Bulk action buttons */}

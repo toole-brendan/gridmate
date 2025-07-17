@@ -156,6 +156,8 @@ export interface DiffPreviewMessage extends BaseEnhancedMessage {
     description: string
   }
   status: 'pending' | 'accepted' | 'rejected'
+  operationIndex?: number
+  totalOperations?: number
   actions: {
     accept: () => void
     reject: () => void

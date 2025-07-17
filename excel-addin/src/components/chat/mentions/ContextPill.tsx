@@ -57,8 +57,8 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
       return 'bg-transparent text-[#B85500] border-[#B85500] opacity-50'
     }
     
-    // Darker orange color scheme with transparent background
-    return 'bg-transparent text-[#B85500] border-[#B85500] hover:border-[#D96600]'
+    // Active state with orange accent
+    return 'bg-transparent text-[#B85500] border-[#B85500] hover:border-[#D96600] hover:bg-[#B85500] hover:bg-opacity-10'
   }
   
   const Component = onClick ? 'button' : 'div'
@@ -66,10 +66,7 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
   return (
     <Component
       onClick={onClick}
-      className={`
-        inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption
-        border transition-all duration-150 ${onClick ? 'cursor-pointer' : 'cursor-default'} ${getTypeStyles()}
-      `}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${onClick ? 'cursor-pointer' : 'cursor-default'} ${getTypeStyles()}`}
     >
       {getIcon()}
       <span>{item.label}</span>
@@ -80,7 +77,7 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
             e.stopPropagation()
             onRemove(item.id)
           }}
-          className="ml-1 text-text-tertiary hover:text-text-primary transition-colors"
+          className="ml-0.5 text-text-tertiary hover:text-text-primary transition-colors"
           title="Remove context"
         >
           <XMarkIcon className="w-3 h-3" />
@@ -105,38 +102,28 @@ export const ContextPillsContainer: React.FC<ContextPillsContainerProps> = ({
   isContextEnabled = true,
   className = ''
 }) => {
-  if (items.length === 0 || items[0].id === 'no-selection') return null
-  
-  // If context is NOT enabled by the user, show an activation button
-  if (!isContextEnabled) {
+  // If no items or only a 'no-selection' item, show disabled "NO RANGE SELECTED"
+  if (items.length === 0 || (items.length === 1 && items[0].id === 'no-selection')) {
     return (
-      <button 
-        onClick={onContextToggle} 
-        className={`
-          inline-flex items-center gap-2 px-3 py-1.5 rounded-md font-caption
-          bg-transparent text-[#B85500] border border-[#B85500] 
-          hover:bg-[#B85500] hover:bg-opacity-10 hover:border-[#D96600]
-          transition-all duration-150 cursor-pointer ${className}
-        `}
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border bg-transparent text-[#B85500] border-[#B85500] opacity-50 ${className}`}>
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
         </svg>
-        Use Current Selection as Context
-      </button>
+        <span>NO RANGE SELECTED</span>
+      </div>
     );
   }
   
-  // If context IS enabled, show the pills as before
+  // Show the pills (either grayed out or active based on isContextEnabled)
   return (
     <div className={`flex flex-wrap gap-2 ${className}`}>
       {items.map(item => (
         <ContextPill
           key={item.id}
           item={item}
-          onRemove={onRemove}
+          onRemove={isContextEnabled ? onRemove : undefined}
           onClick={item.type === 'selection' ? onContextToggle : undefined}
-          isEnabled={true} // Pills are only shown when enabled
+          isEnabled={isContextEnabled}
         />
       ))}
     </div>

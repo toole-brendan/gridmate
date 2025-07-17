@@ -9,7 +9,8 @@ import {
   isResponseToolsGroup,
   isAuditMessage,
   isStatusMessage,
-  isStandardMessage
+  isStandardMessage,
+  isDiffPreview
 } from '../../types/enhanced-chat'
 import { 
   ToolSuggestionCard, 
@@ -234,6 +235,76 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
       return (
         <div key={message.id} className="w-full animate-fadeIn">
           <StatusIndicator message={message} />
+        </div>
+      )
+    }
+
+    // Diff preview message
+    if (isDiffPreview(message)) {
+      return (
+        <div key={message.id} className="w-full animate-fadeIn my-3">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h4 className="font-semibold text-gray-900 text-base mb-1">
+                  Operation Preview
+                </h4>
+                <p className="text-sm text-gray-600">
+                  {message.operation.description}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={message.actions.accept}
+                  disabled={message.status !== 'pending'}
+                  className="px-4 py-2 text-sm font-medium rounded-md bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  <CheckCircleIcon className="w-4 h-4" />
+                  Accept
+                </button>
+                <button
+                  onClick={message.actions.reject}
+                  disabled={message.status !== 'pending'}
+                  className="px-4 py-2 text-sm font-medium rounded-md bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  <XCircleIcon className="w-4 h-4" />
+                  Reject
+                </button>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-md p-3 space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-gray-500">Tool:</span>
+                <code className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700">
+                  {message.operation.tool}
+                </code>
+              </div>
+              {message.operation.input.range && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">Range:</span>
+                  <code className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700">
+                    {message.operation.input.range}
+                  </code>
+                </div>
+              )}
+              {message.operation.input.values && (
+                <div className="text-sm">
+                  <span className="text-gray-500">Values:</span>
+                  <div className="mt-1 text-xs bg-white rounded border border-gray-200 p-2 max-h-32 overflow-auto" style={{ fontFamily: 'IBM Plex Mono, monospace' }}>
+                    {JSON.stringify(message.operation.input.values, null, 2)}
+                  </div>
+                </div>
+              )}
+              {message.operation.input.formula && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">Formula:</span>
+                  <code className="bg-white px-2 py-0.5 rounded border border-gray-200 text-gray-700">
+                    {message.operation.input.formula}
+                  </code>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )
     }

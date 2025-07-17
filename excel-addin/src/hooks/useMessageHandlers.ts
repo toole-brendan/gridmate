@@ -3,10 +3,10 @@ import { useDiffPreview } from './useDiffPreview';
 import { useChatManager } from './useChatManager';
 import { SignalRToolRequest, SignalRAIResponse } from '../types/signalr';
 import { AISuggestedOperation } from '../types/diff';
+import { DiffPreviewMessage } from '../types/enhanced-chat';
 import { AuditLogger } from '../utils/safetyChecks';
 import { ExcelService } from '../services/excel/ExcelService';
 import { BatchExecutor } from '../services/excel/batchExecutor';
-import { WriteOperationQueue } from '../services/excel/WriteOperationQueue';
 
 const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
 
@@ -51,29 +51,8 @@ export const useMessageHandlers = (
     });
   }, []);
 
-  // Initialize WriteOperationQueue with callbacks
-  useEffect(() => {
-    const queue = WriteOperationQueue.getInstance();
-    queue.setCallbacks({
-      onPreviewReady: async (messageId, operations) => {
-        // Use batched preview generation for better performance
-        diffPreview.generateBatchedPreview(messageId, operations);
-        
-        // Send queued_for_preview response for all operations
-        for (const op of operations) {
-          await sendFinalToolResponse(
-            op.input.request_id,
-            { status: 'queued_for_preview', message: 'Tool queued for visual diff preview' },
-            null
-          );
-        }
-      },
-      onBatchComplete: async (requestId, result, error) => {
-        // Send final response for batch-executed operations
-        await sendFinalToolResponse(requestId, result, error);
-      }
-    });
-  }, [diffPreview, sendFinalToolResponse]);
+  // Store pending preview operations
+  const pendingPreviewRef = useRef<Map<string, SignalRToolRequest>>(new Map());
 
   // Helper function to send immediate acknowledgment
   const sendAcknowledgment = useCallback(async (requestId: string, tool: string) => {
@@ -96,18 +75,44 @@ export const useMessageHandlers = (
     });
   }, []);
 
-  // Queue write operation for preview
-  const queueForPreview = useCallback(async (toolRequest: SignalRToolRequest) => {
-    WriteOperationQueue.getInstance().queueForPreview(
-      currentMessageIdRef.current || 'unknown',
-      toolRequest
-    );
-  }, []);
+  // Forward declare these functions - they'll be defined later
+  const handlePreviewAcceptRef = useRef<(requestId: string) => Promise<void>>();
+  const handlePreviewRejectRef = useRef<(requestId: string) => Promise<void>>();
 
-  // Queue for batch execution without preview
-  const queueForBatchExecution = useCallback(async (toolRequest: SignalRToolRequest) => {
-    WriteOperationQueue.getInstance().queueForExecution(toolRequest);
-  }, []);
+  // Handle individual operation preview
+  const showOperationPreview = useCallback(async (toolRequest: SignalRToolRequest) => {
+    const messageId = currentMessageIdRef.current || 'unknown';
+    
+    // Store the pending operation
+    pendingPreviewRef.current.set(toolRequest.request_id, toolRequest);
+    
+    // Create an operation for the diff preview
+    const operation: AISuggestedOperation = {
+      tool: toolRequest.tool,
+      input: toolRequest,
+      description: `Execute ${toolRequest.tool}`
+    };
+    
+    // Don't generate visual diff preview - we'll just show the operation card
+    // await diffPreview.generatePreview(messageId, [operation]);
+    
+    // Add a preview message to the chat
+    const previewMessage: DiffPreviewMessage = {
+      id: `preview_${toolRequest.request_id}`,
+      type: 'diff-preview',
+      content: '',
+      timestamp: new Date(),
+      requestId: toolRequest.request_id,
+      operation: operation,
+      status: 'pending',
+      actions: {
+        accept: () => handlePreviewAcceptRef.current?.(toolRequest.request_id),
+        reject: () => handlePreviewRejectRef.current?.(toolRequest.request_id)
+      }
+    };
+    
+    chatManager.addMessage(previewMessage);
+  }, [chatManager]);
 
   const processReadBatch = useCallback(async () => {
     const requests = readRequestQueue.current;
@@ -205,13 +210,19 @@ export const useMessageHandlers = (
       });
       
       if (shouldPreview) {
-        // Queue for preview
-        addDebugLog(`Tool ${toolRequest.tool} queued for preview generation`);
-        await queueForPreview(toolRequest);
+        // Show individual preview
+        addDebugLog(`Tool ${toolRequest.tool} showing preview`);
+        await showOperationPreview(toolRequest);
       } else {
-        // Queue for batch execution without preview
-        addDebugLog(`Tool ${toolRequest.tool} queued for direct batch execution`);
-        await queueForBatchExecution(toolRequest);
+        // Execute immediately without preview
+        addDebugLog(`Tool ${toolRequest.tool} executing immediately`);
+        try {
+          const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
+          await sendFinalToolResponse(toolRequest.request_id, result, null);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Operation failed';
+          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
+        }
       }
     } else if (toolRequest.tool === 'read_range') {
       // Batch read_range requests for performance
@@ -270,7 +281,7 @@ export const useMessageHandlers = (
         await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
       }
     }
-  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, queueForPreview, queueForBatchExecution, processReadBatch]);
+  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch]);
 
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
@@ -381,10 +392,69 @@ export const useMessageHandlers = (
     signalRClientRef.current = client;
   };
 
+  // Handle preview accept for individual operation
+  const handlePreviewAccept = useCallback(async (requestId: string) => {
+    const toolRequest = pendingPreviewRef.current.get(requestId);
+    if (!toolRequest) {
+      addDebugLog(`No pending operation found for requestId: ${requestId}`, 'error');
+      return;
+    }
+    
+    try {
+      // Execute the operation
+      const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
+      
+      // Send final response to backend
+      await sendFinalToolResponse(requestId, result, null);
+      
+      // Remove from pending
+      pendingPreviewRef.current.delete(requestId);
+      
+      // Remove the preview message from chat
+      chatManager.removeMessage(`preview_${requestId}`);
+      
+      addDebugLog(`Preview accepted and executed for ${requestId}`, 'success');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Operation failed';
+      await sendFinalToolResponse(requestId, null, errorMessage);
+      pendingPreviewRef.current.delete(requestId);
+      chatManager.removeMessage(`preview_${requestId}`);
+      addDebugLog(`Preview execution failed for ${requestId}: ${errorMessage}`, 'error');
+    }
+  }, [sendFinalToolResponse, chatManager, addDebugLog]);
+
+  // Handle preview reject for individual operation
+  const handlePreviewReject = useCallback(async (requestId: string) => {
+    const toolRequest = pendingPreviewRef.current.get(requestId);
+    if (!toolRequest) {
+      addDebugLog(`No pending operation found for requestId: ${requestId}`, 'error');
+      return;
+    }
+    
+    // Send rejection response to backend
+    await sendFinalToolResponse(requestId, null, 'Operation rejected by user');
+    
+    // Remove from pending
+    pendingPreviewRef.current.delete(requestId);
+    
+    // Remove the preview message from chat
+    chatManager.removeMessage(`preview_${requestId}`);
+    
+    addDebugLog(`Preview rejected for ${requestId}`, 'info');
+  }, [sendFinalToolResponse, chatManager, addDebugLog]);
+
+  // Assign the refs
+  useEffect(() => {
+    handlePreviewAcceptRef.current = handlePreviewAccept;
+    handlePreviewRejectRef.current = handlePreviewReject;
+  }, [handlePreviewAccept, handlePreviewReject]);
+
   return {
     handleSignalRMessage,
     handleUserMessageSent,
     setSignalRClient,
-    sendFinalToolResponse
+    sendFinalToolResponse,
+    handlePreviewAccept,
+    handlePreviewReject
   };
 }; 

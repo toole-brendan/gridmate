@@ -376,7 +376,7 @@ func (to *ToolOrchestrator) executeToolPlan(ctx context.Context, sessionID strin
 			Str("tool", step.Name).
 			Msg("Executing sequential tool step")
 
-		result, err := to.executor.ExecuteTool(ctx, sessionID, step)
+		result, err := to.executor.ExecuteTool(ctx, sessionID, step, "")
 		if err != nil {
 			return allResults, fmt.Errorf("failed to execute sequential step %d (%s): %w", i, step.Name, err)
 		}

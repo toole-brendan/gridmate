@@ -788,7 +788,7 @@ func (te *ToolExecutor) ExecuteParallelTools(ctx context.Context, sessionID stri
 			defer wg.Done()
 
 			startTime := time.Now()
-			result, err := te.ExecuteTool(ctx, sessionID, tool)
+			result, err := te.ExecuteTool(ctx, sessionID, tool, "")
 			duration := time.Since(startTime)
 
 			results[index] = ParallelToolResult{

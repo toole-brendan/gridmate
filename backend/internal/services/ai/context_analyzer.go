@@ -239,7 +239,7 @@ func (fma *FinancialModelAnalyzer) analyzeStructure(ctx context.Context, session
 			"range": "A1:Z100",
 			"analysis_type": "structure",
 		},
-	})
+	}, "")
 	
 	if err != nil {
 		return nil, err

@@ -11,6 +11,7 @@ export type EnhancedMessageType =
   | 'response-tools-group'
   | 'audit'
   | 'status'
+  | 'diff-preview'
 
 export interface BaseEnhancedMessage extends Omit<ChatMessage, 'role'> {
   type: EnhancedMessageType
@@ -146,6 +147,21 @@ export interface StatusMessage extends BaseEnhancedMessage {
   animated: boolean
 }
 
+export interface DiffPreviewMessage extends BaseEnhancedMessage {
+  type: 'diff-preview'
+  requestId: string
+  operation: {
+    tool: string
+    input: Record<string, any>
+    description: string
+  }
+  status: 'pending' | 'accepted' | 'rejected'
+  actions: {
+    accept: () => void
+    reject: () => void
+  }
+}
+
 export type EnhancedChatMessage = 
   | ChatMessage 
   | ToolSuggestionMessage 
@@ -154,6 +170,7 @@ export type EnhancedChatMessage =
   | ResponseToolsGroupMessage
   | AuditMessage
   | StatusMessage
+  | DiffPreviewMessage
 
 export function isToolSuggestion(message: EnhancedChatMessage): message is ToolSuggestionMessage {
   return 'type' in message && message.type === 'tool-suggestion'
@@ -181,4 +198,8 @@ export function isStatusMessage(message: EnhancedChatMessage): message is Status
 
 export function isStandardMessage(message: EnhancedChatMessage): message is ChatMessage {
   return !('type' in message) || ['user', 'assistant', 'system'].includes(message.role || '')
+}
+
+export function isDiffPreview(message: EnhancedChatMessage): message is DiffPreviewMessage {
+  return 'type' in message && message.type === 'diff-preview'
 }

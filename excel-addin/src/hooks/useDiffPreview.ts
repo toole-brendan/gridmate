@@ -24,6 +24,7 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
   const store = useDiffSessionStore();
   const [isCalculating, setIsCalculating] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
+  const [isAccepting, setIsAccepting] = useState(false);
   const excelService = ExcelService.getInstance();
 
   // Helper to extract combined range from multiple operations
@@ -112,7 +113,7 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
         }
         
         // Store preview
-        store.setActivePreview(messageId, operations, hunks, simulatedSnapshot);
+        store.setActivePreview(messageId, operations, hunks);
         
         // Persist to message history
         chatManager.updateMessageDiff(messageId, {
@@ -186,8 +187,8 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
       } else {
         // 2. Same message, so continue the existing session.
         console.log('[Diff Preview] Continuing existing preview session.');
-        // Use the result of the last simulation as our starting point.
-        const tempSnapshot = store.currentSimulatedSnapshot ?? store.originalSnapshot;
+        // Use the original snapshot as our starting point.
+        const tempSnapshot = store.originalSnapshot;
         if (!tempSnapshot) throw new Error('Snapshot missing in active session');
         baseSnapshot = tempSnapshot;
       }
@@ -222,7 +223,7 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
       }
 
       // 6. Set the new active preview, saving the latest simulated state.
-      store.setActivePreview(messageId, operations, hunks, newSimulatedSnapshot);
+      store.setActivePreview(messageId, operations, hunks);
       
       // Also persist to the message for history
       chatManager.updateMessageDiff(messageId, {
@@ -245,28 +246,47 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
   }, [store, excelService, chatManager]);
 
   const acceptCurrentPreview = useCallback(async (sendResponse?: (requestId: string, result: any, error: string | null) => Promise<void>) => {
-    if (!store.activePreview) return;
+    if (!store.activePreview || isAccepting) return;
+    
     const { messageId, operations, hunks } = store.activePreview;
+    
+    // Set accepting flag to prevent duplicate executions
+    setIsAccepting(true);
 
     try {
-      // If we can send individual responses, execute and respond for each operation
-      if (sendResponse) {
-        for (const op of operations) {
-          try {
-            const result = await excelService.executeToolRequest(op.tool, op.input);
-            await sendResponse(op.input.request_id, result, null);
-          } catch (error) {
-            await sendResponse(
-              op.input.request_id, 
-              null, 
-              error instanceof Error ? error.message : 'Operation failed'
-            );
-          }
+      // Execute all operations and collect results
+      const results: Array<{ requestId: string; result: any; error: string | null }> = [];
+      
+      for (const op of operations) {
+        try {
+          console.log('[Diff Preview] Executing operation:', op.tool, 'with request_id:', op.input.request_id);
+          const result = await excelService.executeToolRequest(op.tool, op.input);
+          results.push({ 
+            requestId: op.input.request_id, 
+            result: result || { status: 'success', message: `${op.tool} executed successfully` }, 
+            error: null 
+          });
+        } catch (error) {
+          console.error('[Diff Preview] Operation failed:', op.tool, error);
+          results.push({ 
+            requestId: op.input.request_id, 
+            result: null, 
+            error: error instanceof Error ? error.message : 'Operation failed' 
+          });
         }
-      } else {
-        // Fallback: execute all operations without sending responses
-        for (const op of operations) {
-          await excelService.executeToolRequest(op.tool, op.input);
+      }
+
+      // Send responses only if sendResponse callback is provided
+      if (sendResponse) {
+        console.log('[Diff Preview] Sending responses for', results.length, 'operations');
+        for (const { requestId, result, error } of results) {
+          console.log('[Diff Preview] Sending final response for requestId:', requestId, 'result:', result, 'error:', error);
+          try {
+            await sendResponse(requestId, result, error);
+            console.log('[Diff Preview] Response sent successfully for requestId:', requestId);
+          } catch (err) {
+            console.error('[Diff Preview] Failed to send response for requestId:', requestId, err);
+          }
         }
       }
 
@@ -288,8 +308,11 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
         message: error instanceof Error ? error.message : 'Failed to accept preview',
         severity: 'error' 
       }]);
+    } finally {
+      // Reset accepting flag
+      setIsAccepting(false);
     }
-  }, [store, excelService, chatManager]);
+  }, [store, excelService, chatManager, isAccepting]);
 
   const rejectCurrentPreview = useCallback(async () => {
     if (!store.activePreview) return;

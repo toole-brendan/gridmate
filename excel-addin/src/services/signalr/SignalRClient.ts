@@ -181,15 +181,16 @@ export class SignalRClient extends EventEmitter {
             console.error('No session ID available')
             return
           }
-          // Include Excel context and autonomy mode
+          // Include Excel context, autonomy mode, and message ID
           const excelContext = message.data.excelContext || null
           const autonomyMode = message.data.autonomyMode || 'agent-default'
-          await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content, excelContext, autonomyMode)
+          const messageId = message.data.messageId || null
+          await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content, excelContext, autonomyMode, messageId)
           break
           
         case 'tool_response':
           console.log('📤 Sending tool response:', {
-            request_id: message.data.request_id,
+            request_id: message.data.requestId,
             has_result: !!message.data.result,
             has_error: !!message.data.error,
             queued: message.data.queued || false,
@@ -197,7 +198,7 @@ export class SignalRClient extends EventEmitter {
             has_metadata: !!message.data.metadata
           })
           await this.connection.invoke('SendToolResponse', 
-            message.data.request_id, 
+            message.data.requestId, 
             message.data.result === undefined ? null : message.data.result,
             message.data.error === undefined ? null : message.data.error,
             message.data.queued || false,

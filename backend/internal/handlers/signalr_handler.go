@@ -33,6 +33,7 @@ func NewSignalRHandler(excelBridge *services.ExcelBridge, signalRBridge *SignalR
 // SignalRChatRequest represents a chat request from SignalR
 type SignalRChatRequest struct {
 	SessionID    string                 `json:"sessionId"`
+	MessageID    string                 `json:"messageId"`
 	Content      string                 `json:"content"`
 	ExcelContext map[string]interface{} `json:"excelContext"`
 	AutonomyMode string                 `json:"autonomyMode"`
@@ -91,7 +92,9 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		h.logger.WithError(err).Error("Failed to process chat message")
 		// Send error back to client via SignalR
 		h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
+			"messageId": req.MessageID,
 			"error": err.Error(),
+			"isComplete": true, // Mark as complete on error
 		})
 		// Still return a success to the .NET hub, as the error was handled.
 		w.Header().Set("Content-Type", "application/json")
@@ -104,9 +107,10 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 
 	// Send response back to client via SignalR
 	err = h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
+		"messageId": req.MessageID, // Include the message ID from the request
 		"content": response.Content,
 		"actions": response.Actions,
-		"isFinal": response.IsFinal,
+		"isComplete": response.IsFinal, // Frontend expects "isComplete", not "isFinal"
 	})
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to send response via SignalR")
@@ -157,22 +161,6 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 		"acknowledged": req.Acknowledged,
 		"queued":       req.Queued,
 	}).Info("Received tool response from SignalR")
-
-	// Handle acknowledged responses - don't process as final
-	if req.Acknowledged {
-		h.logger.WithFields(logrus.Fields{
-			"request_id": req.RequestID,
-			"session_id": req.SessionID,
-		}).Info("Received acknowledgment for tool request")
-
-		// Don't route to handler yet, wait for final response
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(SignalRResponse{
-			Success: true,
-			Message: "Acknowledgment received",
-		})
-		return
-	}
 
 	// Log detailed error information if present
 	if req.Error != "" && req.ErrorDetails != "" {

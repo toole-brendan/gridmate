@@ -31,15 +31,23 @@ export const useMessageHandlers = (
     result: any, 
     error: string | null
   ) => {
+    const responseData = {
+      sessionId: signalRClientRef.current?.sessionId || '',
+      requestId: requestId,
+      result: result,
+      error: error || '',
+      errorDetails: error || '',
+      metadata: {},
+      timestamp: new Date().toISOString(),
+      queued: false,
+      acknowledged: false
+    };
+    
+    console.log('[Message Handler] Sending final tool response:', responseData);
+    
     await signalRClientRef.current?.send({
       type: 'tool_response',
-      data: {
-        request_id: requestId,
-        result: result,
-        error: error,
-        queued: false,
-        acknowledged: false // This is the final response
-      }
+      data: responseData
     });
   }, []);
 
@@ -72,14 +80,18 @@ export const useMessageHandlers = (
     await signalRClientRef.current?.send({
       type: 'tool_response',
       data: {
-        request_id: requestId,
+        sessionId: signalRClientRef.current?.sessionId || '',
+        requestId: requestId,
         result: { 
           status: 'acknowledged', 
           message: `${tool} request received and processing` 
         },
-        error: null,
+        error: '',
+        errorDetails: '',
+        metadata: {},
+        timestamp: new Date().toISOString(),
         queued: true,
-        acknowledged: true // New field to indicate this is just an ack
+        acknowledged: true
       }
     });
   }, []);

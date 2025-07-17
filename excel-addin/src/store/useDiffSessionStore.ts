@@ -17,20 +17,17 @@ interface DiffSessionState {
   // Original snapshot before preview
   originalSnapshot: WorkbookSnapshot | null;
   
-  // Current simulated snapshot (result of latest simulation)
-  currentSimulatedSnapshot: WorkbookSnapshot | null;
-  
   // Actions
-  setActivePreview: (messageId: string, operations: AISuggestedOperation[], hunks: DiffHunk[], simulatedSnapshot: WorkbookSnapshot) => void;
+  setActivePreview: (messageId: string, operations: AISuggestedOperation[], hunks: DiffHunk[]) => void;
   clearPreview: () => void;
+  setOriginalSnapshot: (snapshot: WorkbookSnapshot) => void;
 }
 
 export const useDiffSessionStore = create<DiffSessionState>((set) => ({
   activePreview: null,
   originalSnapshot: null,
-  currentSimulatedSnapshot: null,
 
-  setActivePreview: (messageId, operations, hunks, simulatedSnapshot) => {
+  setActivePreview: (messageId, operations, hunks) => {
     set({
       activePreview: {
         status: 'previewing',
@@ -38,16 +35,18 @@ export const useDiffSessionStore = create<DiffSessionState>((set) => ({
         hunks,
         timestamp: Date.now(),
         messageId
-      },
-      currentSimulatedSnapshot: simulatedSnapshot
+      }
     });
   },
 
   clearPreview: () => {
     set({
       activePreview: null,
-      originalSnapshot: null,
-      currentSimulatedSnapshot: null
+      originalSnapshot: null
     });
+  },
+  
+  setOriginalSnapshot: (snapshot) => {
+    set({ originalSnapshot: snapshot });
   }
 })); 

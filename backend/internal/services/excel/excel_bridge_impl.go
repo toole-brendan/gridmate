@@ -180,10 +180,19 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 					// Cancel the timeout timer since we got a response
 					timeoutTimer.Stop()
 					// Don't cleanup - keep handlers active for the actual response
-					return map[string]interface{}{
-						"status":  "queued",
-						"message": "Tool execution queued for user approval",
-					}, nil
+					// Return enhanced queued response
+					enhancedResponse := map[string]interface{}{
+						"status":  "queued_for_preview",
+						"message": "Tool queued for visual diff preview",
+						"preview": true,
+					}
+					
+					// Include original operations if available
+					if operations, ok := request["operations"]; ok {
+						enhancedResponse["operations"] = operations
+					}
+					
+					return enhancedResponse, nil
 				}
 			}
 			// This is a final response, cleanup handlers
@@ -344,7 +353,7 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
-		if status, ok := respMap["status"].(string); ok && status == "queued" {
+		if status, ok := respMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 			// Return a special error that can be handled by the tool executor
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
@@ -369,7 +378,7 @@ func (b *BridgeImpl) ApplyFormula(ctx context.Context, sessionID string, rangeAd
 
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
-		if status, ok := respMap["status"].(string); ok && status == "queued" {
+		if status, ok := respMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 			// Return a special error that can be handled by the tool executor
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
@@ -466,7 +475,7 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
-		if status, ok := respMap["status"].(string); ok && status == "queued" {
+		if status, ok := respMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 			// Return a special error that can be handled by the tool executor
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
@@ -493,7 +502,7 @@ func (b *BridgeImpl) CreateChart(ctx context.Context, sessionID string, config *
 
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
-		if status, ok := respMap["status"].(string); ok && status == "queued" {
+		if status, ok := respMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 			// Return a special error that can be handled by the tool executor
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
@@ -572,7 +581,7 @@ func (b *BridgeImpl) CreateNamedRange(ctx context.Context, sessionID string, nam
 
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
-		if status, ok := respMap["status"].(string); ok && status == "queued" {
+		if status, ok := respMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 			// Return a special error that can be handled by the tool executor
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
@@ -597,7 +606,7 @@ func (b *BridgeImpl) InsertRowsColumns(ctx context.Context, sessionID string, po
 
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
-		if status, ok := respMap["status"].(string); ok && status == "queued" {
+		if status, ok := respMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 			// Return a special error that can be handled by the tool executor
 			return fmt.Errorf("Tool execution queued for user approval")
 		}

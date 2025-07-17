@@ -155,6 +155,10 @@ func main() {
 	loggingMiddleware := middleware.NewLoggingMiddleware(logger)
 	router.Use(loggingMiddleware.Middleware)
 
+	// Initialize acknowledgment middleware
+	ackMiddleware := middleware.AcknowledgmentMiddleware(logger)
+	router.Use(ackMiddleware)
+
 	// Add compression middleware for better performance
 	router.Use(middleware.GzipMiddleware)
 

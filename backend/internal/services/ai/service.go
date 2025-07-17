@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -421,11 +422,12 @@ func (s *Service) SetToolExecutor(executor *ToolExecutor) {
 }
 
 // ProcessToolCalls processes multiple tool calls
-func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCalls []ToolCall) ([]ToolResult, error) {
+func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCalls []ToolCall, autonomyMode string) ([]ToolResult, error) {
 	log.Info().
 		Str("session_id", sessionID).
 		Int("total_tools", len(toolCalls)).
 		Interface("tool_names", getToolNames(toolCalls)).
+		Str("autonomy_mode", autonomyMode).
 		Msg("Processing tool calls")
 
 	// Check if we can batch any operations
@@ -468,7 +470,7 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 				Interface("input", toolCall.Input).
 				Msg("Executing individual tool in batch")
 
-			result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall)
+			result, err := s.toolExecutor.ExecuteTool(ctx, sessionID, toolCall, autonomyMode)
 			if err != nil {
 				log.Error().
 					Err(err).
@@ -697,7 +699,7 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 		}
 
 		// Process tool calls
-		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls)
+		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls, "")
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to process tool calls")
 		}
@@ -844,10 +846,84 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Int("tool_calls_count", len(response.ToolCalls)).
 			Msg("Executing tool calls")
 
-		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls)
+		toolResults, err := s.ProcessToolCalls(ctx, sessionID, response.ToolCalls, autonomyMode)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to execute tool calls")
 			return nil, fmt.Errorf("tool execution failed: %w", err)
+		}
+
+		// Check if all operations are queued for preview
+		allQueued := true
+		hasOperations := false
+		log.Debug().
+			Int("tool_results_count", len(toolResults)).
+			Msg("Checking if all operations are queued")
+			
+		for i, result := range toolResults {
+			if result.Content != nil {
+				// Check if content is already a map
+				if resultMap, ok := result.Content.(map[string]interface{}); ok {
+					if status, ok := resultMap["status"].(string); ok {
+						hasOperations = true
+						log.Debug().
+							Int("result_index", i).
+							Str("status", status).
+							Str("tool_id", result.ToolUseID).
+							Msg("Found tool result with status (map)")
+						if status != "queued" && status != "queued_for_preview" {
+							allQueued = false
+							break
+						}
+					}
+				} else if contentStr, ok := result.Content.(string); ok && contentStr != "" {
+					// If content is a string, try to parse it as JSON
+					var resultData map[string]interface{}
+					if err := json.Unmarshal([]byte(contentStr), &resultData); err == nil {
+						if status, ok := resultData["status"].(string); ok {
+							hasOperations = true
+							log.Debug().
+								Int("result_index", i).
+								Str("status", status).
+								Str("tool_id", result.ToolUseID).
+								Msg("Found tool result with status (string)")
+							if status != "queued" && status != "queued_for_preview" {
+								allQueued = false
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		log.Debug().
+			Bool("has_operations", hasOperations).
+			Bool("all_queued", allQueued).
+			Msg("Queue check complete")
+
+		// If all operations are queued, return final response
+		if hasOperations && allQueued {
+			log.Info().
+				Int("queued_operations", len(toolResults)).
+				Msg("All operations queued for preview, returning final response")
+			
+			// Build a final response that includes the assistant's message content
+			// and indicates that operations are queued for preview
+			finalResponse := &CompletionResponse{
+				Content: response.Content, // Include the assistant's explanation
+				ToolCalls: response.ToolCalls, // Include the tool calls that were made
+				IsFinal: true,
+				Usage: response.Usage,
+				Actions: []Action{
+					{
+						Type: "preview_queued",
+						Description: fmt.Sprintf("%d operations queued for preview", len(toolResults)),
+					},
+				},
+			}
+			
+			// Important: Return here to exit the loop and prevent further processing
+			return finalResponse, nil
 		}
 
 		// Add tool results to messages

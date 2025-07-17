@@ -37,7 +37,7 @@ EOD
 echo -e "${YELLOW}2️⃣  Starting Go backend service in a new terminal...${NC}"
 osascript <<EOD
 tell application "Terminal"
-    do script "cd '${PROJECT_ROOT}/backend' && echo '--- Go Backend Service ---' && go run cmd/api/main.go"
+    do script "cd '${PROJECT_ROOT}/backend' && echo '--- Go Backend Service ---' && LOG_LEVEL=debug go run cmd/api/main.go"
 end tell
 EOD
 

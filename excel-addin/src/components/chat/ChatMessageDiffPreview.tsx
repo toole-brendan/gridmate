@@ -16,6 +16,7 @@ export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
   onReject,
   status
 }) => {
+  const [isProcessing, setIsProcessing] = React.useState(false);
   // Calculate summary statistics based on DiffKind
   const stats = hunks.reduce((acc, hunk) => {
     if (hunk.kind === 'Added') acc.added++;
@@ -58,20 +59,38 @@ export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
         {status === 'previewing' && onAccept && onReject && (
           <div className="flex items-center space-x-2">
             <button
-              onClick={onAccept}
-              className="inline-flex items-center px-2 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+              onClick={async () => {
+                if (isProcessing) return;
+                setIsProcessing(true);
+                try {
+                  await onAccept();
+                } finally {
+                  setIsProcessing(false);
+                }
+              }}
+              disabled={isProcessing}
+              className="inline-flex items-center px-2 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded transition-colors"
               aria-label="Accept changes"
             >
               <CheckIcon className="w-3 h-3 mr-1" />
-              Accept
+              {isProcessing ? 'Accepting...' : 'Accept'}
             </button>
             <button
-              onClick={onReject}
-              className="inline-flex items-center px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 dark:text-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded transition-colors"
+              onClick={async () => {
+                if (isProcessing) return;
+                setIsProcessing(true);
+                try {
+                  await onReject();
+                } finally {
+                  setIsProcessing(false);
+                }
+              }}
+              disabled={isProcessing}
+              className="inline-flex items-center px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:text-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 rounded transition-colors"
               aria-label="Reject changes"
             >
               <XMarkIcon className="w-3 h-3 mr-1" />
-              Reject
+              {isProcessing ? 'Rejecting...' : 'Reject'}
             </button>
           </div>
         )}

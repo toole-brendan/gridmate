@@ -115,7 +115,7 @@ namespace GridmateSignalR.Hubs
             });
         }
 
-        public async Task SendChatMessage(string sessionId, string content, object? excelContext = null, string autonomyMode = "agent-default")
+        public async Task SendChatMessage(string sessionId, string content, object? excelContext = null, string autonomyMode = "agent-default", string? messageId = null)
         {
             _logger.LogInformation("[HUB] SendChatMessage invoked for Session ID: {SessionId}", sessionId);
 
@@ -139,6 +139,7 @@ namespace GridmateSignalR.Hubs
                 requestPayload = new
                 {
                     sessionId,
+                    messageId,
                     content,
                     excelContext,
                     autonomyMode,
@@ -160,21 +161,37 @@ namespace GridmateSignalR.Hubs
                 _logger.LogInformation("[HUB] HttpClient created. Attempting to POST to {BaseAddress}/api/chat...", httpClient.BaseAddress);
 
                 var httpContent = new StringContent(payloadJson, System.Text.Encoding.UTF8, "application/json");
-                var response = await httpClient.PostAsync("/api/chat", httpContent);
-
-                _logger.LogInformation("[HUB] POST request completed with status code: {StatusCode}", response.StatusCode);
-
-                if (response.IsSuccessStatusCode)
+                
+                // Fire and forget - don't wait for response since Go backend processes asynchronously
+                // and will send responses via the aiResponse webhook
+                _ = Task.Run(async () =>
                 {
-                    var responseBody = await response.Content.ReadAsStringAsync();
-                    _logger.LogInformation("[HUB] Go backend returned success. Response: {ResponseBody}", responseBody);
-                }
-                else
+                    try
+                    {
+                        var response = await httpClient.PostAsync("/api/chat", httpContent);
+                        _logger.LogInformation("[HUB] Background POST request completed with status code: {StatusCode}", response.StatusCode);
+                        
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            var errorBody = await response.Content.ReadAsStringAsync();
+                            _logger.LogError("[HUB] Go backend returned a non-success status code {StatusCode}. Body: {ErrorBody}", response.StatusCode, errorBody);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[HUB] Background request to Go backend failed for session {SessionId}", sessionId);
+                    }
+                });
+                
+                _logger.LogInformation("[HUB] Chat message sent to Go backend (async). Client will receive responses via aiResponse.");
+                
+                // Send acknowledgment to client
+                await Clients.Caller.SendAsync("chatAcknowledged", new
                 {
-                    var errorBody = await response.Content.ReadAsStringAsync();
-                    _logger.LogError("[HUB] Go backend returned a non-success status code {StatusCode}. Body: {ErrorBody}", response.StatusCode, errorBody);
-                    await Clients.Caller.SendAsync("error", $"The AI service returned an error (Code: {response.StatusCode}).");
-                }
+                    sessionId,
+                    timestamp = DateTime.UtcNow,
+                    message = "Processing your request..."
+                });
             }
             catch (System.Net.Http.HttpRequestException ex)
             {

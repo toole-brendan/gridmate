@@ -86,6 +86,9 @@ type AIConfig struct {
 	AnthropicAPIKey     string
 	AzureOpenAIKey      string
 	AzureOpenAIEndpoint string
+	// Additional timeout configurations
+	ToolRequestTimeout time.Duration
+	ChatRequestTimeout time.Duration
 }
 
 // Load loads configuration from environment variables
@@ -137,13 +140,15 @@ func Load() (*Config, error) {
 			MaxTokens:           getEnvAsInt("AI_MAX_TOKENS", 8192), // Increased for complex tool sequences
 			Temperature:         getEnvAsFloat32("AI_TEMPERATURE", 0.7),
 			TopP:                getEnvAsFloat32("AI_TOP_P", 0.9),
-			RequestTimeout:      getEnvAsDuration("AI_REQUEST_TIMEOUT", 30*time.Second),
+			RequestTimeout:      getEnvAsDuration("AI_REQUEST_TIMEOUT", 5*time.Minute),
 			RetryDelay:          getEnvAsDuration("AI_RETRY_DELAY", 2*time.Second), // New line
 			EnableActions:       getEnvAsBool("AI_ENABLE_ACTIONS", true),
 			EnableEmbedding:     getEnvAsBool("AI_ENABLE_EMBEDDING", true),
 			AnthropicAPIKey:     getEnv("ANTHROPIC_API_KEY", ""),
 			AzureOpenAIKey:      getEnv("AZURE_OPENAI_KEY", ""),
 			AzureOpenAIEndpoint: getEnv("AZURE_OPENAI_ENDPOINT", ""),
+			ToolRequestTimeout:  getEnvAsDuration("TOOL_REQUEST_TIMEOUT", 300*time.Second),
+			ChatRequestTimeout:  getEnvAsDuration("CHAT_REQUEST_TIMEOUT", 5*time.Minute),
 		},
 	}
 

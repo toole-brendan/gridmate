@@ -21,11 +21,11 @@ export const useSignalRManager = (onMessage: SignalRMessageHandler, addDebugLog?
       clientRef.current = globalSignalRClient;
       setConnectionStatus('connected');
       // Check if the existing connection is authenticated by looking for sessionId
-      const isAuth = !!(globalSignalRClient as any).sessionId;
+      const isAuth = !!globalSignalRClient.getSessionId();
       setIsAuthenticated(isAuth);
       addDebugLog?.(`Using existing SignalR connection (authenticated: ${isAuth})`, 'info');
     } else {
-      const newClient = new SignalRClient('https://localhost:7171/hub');
+      const newClient = new SignalRClient('https://localhost:7171/hub?access_token=dev-token-123');
       globalSignalRClient = newClient;
       clientRef.current = newClient;
 
@@ -74,7 +74,7 @@ export const useSignalRManager = (onMessage: SignalRMessageHandler, addDebugLog?
       });
       
       addDebugLog?.('Initiating SignalR connection...', 'info');
-      newClient.connect('dev-token-123').catch(err => {
+      newClient.connect().catch(err => {
         console.error("SignalR connection failed", err);
         setConnectionStatus('disconnected');
         addDebugLog?.(`SignalR connection failed: ${err}`, 'error');

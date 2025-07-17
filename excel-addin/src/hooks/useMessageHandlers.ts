@@ -1,10 +1,12 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
 import { useDiffPreview } from './useDiffPreview';
 import { useChatManager } from './useChatManager';
 import { SignalRToolRequest, SignalRAIResponse } from '../types/signalr';
 import { AISuggestedOperation } from '../types/diff';
 import { AuditLogger } from '../utils/safetyChecks';
 import { ExcelService } from '../services/excel/ExcelService';
+import { BatchExecutor } from '../services/excel/batchExecutor';
+import { WriteOperationQueue } from '../services/excel/WriteOperationQueue';
 
 const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
 
@@ -23,6 +25,78 @@ export const useMessageHandlers = (
     console.log(`[${type}] ${message}`, data);
   };
 
+  // Helper function to send final tool response
+  const sendFinalToolResponse = useCallback(async (
+    requestId: string, 
+    result: any, 
+    error: string | null
+  ) => {
+    await signalRClientRef.current?.send({
+      type: 'tool_response',
+      data: {
+        request_id: requestId,
+        result: result,
+        error: error,
+        queued: false,
+        acknowledged: false // This is the final response
+      }
+    });
+  }, []);
+
+  // Initialize WriteOperationQueue with callbacks
+  useEffect(() => {
+    const queue = WriteOperationQueue.getInstance();
+    queue.setCallbacks({
+      onPreviewReady: async (messageId, operations) => {
+        // Use batched preview generation for better performance
+        diffPreview.generateBatchedPreview(messageId, operations);
+        
+        // Send queued_for_preview response for all operations
+        for (const op of operations) {
+          await sendFinalToolResponse(
+            op.input.request_id,
+            { status: 'queued_for_preview', message: 'Tool queued for visual diff preview' },
+            null
+          );
+        }
+      },
+      onBatchComplete: async (requestId, result, error) => {
+        // Send final response for batch-executed operations
+        await sendFinalToolResponse(requestId, result, error);
+      }
+    });
+  }, [diffPreview, sendFinalToolResponse]);
+
+  // Helper function to send immediate acknowledgment
+  const sendAcknowledgment = useCallback(async (requestId: string, tool: string) => {
+    await signalRClientRef.current?.send({
+      type: 'tool_response',
+      data: {
+        request_id: requestId,
+        result: { 
+          status: 'acknowledged', 
+          message: `${tool} request received and processing` 
+        },
+        error: null,
+        queued: true,
+        acknowledged: true // New field to indicate this is just an ack
+      }
+    });
+  }, []);
+
+  // Queue write operation for preview
+  const queueForPreview = useCallback(async (toolRequest: SignalRToolRequest) => {
+    WriteOperationQueue.getInstance().queueForPreview(
+      currentMessageIdRef.current || 'unknown',
+      toolRequest
+    );
+  }, []);
+
+  // Queue for batch execution without preview
+  const queueForBatchExecution = useCallback(async (toolRequest: SignalRToolRequest) => {
+    WriteOperationQueue.getInstance().queueForExecution(toolRequest);
+  }, []);
+
   const processReadBatch = useCallback(async () => {
     const requests = readRequestQueue.current;
     readRequestQueue.current = [];
@@ -35,26 +109,37 @@ export const useMessageHandlers = (
     
     try {
       // Execute all read requests in a single batch
-      const results = await ExcelService.getInstance().batchReadRange(
-        requests.map(req => ({
+      const batchRequests = requests.map(req => {
+        const range = req.range || req.parameters?.range || '';
+        addLog('info', `[Message Handler] Batch request: ${req.request_id} for range: ${range}`);
+        return {
           requestId: req.request_id,
-          range: req.range || req.parameters?.range || ''
-        }))
-      );
+          range: range
+        };
+      });
+      
+      const results = await ExcelService.getInstance().batchReadRange(batchRequests);
       
       // Send responses back for each request
       for (const request of requests) {
         const result = results.get(request.request_id);
         
-        await signalRClientRef.current?.send({
-          type: 'tool_response',
-          data: {
-            request_id: request.request_id,
-            result: result || null,
-            error: result ? null : 'Failed to read range',
-            queued: false
-          }
-        });
+        // Log the size of data being sent
+        if (result) {
+          const dataSize = JSON.stringify(result).length;
+          addDebugLog(`Sending tool_response for ${request.request_id} - Data size: ${dataSize} bytes`);
+          addLog('info', `[Message Handler] Tool response data size: ${dataSize} bytes`, {
+            rowCount: result.rowCount,
+            colCount: result.colCount,
+            cellCount: result.rowCount * result.colCount
+          });
+        }
+        
+        await sendFinalToolResponse(
+          request.request_id,
+          result || null,
+          result ? null : 'Failed to read range'
+        );
       }
       
       addDebugLog(`Batch processing complete for ${requests.length} requests`, 'success');
@@ -64,89 +149,54 @@ export const useMessageHandlers = (
       
       // Send error responses for all requests
       for (const request of requests) {
-        await signalRClientRef.current?.send({
-          type: 'tool_response',
-          data: {
-            request_id: request.request_id,
-            result: null,
-            error: error instanceof Error ? error.message : 'Batch processing failed',
-            queued: false
-          }
-        });
+        await sendFinalToolResponse(
+          request.request_id,
+          null,
+          error instanceof Error ? error.message : 'Batch processing failed'
+        );
       }
     }
-  }, [addDebugLog, addLog]);
+  }, [addDebugLog, addLog, sendFinalToolResponse]);
 
   const handleToolRequest = useCallback(async (toolRequest: SignalRToolRequest) => {
     addDebugLog(`← Received tool_request: ${toolRequest.tool} (${toolRequest.request_id})`);
     addLog('info', `[Message Handler] Received tool request ${toolRequest.request_id} (${toolRequest.tool})`, { parameters: toolRequest });
     
+    // Send immediate acknowledgment to prevent backend timeout
+    await sendAcknowledgment(toolRequest.request_id, toolRequest.tool);
+    
+    // Defensive check for write tools - ensure toolRequest has required fields
+    if (!toolRequest || typeof toolRequest !== 'object' || !toolRequest.tool) {
+      const errorMsg = `Invalid tool request structure`;
+      addDebugLog(errorMsg, 'error');
+      await sendFinalToolResponse(toolRequest.request_id, null, errorMsg);
+      return;
+    }
+    
+    // Process the tool based on type
     if (WRITE_TOOLS.has(toolRequest.tool)) {
-      // Defensive check for write tools - ensure toolRequest has required fields
-      if (!toolRequest || typeof toolRequest !== 'object' || !toolRequest.tool) {
-        const errorMsg = `Write tool received with invalid structure`;
-        addDebugLog(errorMsg, 'error');
-        addLog('error', `[Message Handler] ${errorMsg}`, { 
-          toolRequest,
-          toolRequestType: typeof toolRequest 
-        });
-        
-        // Send error response back to backend
-        await signalRClientRef.current?.send({
-          type: 'tool_response',
-          data: {
-            request_id: toolRequest.request_id,
-            result: null,
-            error: `Invalid tool request structure`,  // Send as simple string
-            queued: false
-          }
-        });
-        
-        // Return early to prevent crash
-        return;
-      }
+      // Check if preview is requested
+      const shouldPreview = toolRequest.preview !== false && autonomyMode !== 'full-autonomy';
       
-      addDebugLog(`Tool ${toolRequest.tool} is a write operation. Queueing for preview.`);
-      addLog('info', `[Message Handler] Tool ${toolRequest.tool} is a write operation. Queueing for preview.`);
-      
+      // Log tool execution
       AuditLogger.logToolExecution({
         timestamp: new Date(),
         toolName: toolRequest.tool,
-        parameters: toolRequest,  // Pass entire toolRequest as backend sends params directly
+        parameters: toolRequest,
         autonomyMode: autonomyMode,
         result: 'success',
         sessionId: signalRClientRef.current?.sessionId || 'unknown'
       });
       
-      // Check if tool request includes preview parameter
-      const shouldPreview = toolRequest.preview !== false; // Default to true
-      
-      const operation: AISuggestedOperation = { 
-        tool: toolRequest.tool, 
-        input: toolRequest,  // Pass entire toolRequest as backend sends params directly in data
-        description: `Execute ${toolRequest.tool}`
-      };
-      
       if (shouldPreview) {
-        addDebugLog('Generating preview for write operation.');
-        addLog('info', `[Message Handler] Generating preview for message ${currentMessageIdRef.current || 'unknown'}`);
-        await diffPreview.generatePreview(currentMessageIdRef.current || 'unknown', [operation]);
+        // Queue for preview
+        addDebugLog(`Tool ${toolRequest.tool} queued for preview generation`);
+        await queueForPreview(toolRequest);
       } else {
-        // Direct execution without preview
-        addDebugLog('Direct execution requested (preview=false).');
-        addLog('info', `[Message Handler] Direct execution for ${toolRequest.tool}`);
-        await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
+        // Queue for batch execution without preview
+        addDebugLog(`Tool ${toolRequest.tool} queued for direct batch execution`);
+        await queueForBatchExecution(toolRequest);
       }
-      
-      await signalRClientRef.current?.send({
-        type: 'tool_response',
-        data: {
-          request_id: toolRequest.request_id,
-          result: { status: 'queued_for_preview', message: 'Tool queued for visual diff preview' },
-          error: null,
-          queued: true
-        }
-      });
     } else if (toolRequest.tool === 'read_range') {
       // Batch read_range requests for performance
       addDebugLog(`Tool ${toolRequest.tool} is read-only. Adding to batch queue.`);
@@ -166,33 +216,25 @@ export const useMessageHandlers = (
       }, 50);
       
     } else {
+      // Execute immediately for other tools
       addDebugLog(`Tool ${toolRequest.tool} is read-only. Executing immediately.`);
 
       try {
         // Execute using ExcelService for all tools (unified approach)
-        // Pass entire toolRequest as backend sends params directly in data object
         const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
 
         // Log successful execution
         AuditLogger.logToolExecution({
           timestamp: new Date(),
           toolName: toolRequest.tool,
-          parameters: toolRequest,  // Pass entire toolRequest as backend sends params directly
+          parameters: toolRequest,
           autonomyMode: autonomyMode,
           result: 'success',
           sessionId: signalRClientRef.current?.sessionId || 'unknown'
         });
 
-        // Send the actual result back to the backend
-        await signalRClientRef.current?.send({
-          type: 'tool_response',
-          data: {
-            request_id: toolRequest.request_id,
-            result: result,
-            error: null,
-            queued: false
-          }
-        });
+        // Send the final result back to the backend
+        await sendFinalToolResponse(toolRequest.request_id, result, null);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during tool execution.';
@@ -201,27 +243,18 @@ export const useMessageHandlers = (
         AuditLogger.logToolExecution({
           timestamp: new Date(),
           toolName: toolRequest.tool,
-          parameters: toolRequest,  // Pass entire toolRequest as backend sends params directly
+          parameters: toolRequest,
           autonomyMode: autonomyMode,
           result: 'failure',
           error: errorMessage,
           sessionId: signalRClientRef.current?.sessionId || 'unknown'
         });
 
-        // Send an error response back to the backend
-        // Use simple string for error to match backend expectations
-        await signalRClientRef.current?.send({
-          type: 'tool_response',
-          data: {
-            request_id: toolRequest.request_id,
-            result: null,
-            error: errorMessage,  // Send as simple string instead of object
-            queued: false
-          }
-        });
+        // Send error response
+        await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
       }
     }
-  }, [addDebugLog, addLog, autonomyMode, diffPreview, processReadBatch]);
+  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, queueForPreview, queueForBatchExecution, processReadBatch]);
 
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
@@ -282,7 +315,14 @@ export const useMessageHandlers = (
         });
         break;
       case 'notification':
-        addDebugLog(`Backend notification: ${message.data?.message}`, 'info');
+        // Handle initial connection notification gracefully
+        if (message.data?.connectionId) {
+          addDebugLog(`Backend connected. Connection ID: ${message.data.connectionId}`, 'info');
+        } else if (message.data?.message) {
+          addDebugLog(`Backend notification: ${message.data.message}`, 'info');
+        } else {
+          addDebugLog(`Backend notification received`, 'info');
+        }
         break;
       case 'auth_success':
         addDebugLog(`Authentication successful. Session ID: ${message.data?.sessionId}`, 'success');
@@ -328,6 +368,7 @@ export const useMessageHandlers = (
   return {
     handleSignalRMessage,
     handleUserMessageSent,
-    setSignalRClient
+    setSignalRClient,
+    sendFinalToolResponse
   };
 }; 

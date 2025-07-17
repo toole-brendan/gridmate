@@ -13,6 +13,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	// MaxToolResponseSize is the maximum size allowed for a tool response (1MB)
+	MaxToolResponseSize = 1 * 1024 * 1024
+)
+
 // ToolExecutor handles the execution of Excel tools
 type ToolExecutor struct {
 	excelBridge      ExcelBridge
@@ -294,6 +299,42 @@ func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntell
 // SetQueuedOperationRegistry sets the queued operation registry
 func (te *ToolExecutor) SetQueuedOperationRegistry(registry interface{}) {
 	te.queuedOpsRegistry = registry
+}
+
+// calculateResponseSize calculates the approximate size of a response in bytes
+func calculateResponseSize(response interface{}) int {
+	// Marshal to JSON to get byte size
+	if data, err := json.Marshal(response); err == nil {
+		return len(data)
+	}
+	// Fallback to a rough estimate
+	return 0
+}
+
+// validateResponseSize checks if a tool response exceeds the maximum allowed size
+func (te *ToolExecutor) validateResponseSize(result *ToolResult) (*ToolResult, error) {
+	responseSize := calculateResponseSize(result.Content)
+
+	if responseSize > MaxToolResponseSize {
+		log.Warn().
+			Int("size", responseSize).
+			Int("max_size", MaxToolResponseSize).
+			Str("tool_id", result.ToolUseID).
+			Msg("Tool response exceeds size limit")
+
+		// Return an error result instead
+		return &ToolResult{
+			Type:      result.Type,
+			ToolUseID: result.ToolUseID,
+			IsError:   true,
+			Status:    "error",
+			Content: map[string]string{
+				"error": fmt.Sprintf("Response too large (%d bytes). Please request a smaller range or less data.", responseSize),
+			},
+		}, nil
+	}
+
+	return result, nil
 }
 
 // ExecuteTool executes a tool call and returns the result
@@ -692,6 +733,12 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			"Available tools include: read_range, write_range, apply_formula, analyze_data, format_range, create_chart, validate_model, and more",
 		)
 		result.Content = formatToolError(unknownToolErr)
+	}
+
+	// Validate response size before returning
+	result, err := te.validateResponseSize(result)
+	if err != nil {
+		return nil, err
 	}
 
 	// Log tool execution completion

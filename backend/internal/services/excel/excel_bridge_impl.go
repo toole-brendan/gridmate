@@ -8,16 +8,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/gridmate/backend/internal/services/ai"
 )
 
 // BridgeImpl implements the ExcelBridge interface for AI tool execution
 type BridgeImpl struct {
-	getClientID func(sessionID string) string
+	getClientID   func(sessionID string) string
 	signalRBridge interface{}
-	logger zerolog.Logger
+	logger        zerolog.Logger
 	// Tool handlers for managing async responses
 	toolHandlers map[string]map[string]func(interface{}, error)
 	handlerMutex sync.RWMutex
@@ -36,8 +36,8 @@ type queuedResponse struct {
 // NewBridgeImpl creates a new Excel bridge implementation
 func NewBridgeImpl() *BridgeImpl {
 	b := &BridgeImpl{
-		logger: log.With().Str("component", "excel_bridge").Logger(),
-		toolHandlers: make(map[string]map[string]func(interface{}, error)),
+		logger:        log.With().Str("component", "excel_bridge").Logger(),
+		toolHandlers:  make(map[string]map[string]func(interface{}, error)),
 		responseQueue: make(map[string]*queuedResponse),
 	}
 	// Start cleanup routine for stale queued responses
@@ -68,14 +68,14 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		Str("initial_client_id", clientID).
 		Bool("has_client_id_resolver", b.getClientID != nil).
 		Msg("Starting client ID resolution")
-		
+
 	if b.getClientID != nil {
 		resolvedClientID := b.getClientID(sessionID)
 		log.Debug().
 			Str("session_id", sessionID).
 			Str("resolved_client_id", resolvedClientID).
 			Msg("Client ID resolved via resolver function")
-			
+
 		if resolvedClientID == "" {
 			log.Error().
 				Str("session_id", sessionID).
@@ -84,7 +84,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		}
 		clientID = resolvedClientID
 	}
-	
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("final_client_id", clientID).
@@ -102,7 +102,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		Str("client_id", clientID).
 		Str("request_id", requestID).
 		Msg("Registering tool handler for response")
-		
+
 	handler := func(response interface{}, err error) {
 		log.Info().
 			Str("session_id", sessionID).
@@ -111,7 +111,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			Bool("has_error", err != nil).
 			Interface("response", response).
 			Msg("Tool handler received response")
-			
+
 		if err != nil {
 			errChan <- err
 		} else {
@@ -119,11 +119,11 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			respChan <- response
 		}
 	}
-	
+
 	// Register with both sessionID and clientID to handle reconnections
 	b.RegisterToolHandler(sessionID, requestID, handler)
 	b.RegisterToolHandler(clientID, requestID, handler)
-	
+
 	// Create a cleanup function that will only be called when we get a final response
 	cleanup := func() {
 		log.Debug().
@@ -134,7 +134,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		b.UnregisterToolHandler(sessionID, requestID)
 		b.UnregisterToolHandler(clientID, requestID)
 	}
-	
+
 	// Set up a timeout cleanup in case we never get a response
 	timeoutTimer := time.AfterFunc(5*time.Minute, func() {
 		log.Warn().
@@ -151,13 +151,13 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			Str("session_id", sessionID).
 			Str("request_id", requestID).
 			Msg("Sending tool request via SignalR bridge")
-		
+
 		// Send tool request via SignalR
 		// Cast to the interface with SendToolRequest method
 		type signalRBridge interface {
 			SendToolRequest(sessionID string, toolRequest interface{}) error
 		}
-		
+
 		if bridge, ok := b.signalRBridge.(signalRBridge); ok {
 			if err := bridge.SendToolRequest(sessionID, request); err != nil {
 				return nil, fmt.Errorf("failed to send tool request via SignalR: %w", err)
@@ -165,7 +165,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		} else {
 			return nil, fmt.Errorf("SignalR bridge does not implement SendToolRequest method")
 		}
-		
+
 		// Wait for response with timeout
 		select {
 		case response := <-respChan:
@@ -181,7 +181,7 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 					timeoutTimer.Stop()
 					// Don't cleanup - keep handlers active for the actual response
 					return map[string]interface{}{
-						"status": "queued",
+						"status":  "queued",
 						"message": "Tool execution queued for user approval",
 					}, nil
 				}
@@ -189,14 +189,37 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			// This is a final response, cleanup handlers
 			timeoutTimer.Stop()
 			cleanup()
+
+			// Check if this is a read_range response before returning
+			if tool, ok := request["tool"].(string); ok && tool == "read_range" {
+				// It's a read_range response, so we need to filter it.
+				jsonData, err := json.Marshal(response)
+				if err != nil {
+					// Log the error but return the original response
+					log.Error().Err(err).Msg("Failed to marshal read_range response for filtering")
+					return response, nil
+				}
+
+				var rangeData ai.RangeData
+				if err := json.Unmarshal(jsonData, &rangeData); err != nil {
+					// Log the error but return the original response
+					log.Error().Err(err).Msg("Failed to unmarshal read_range response for filtering")
+					return response, nil
+				}
+
+				// Filter the data and return the result
+				return filterEmptyRows(&rangeData), nil
+			}
+
+			// For all other tools, return the response as-is
 			return response, nil
 		case err := <-errChan:
 			timeoutTimer.Stop()
 			cleanup()
 			return nil, err
-		case <-time.After(30 * time.Second):
+		case <-time.After(300 * time.Second):
 			// Don't cleanup here - the 5 minute timer will handle it
-			return nil, fmt.Errorf("tool request timeout after 30 seconds")
+			return nil, fmt.Errorf("tool request timeout after 300 seconds")
 		case <-ctx.Done():
 			timeoutTimer.Stop()
 			cleanup()
@@ -208,6 +231,73 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 			Msg("SignalR bridge not initialized")
 		return nil, fmt.Errorf("SignalR bridge not available")
 	}
+}
+
+// filterEmptyRows removes trailing empty rows from spreadsheet data to reduce payload size
+func filterEmptyRows(data *ai.RangeData) *ai.RangeData {
+	if data == nil || len(data.Values) == 0 {
+		return data
+	}
+
+	filtered := &ai.RangeData{
+		Address:    data.Address,
+		ColCount:   data.ColCount,
+		RowCount:   0,
+		Values:     [][]interface{}{},
+		Formulas:   [][]interface{}{},
+		Formatting: [][]ai.CellFormat{},
+	}
+
+	lastNonEmptyRow := -1
+
+	// Find last non-empty row by checking from the end
+	for i := len(data.Values) - 1; i >= 0; i-- {
+		row := data.Values[i]
+		hasContent := false
+		for _, cell := range row {
+			// Check if cell has any content (not nil and not empty string)
+			if cell != nil && cell != "" {
+				hasContent = true
+				break
+			}
+		}
+		if hasContent {
+			lastNonEmptyRow = i
+			break
+		}
+	}
+
+	// If all rows are empty, return minimal data
+	if lastNonEmptyRow == -1 {
+		filtered.RowCount = 0
+		log.Debug().
+			Str("address", data.Address).
+			Int("original_rows", len(data.Values)).
+			Msg("All rows are empty, returning empty dataset")
+		return filtered
+	}
+
+	// Copy only up to last non-empty row
+	filtered.Values = data.Values[:lastNonEmptyRow+1]
+	if data.Formulas != nil && len(data.Formulas) > 0 {
+		filtered.Formulas = data.Formulas[:lastNonEmptyRow+1]
+	}
+	if data.Formatting != nil && len(data.Formatting) > 0 {
+		filtered.Formatting = data.Formatting[:lastNonEmptyRow+1]
+	}
+	filtered.RowCount = lastNonEmptyRow + 1
+
+	// Log the filtering result
+	if filtered.RowCount < len(data.Values) {
+		log.Info().
+			Str("address", data.Address).
+			Int("original_rows", len(data.Values)).
+			Int("filtered_rows", filtered.RowCount).
+			Int("removed_rows", len(data.Values)-filtered.RowCount).
+			Msg("Filtered empty rows from range data")
+	}
+
+	return filtered
 }
 
 // ReadRange reads cell values from Excel
@@ -251,7 +341,7 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
 		if status, ok := respMap["status"].(string); ok && status == "queued" {
@@ -259,7 +349,7 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -276,7 +366,7 @@ func (b *BridgeImpl) ApplyFormula(ctx context.Context, sessionID string, rangeAd
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
 		if status, ok := respMap["status"].(string); ok && status == "queued" {
@@ -284,7 +374,7 @@ func (b *BridgeImpl) ApplyFormula(ctx context.Context, sessionID string, rangeAd
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -323,7 +413,7 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 		Str("range", rangeAddr).
 		Interface("format", format).
 		Msg("FormatRange called")
-	
+
 	// Validate format before sending
 	validator := NewFormatValidator()
 	if err := validator.ValidateFormat(format); err != nil {
@@ -335,7 +425,7 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 			Msg("Format validation failed")
 		return fmt.Errorf("format validation failed: %w", err)
 	}
-	
+
 	request := map[string]interface{}{
 		"tool":  "format_range",
 		"range": rangeAddr,
@@ -373,7 +463,7 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
 		if status, ok := respMap["status"].(string); ok && status == "queued" {
@@ -381,7 +471,7 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -400,7 +490,7 @@ func (b *BridgeImpl) CreateChart(ctx context.Context, sessionID string, config *
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
 		if status, ok := respMap["status"].(string); ok && status == "queued" {
@@ -408,7 +498,7 @@ func (b *BridgeImpl) CreateChart(ctx context.Context, sessionID string, config *
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -479,7 +569,7 @@ func (b *BridgeImpl) CreateNamedRange(ctx context.Context, sessionID string, nam
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
 		if status, ok := respMap["status"].(string); ok && status == "queued" {
@@ -487,7 +577,7 @@ func (b *BridgeImpl) CreateNamedRange(ctx context.Context, sessionID string, nam
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -504,7 +594,7 @@ func (b *BridgeImpl) InsertRowsColumns(ctx context.Context, sessionID string, po
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if the response indicates the tool was queued
 	if respMap, ok := response.(map[string]interface{}); ok {
 		if status, ok := respMap["status"].(string); ok && status == "queued" {
@@ -512,7 +602,7 @@ func (b *BridgeImpl) InsertRowsColumns(ctx context.Context, sessionID string, po
 			return fmt.Errorf("Tool execution queued for user approval")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -520,16 +610,16 @@ func (b *BridgeImpl) InsertRowsColumns(ctx context.Context, sessionID string, po
 func (b *BridgeImpl) RegisterToolHandler(sessionID, requestID string, handler func(interface{}, error)) {
 	b.handlerMutex.Lock()
 	defer b.handlerMutex.Unlock()
-	
+
 	if b.toolHandlers[sessionID] == nil {
 		b.toolHandlers[sessionID] = make(map[string]func(interface{}, error))
 	}
 	b.toolHandlers[sessionID][requestID] = handler
-	
+
 	// Check if there's a queued response waiting for this handler
 	b.queueMutex.Lock()
 	defer b.queueMutex.Unlock()
-	
+
 	queueKey := sessionID + ":" + requestID
 	if queued, ok := b.responseQueue[queueKey]; ok {
 		// Response arrived before handler, deliver it now
@@ -537,10 +627,10 @@ func (b *BridgeImpl) RegisterToolHandler(sessionID, requestID string, handler fu
 			Str("session_id", sessionID).
 			Str("request_id", requestID).
 			Msg("Delivering queued response to newly registered handler")
-		
+
 		// Deliver response asynchronously to avoid deadlock
 		go handler(queued.response, queued.err)
-		
+
 		// Remove from queue
 		delete(b.responseQueue, queueKey)
 	}
@@ -550,7 +640,7 @@ func (b *BridgeImpl) RegisterToolHandler(sessionID, requestID string, handler fu
 func (b *BridgeImpl) UnregisterToolHandler(sessionID, requestID string) {
 	b.handlerMutex.Lock()
 	defer b.handlerMutex.Unlock()
-	
+
 	if handlers, ok := b.toolHandlers[sessionID]; ok {
 		delete(handlers, requestID)
 		if len(handlers) == 0 {
@@ -562,7 +652,7 @@ func (b *BridgeImpl) UnregisterToolHandler(sessionID, requestID string) {
 // HandleToolResponse handles incoming tool responses from SignalR
 func (b *BridgeImpl) HandleToolResponse(sessionID, requestID string, response interface{}, err error) {
 	b.handlerMutex.RLock()
-	
+
 	// Try to find handler by sessionID first
 	if handlers, ok := b.toolHandlers[sessionID]; ok {
 		if handler, ok := handlers[requestID]; ok {
@@ -572,18 +662,18 @@ func (b *BridgeImpl) HandleToolResponse(sessionID, requestID string, response in
 		}
 	}
 	b.handlerMutex.RUnlock()
-	
+
 	// No handler found - queue the response
 	b.queueMutex.Lock()
 	defer b.queueMutex.Unlock()
-	
+
 	queueKey := sessionID + ":" + requestID
 	b.responseQueue[queueKey] = &queuedResponse{
 		response:  response,
 		err:       err,
 		timestamp: time.Now(),
 	}
-	
+
 	b.logger.Warn().
 		Str("session_id", sessionID).
 		Str("request_id", requestID).
@@ -594,10 +684,10 @@ func (b *BridgeImpl) HandleToolResponse(sessionID, requestID string, response in
 func (b *BridgeImpl) cleanupQueuedResponses() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		b.queueMutex.Lock()
-		
+
 		now := time.Now()
 		for key, queued := range b.responseQueue {
 			// Remove responses older than 5 minutes
@@ -609,7 +699,7 @@ func (b *BridgeImpl) cleanupQueuedResponses() {
 				delete(b.responseQueue, key)
 			}
 		}
-		
+
 		b.queueMutex.Unlock()
 	}
 }

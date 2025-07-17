@@ -24,7 +24,7 @@ export class SignalRClient extends EventEmitter {
     this.url = url
   }
 
-  async connect(token?: string): Promise<void> {
+  async connect(): Promise<void> {
     try {
       console.log(`🔌 Creating SignalR connection to: ${this.url}`)
       
@@ -58,11 +58,6 @@ export class SignalRClient extends EventEmitter {
       this.reconnectAttempts = 0
       this.emit('connected')
       
-      // Authenticate if token provided
-      if (token) {
-        await this.authenticate(token)
-      }
-      
       // Send any queued messages
       await this.processMessageQueue()
       
@@ -74,7 +69,7 @@ export class SignalRClient extends EventEmitter {
       if (!this.isIntentionallyClosed && this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++
         console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${this.reconnectInterval}ms...`)
-        setTimeout(() => this.connect(token), this.reconnectInterval)
+        setTimeout(() => this.connect(), this.reconnectInterval)
       }
     }
   }
@@ -107,6 +102,12 @@ export class SignalRClient extends EventEmitter {
     this.connection.on('connected', (data) => {
       console.log('📥 Received connected event:', data)
       this.emit('message', { type: 'notification', data })
+      
+      // Authenticate after receiving the connected event
+      console.log('🔐 Authenticating after connection...')
+      this.authenticate('dev-token-123').catch(error => {
+        console.error('Failed to authenticate after connection:', error)
+      })
     })
 
     this.connection.on('authSuccess', (data) => {

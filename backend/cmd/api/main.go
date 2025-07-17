@@ -155,6 +155,9 @@ func main() {
 	loggingMiddleware := middleware.NewLoggingMiddleware(logger)
 	router.Use(loggingMiddleware.Middleware)
 
+	// Add compression middleware for better performance
+	router.Use(middleware.GzipMiddleware)
+
 	// Health check endpoint
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -188,14 +191,14 @@ func main() {
 		MaxAge:           300,
 	})
 
-	// Create HTTP server
+	// Create HTTP server with extended timeouts for AI and Excel operations
 	port := getEnv("PORT", "8080")
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      corsOptions.Handler(router),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 6 * time.Minute, // Longer than max request timeout
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Start periodic session cleanup

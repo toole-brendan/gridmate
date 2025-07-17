@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	
+
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/documents"
 )
@@ -42,12 +42,12 @@ type ChatRequest struct {
 
 // ExcelContext represents Excel-specific context
 type ExcelContext struct {
-	Workbook      string                   `json:"workbook,omitempty"`
-	Worksheet     string                   `json:"worksheet,omitempty"`
-	Selection     services.SelectionChanged `json:"selection,omitempty"`
-	CellValues    map[string]interface{}   `json:"cell_values,omitempty"`
-	Formulas      map[string]string        `json:"formulas,omitempty"`
-	VisibleRange  string                   `json:"visible_range,omitempty"`
+	Workbook     string                    `json:"workbook,omitempty"`
+	Worksheet    string                    `json:"worksheet,omitempty"`
+	Selection    services.SelectionChanged `json:"selection,omitempty"`
+	CellValues   map[string]interface{}    `json:"cell_values,omitempty"`
+	Formulas     map[string]string         `json:"formulas,omitempty"`
+	VisibleRange string                    `json:"visible_range,omitempty"`
 }
 
 // ChatResponse represents the AI's response
@@ -61,15 +61,26 @@ type ChatResponse struct {
 
 // DocumentReference represents a reference to a source document
 type DocumentReference struct {
-	DocumentID  string `json:"document_id"`
-	Title       string `json:"title"`
-	ChunkID     string `json:"chunk_id"`
-	Excerpt     string `json:"excerpt"`
-	Relevance   float64 `json:"relevance"`
+	DocumentID string  `json:"document_id"`
+	Title      string  `json:"title"`
+	ChunkID    string  `json:"chunk_id"`
+	Excerpt    string  `json:"excerpt"`
+	Relevance  float64 `json:"relevance"`
 }
 
 // Chat handles AI chat requests with full context
 func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
+	// Add panic recovery for handler
+	defer func() {
+		if p := recover(); p != nil {
+			h.logger.WithFields(logrus.Fields{
+				"panic": p,
+				"path":  r.URL.Path,
+			}).Error("Panic in chat handler")
+			h.sendError(w, http.StatusInternalServerError, "Internal server error")
+		}
+	}()
+
 	userIDStr := r.Context().Value("user_id").(string)
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
@@ -85,7 +96,7 @@ func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
 
 	// Build context for chat
 	context := make(map[string]interface{})
-	
+
 	// Add Excel context if provided
 	if req.ExcelContext.Worksheet != "" {
 		context["workbook"] = req.ExcelContext.Workbook
@@ -107,7 +118,7 @@ func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			documentTexts := []string{}
 			for _, chunk := range docContext.Chunks {
 				documentTexts = append(documentTexts, chunk.Content)
-				
+
 				// Create document reference
 				if docInfo, ok := docContext.Documents[chunk.DocumentID]; ok {
 					ref := DocumentReference{
@@ -160,11 +171,11 @@ func (h *ChatHandler) Chat(w http.ResponseWriter, r *http.Request) {
 // GetChatSuggestions returns contextual suggestions
 func (h *ChatHandler) GetChatSuggestions(w http.ResponseWriter, r *http.Request) {
 	// userIDStr := r.Context().Value("user_id").(string) // TODO: Use when needed
-	
+
 	// Get context from query params
 	worksheet := r.URL.Query().Get("worksheet")
 	selectedCell := r.URL.Query().Get("selected_cell")
-	
+
 	suggestions := []string{
 		"Explain this formula",
 		"Check for errors in this range",
@@ -187,9 +198,9 @@ func (h *ChatHandler) GetChatSuggestions(w http.ResponseWriter, r *http.Request)
 
 // SuggestFormula suggests formulas based on context
 type SuggestFormulaRequest struct {
-	Description   string                 `json:"description" validate:"required"`
-	CellReference string                 `json:"cell_reference"`
-	ExcelContext  ExcelContext           `json:"excel_context,omitempty"`
+	Description   string       `json:"description" validate:"required"`
+	CellReference string       `json:"cell_reference"`
+	ExcelContext  ExcelContext `json:"excel_context,omitempty"`
 }
 
 type SuggestFormulaResponse struct {
@@ -197,14 +208,25 @@ type SuggestFormulaResponse struct {
 }
 
 type FormulaSuggestion struct {
-	Formula     string `json:"formula"`
-	Description string `json:"description"`
-	Example     string `json:"example,omitempty"`
+	Formula     string  `json:"formula"`
+	Description string  `json:"description"`
+	Example     string  `json:"example,omitempty"`
 	Confidence  float64 `json:"confidence"`
 }
 
 // SuggestFormula provides AI-powered formula suggestions
 func (h *ChatHandler) SuggestFormula(w http.ResponseWriter, r *http.Request) {
+	// Add panic recovery for handler
+	defer func() {
+		if p := recover(); p != nil {
+			h.logger.WithFields(logrus.Fields{
+				"panic": p,
+				"path":  r.URL.Path,
+			}).Error("Panic in SuggestFormula handler")
+			h.sendError(w, http.StatusInternalServerError, "Internal server error")
+		}
+	}()
+
 	var req SuggestFormulaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.sendError(w, http.StatusBadRequest, "Invalid request body")

@@ -33,7 +33,12 @@ func (te *ToolExecutor) executeReadRange(ctx context.Context, sessionID string, 
 		Bool("include_formatting", includeFormatting).
 		Msg("Executing read range")
 
-	return te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, includeFormulas, includeFormatting)
+	result, err := te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, includeFormulas, includeFormatting)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 // executeWriteRange handles writing data to Excel

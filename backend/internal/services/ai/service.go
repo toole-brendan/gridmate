@@ -722,7 +722,25 @@ func (s *Service) ProcessChatWithTools(ctx context.Context, sessionID string, us
 }
 
 // ProcessChatWithToolsAndHistory processes a chat message with history and handles tool calls automatically
-func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID string, userMessage string, context *FinancialContext, chatHistory []Message, autonomyMode string) (*CompletionResponse, error) {
+func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID string, userMessage string, context *FinancialContext, chatHistory []Message, autonomyMode string) (resp *CompletionResponse, err error) {
+	// Add panic recovery to prevent crashes
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().
+				Interface("panic", r).
+				Str("session_id", sessionID).
+				Str("user_message", userMessage).
+				Str("stack", fmt.Sprintf("%+v", r)).
+				Msg("Panic in ProcessChatWithToolsAndHistory")
+
+			err = fmt.Errorf("internal error processing request: %v", r)
+			resp = &CompletionResponse{
+				Content: "An error occurred processing your request. Please try again.",
+				Usage:   Usage{},
+			}
+		}
+	}()
+
 	log.Info().
 		Str("session_id", sessionID).
 		Str("user_message", userMessage).

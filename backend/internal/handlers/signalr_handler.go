@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/gridmate/backend/internal/services"
+	"github.com/sirupsen/logrus"
 )
 
 // SignalRHandler handles requests from the SignalR bridge
@@ -60,24 +60,24 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"session_id":     req.SessionID,
-		"content":        req.Content,
-		"has_context":    req.ExcelContext != nil,
-		"excel_context":  req.ExcelContext,
-		"autonomy_mode":  req.AutonomyMode,
+		"session_id":    req.SessionID,
+		"content":       req.Content,
+		"has_context":   req.ExcelContext != nil,
+		"excel_context": req.ExcelContext,
+		"autonomy_mode": req.AutonomyMode,
 	}).Info("Received chat message from SignalR, processing synchronously.")
 
 	// --- Start of Synchronous Processing ---
 
 	// Create a mock Excel session for SignalR clients
 	h.excelBridge.CreateSignalRSession(req.SessionID)
-	
+
 	// Create chat message with Excel context
 	excelContext := req.ExcelContext
 	if excelContext == nil {
 		excelContext = make(map[string]interface{})
 	}
-	
+
 	chatMsg := services.ChatMessage{
 		Content:      req.Content,
 		SessionID:    req.SessionID,
@@ -131,7 +131,8 @@ type SignalRToolResponse struct {
 	ErrorDetails string                 `json:"errorDetails"` // Stack trace or detailed error info
 	Metadata     map[string]interface{} `json:"metadata"`     // Additional context
 	Timestamp    time.Time              `json:"timestamp"`
-	Queued       bool                   `json:"queued"` // Indicates tool is queued for approval
+	Queued       bool                   `json:"queued"`       // Indicates tool is queued for approval
+	Acknowledged bool                   `json:"acknowledged"` // Indicates this is just an acknowledgment
 }
 
 // HandleSignalRToolResponse processes tool responses from SignalR
@@ -149,19 +150,37 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"request_id": req.RequestID,
-		"has_error":  req.Error != "",
-		"has_details": req.ErrorDetails != "",
+		"request_id":   req.RequestID,
+		"has_error":    req.Error != "",
+		"has_details":  req.ErrorDetails != "",
 		"has_metadata": len(req.Metadata) > 0,
+		"acknowledged": req.Acknowledged,
+		"queued":       req.Queued,
 	}).Info("Received tool response from SignalR")
-	
+
+	// Handle acknowledged responses - don't process as final
+	if req.Acknowledged {
+		h.logger.WithFields(logrus.Fields{
+			"request_id": req.RequestID,
+			"session_id": req.SessionID,
+		}).Info("Received acknowledgment for tool request")
+
+		// Don't route to handler yet, wait for final response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SignalRResponse{
+			Success: true,
+			Message: "Acknowledgment received",
+		})
+		return
+	}
+
 	// Log detailed error information if present
 	if req.Error != "" && req.ErrorDetails != "" {
 		h.logger.WithFields(logrus.Fields{
-			"request_id": req.RequestID,
-			"error": req.Error,
+			"request_id":    req.RequestID,
+			"error":         req.Error,
 			"error_details": req.ErrorDetails,
-			"metadata": req.Metadata,
+			"metadata":      req.Metadata,
 		}).Error("Tool execution failed with details")
 	}
 
@@ -178,18 +197,18 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 				toolErr = fmt.Errorf("%s", req.Error)
 			}
 		}
-		
+
 		// If tool is queued, return a special result to continue processing
 		if req.Queued {
 			// Return a special result that indicates the tool is queued
 			bridgeImpl.HandleToolResponse(req.SessionID, req.RequestID, map[string]interface{}{
-				"status": "queued",
+				"status":  "queued",
 				"message": "Tool queued for user approval",
 			}, nil)
 		} else {
 			bridgeImpl.HandleToolResponse(req.SessionID, req.RequestID, req.Result, toolErr)
 		}
-		
+
 		h.logger.WithFields(logrus.Fields{
 			"request_id": req.RequestID,
 			"session_id": req.SessionID,

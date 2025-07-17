@@ -10,7 +10,8 @@ import { useChatManager } from './useChatManager';
 interface UseDiffPreviewReturn {
   // Simplified actions
   generatePreview: (messageId: string, operations: AISuggestedOperation[]) => Promise<void>;
-  acceptCurrentPreview: () => Promise<void>;
+  generateBatchedPreview: (messageId: string, operations: AISuggestedOperation[]) => void;
+  acceptCurrentPreview: (sendResponse?: (requestId: string, result: any, error: string | null) => Promise<void>) => Promise<void>;
   rejectCurrentPreview: () => Promise<void>;
   
   // State
@@ -24,6 +25,115 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
   const [isCalculating, setIsCalculating] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const excelService = ExcelService.getInstance();
+
+  // Helper to extract combined range from multiple operations
+  const extractCombinedRange = useCallback((operations: AISuggestedOperation[]): string | undefined => {
+    const ranges = operations
+      .map(op => extractTargetRange([op]))
+      .filter(Boolean) as string[];
+    
+    if (ranges.length === 0) return undefined;
+    if (ranges.length === 1) return ranges[0];
+    
+    // TODO: Implement logic to combine multiple ranges into a single encompassing range
+    // For now, just return the first range
+    return ranges[0];
+  }, []);
+
+  // Optimized batched preview generation that doesn't block
+  const generateBatchedPreview = useCallback(async (
+    messageId: string, 
+    operations: AISuggestedOperation[]
+  ) => {
+    // Don't block on preview generation
+    requestAnimationFrame(async () => {
+      try {
+        setIsCalculating(true);
+        setValidationErrors([]);
+        
+        // Check if this is a new session
+        const isNewSession = !store.activePreview || store.activePreview.messageId !== messageId;
+        
+        if (isNewSession && store.activePreview) {
+          // Auto-accept existing preview
+          console.log('[Diff Preview] Auto-accepting existing preview for new message');
+          for (const op of store.activePreview.operations) {
+            await excelService.executeToolRequest(op.tool, op.input);
+          }
+          await GridVisualizer.clearHighlights(store.activePreview.hunks);
+          chatManager.updateMessageDiff(store.activePreview.messageId, {
+            operations: store.activePreview.operations,
+            hunks: store.activePreview.hunks,
+            status: 'accepted',
+            timestamp: Date.now(),
+          });
+          store.clearPreview();
+        }
+        
+        // Generate preview for all operations at once
+        const snapshot = await excelService.createWorkbookSnapshot({
+          rangeAddress: extractCombinedRange(operations) || 'UsedRange',
+          includeFormulas: true,
+          includeStyles: false,
+          maxCells: 50000
+        });
+        
+        if (!snapshot) {
+          throw new Error('Failed to create workbook snapshot');
+        }
+        
+        // Store original snapshot if new session
+        if (isNewSession) {
+          useDiffSessionStore.setState({ originalSnapshot: snapshot });
+        }
+        
+        // Simulate all operations
+        let simulatedSnapshot = snapshot;
+        for (const op of operations) {
+          simulatedSnapshot = await simulateOperation(simulatedSnapshot, op);
+        }
+        
+        // Calculate and display diff
+        const originalSnapshot = useDiffSessionStore.getState().originalSnapshot || snapshot;
+        const diffCalculator = getDiffCalculator({
+          maxDiffs: 10000,
+          includeStyles: true,
+          chunkSize: 1000
+        });
+        const hunks = diffCalculator.calculateDiff(originalSnapshot, simulatedSnapshot);
+        
+        // Apply highlights in batches for performance
+        await GridVisualizer.clearHighlights();
+        const isBatched = hunks.length > 100;
+        if (isBatched) {
+          await GridVisualizer.applyHighlightsBatched(hunks, 50);
+        } else {
+          await GridVisualizer.applyHighlights(hunks);
+        }
+        
+        // Store preview
+        store.setActivePreview(messageId, operations, hunks, simulatedSnapshot);
+        
+        // Persist to message history
+        chatManager.updateMessageDiff(messageId, {
+          operations,
+          hunks,
+          status: 'previewing',
+          timestamp: Date.now(),
+        });
+        
+      } catch (error) {
+        console.error('[Diff Preview] Batch preview generation failed:', error);
+        setValidationErrors([{ 
+          message: error instanceof Error ? error.message : 'Failed to generate preview',
+          severity: 'error' 
+        }]);
+        store.clearPreview();
+      } finally {
+        setIsCalculating(false);
+      }
+    });
+  }, [store, excelService, chatManager, extractCombinedRange]);
 
   const generatePreview = useCallback(async (messageId: string, operations: AISuggestedOperation[]) => {
     try {
@@ -134,14 +244,30 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
     }
   }, [store, excelService, chatManager]);
 
-  const acceptCurrentPreview = useCallback(async () => {
+  const acceptCurrentPreview = useCallback(async (sendResponse?: (requestId: string, result: any, error: string | null) => Promise<void>) => {
     if (!store.activePreview) return;
     const { messageId, operations, hunks } = store.activePreview;
 
     try {
-      // Apply the operations to Excel
-      for (const op of operations) {
-        await excelService.executeToolRequest(op.tool, op.input);
+      // If we can send individual responses, execute and respond for each operation
+      if (sendResponse) {
+        for (const op of operations) {
+          try {
+            const result = await excelService.executeToolRequest(op.tool, op.input);
+            await sendResponse(op.input.request_id, result, null);
+          } catch (error) {
+            await sendResponse(
+              op.input.request_id, 
+              null, 
+              error instanceof Error ? error.message : 'Operation failed'
+            );
+          }
+        }
+      } else {
+        // Fallback: execute all operations without sending responses
+        for (const op of operations) {
+          await excelService.executeToolRequest(op.tool, op.input);
+        }
       }
 
       // Persist the final state to the message
@@ -196,6 +322,7 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
 
   return {
     generatePreview,
+    generateBatchedPreview,
     acceptCurrentPreview,
     rejectCurrentPreview,
     activePreviewMessageId: store.activePreview?.messageId || null,

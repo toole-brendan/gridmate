@@ -1,6 +1,7 @@
 declare const Excel: any
 import { FormatErrorHandler } from '../../utils/formatErrorHandler'
 import { ToolExecutionError } from '../../types/errors'
+import type { BatchableRequest } from './batchExecutor'
 
 export interface ExcelContext {
   workbook: string
@@ -131,6 +132,95 @@ export class ExcelService {
   // Clear cache when needed
   clearCache(): void {
     this.worksheetCache.clear()
+  }
+
+  // Filter empty rows and columns to reduce payload size
+  private filterEmptyRowsAndColumns(data: {
+    values: any[][],
+    formulas?: any[][],
+    address: string,
+    rowCount: number,
+    colCount: number
+  }): any {
+    console.log(`[ExcelService] filterEmptyRowsAndColumns called for range ${data.address}`);
+    console.log(`[ExcelService] Original data size: ${data.rowCount}x${data.colCount} = ${data.rowCount * data.colCount} cells`);
+    
+    if (!data.values || data.values.length === 0) {
+      console.log(`[ExcelService] No values to filter, returning original data`);
+      return data;
+    }
+
+    // Find last non-empty row
+    let lastNonEmptyRow = -1;
+    for (let i = data.values.length - 1; i >= 0; i--) {
+      const row = data.values[i];
+      if (row.some(cell => cell !== null && cell !== undefined && cell !== '')) {
+        lastNonEmptyRow = i;
+        break;
+      }
+    }
+    console.log(`[ExcelService] Last non-empty row: ${lastNonEmptyRow}`);
+
+    // Find last non-empty column
+    let lastNonEmptyCol = -1;
+    if (lastNonEmptyRow >= 0) {
+      for (let j = data.colCount - 1; j >= 0; j--) {
+        let hasContent = false;
+        for (let i = 0; i <= lastNonEmptyRow; i++) {
+          const cell = data.values[i]?.[j];
+          if (cell !== null && cell !== undefined && cell !== '') {
+            hasContent = true;
+            break;
+          }
+        }
+        if (hasContent) {
+          lastNonEmptyCol = j;
+          break;
+        }
+      }
+    }
+    console.log(`[ExcelService] Last non-empty column: ${lastNonEmptyCol}`);
+
+    // If no data, return minimal response
+    if (lastNonEmptyRow === -1 || lastNonEmptyCol === -1) {
+      console.log(`[ExcelService] No non-empty cells found, returning empty response`);
+      return {
+        ...data,
+        values: [],
+        formulas: [],
+        rowCount: 0,
+        colCount: 0
+      };
+    }
+
+    // Filter the data
+    const filteredValues = data.values
+      .slice(0, lastNonEmptyRow + 1)
+      .map(row => row.slice(0, lastNonEmptyCol + 1));
+
+    const filteredFormulas = data.formulas
+      ? data.formulas
+          .slice(0, lastNonEmptyRow + 1)
+          .map(row => row.slice(0, lastNonEmptyCol + 1))
+      : undefined;
+
+    const newRowCount = lastNonEmptyRow + 1;
+    const newColCount = lastNonEmptyCol + 1;
+    const originalCellCount = data.rowCount * data.colCount;
+    const newCellCount = newRowCount * newColCount;
+    const reduction = ((originalCellCount - newCellCount) / originalCellCount * 100).toFixed(1);
+
+    // Log the filtering impact
+    console.log(`[ExcelService] ✅ Filtered data from ${data.rowCount}x${data.colCount} (${originalCellCount} cells) to ${newRowCount}x${newColCount} (${newCellCount} cells)`);
+    console.log(`[ExcelService] 📉 Payload reduction: ${reduction}%`);
+
+    return {
+      ...data,
+      values: filteredValues,
+      formulas: filteredFormulas,
+      rowCount: newRowCount,
+      colCount: newColCount
+    };
   }
 
 
@@ -528,6 +618,108 @@ export class ExcelService {
     }
   }
 
+  // Enhanced batch execute with proper grouping and ordering
+  public async batchExecuteToolRequests(requests: any[]): Promise<any[]> {
+    // Group requests by type for optimal execution
+    const grouped = this.groupRequestsByType(requests);
+    
+    return Excel.run(async (context: any) => {
+      const results: any[] = new Array(requests.length);
+      
+      // Execute each group efficiently
+      for (const [tool, groupRequests] of grouped) {
+        const groupResults = await this.executeBatchByType(tool, groupRequests, context);
+        
+        // Map results back to original order
+        groupResults.forEach((result, index) => {
+          const originalIndex = groupRequests[index].originalIndex;
+          results[originalIndex] = result;
+        });
+      }
+      
+      // Single sync for all operations
+      await context.sync();
+      return results;
+    });
+  }
+
+  private groupRequestsByType(requests: any[]): Map<string, any[]> {
+    const groups = new Map<string, any[]>();
+    
+    requests.forEach((request, index) => {
+      const tool = request.tool;
+      if (!groups.has(tool)) {
+        groups.set(tool, []);
+      }
+      groups.get(tool)!.push({ ...request, originalIndex: index });
+    });
+    
+    return groups;
+  }
+
+  private async executeBatchByType(tool: string, requests: any[], context: any): Promise<any[]> {
+    const results = [];
+    
+    for (const request of requests) {
+      try {
+        let result;
+        switch (tool) {
+          case 'write_range':
+            result = await this.toolWriteRange(request, context);
+            break;
+          case 'apply_formula':
+            result = await this.toolApplyFormula(request, context);
+            break;
+          case 'format_range':
+            result = await this.toolFormatRange(request, context);
+            break;
+          case 'clear_range':
+            // toolClearRange doesn't accept context parameter
+            result = await this.toolClearRange(request);
+            break;
+          default:
+            result = { error: `Tool ${tool} is not batchable` };
+        }
+        results.push(result);
+      } catch (error) {
+        results.push({ error: (error as Error).message });
+      }
+    }
+    
+    return results;
+  }
+
+  // Batch execute multiple tool requests in a single Excel.run call
+  public async batchExecute(requests: BatchableRequest[]): Promise<any[]> {
+    return Excel.run(async (context: any) => {
+      const results = [];
+      for (const request of requests) {
+        try {
+          let result;
+          switch (request.tool) {
+            case 'write_range':
+              result = await this.toolWriteRange(request.input, context);
+              break;
+            case 'apply_formula':
+              result = await this.toolApplyFormula(request.input, context);
+              break;
+            case 'format_range':
+              result = await this.toolFormatRange(request.input, context);
+              break;
+            // Add other batchable tools here
+            default:
+              result = { error: `Tool ${request.tool} is not batchable` };
+          }
+          results.push(result);
+        } catch (error) {
+          results.push({ error: (error as Error).message });
+        }
+      }
+      await context.sync();
+      return results;
+    });
+  }
+
   // Batch read multiple ranges in a single Excel.run call for performance
   async batchReadRange(requests: { requestId: string; range: string }[]): Promise<Map<string, RangeData | null>> {
     console.log(`[ExcelService] Batch reading ${requests.length} ranges`);
@@ -557,6 +749,8 @@ export class ExcelService {
       // Process results
       for (const { requestId, range } of rangePromises) {
         try {
+          console.log(`[ExcelService] Processing range ${range.address} for request ${requestId}`);
+          
           const data: RangeData = {
             values: range.values,
             formulas: range.formulas,
@@ -564,7 +758,15 @@ export class ExcelService {
             rowCount: range.rowCount,
             colCount: range.columnCount
           };
-          results.set(requestId, data);
+          
+          console.log(`[ExcelService] Original range data: ${data.rowCount}x${data.colCount} = ${data.rowCount * data.colCount} cells`);
+          
+          // Apply filtering to reduce payload size
+          const filteredData = this.filterEmptyRowsAndColumns(data);
+          
+          console.log(`[ExcelService] Filtered range data: ${filteredData.rowCount}x${filteredData.colCount} = ${filteredData.rowCount * filteredData.colCount} cells`);
+          
+          results.set(requestId, filteredData);
         } catch (error) {
           console.error(`[ExcelService] Failed to process range result:`, error);
           results.set(requestId, null);
@@ -632,6 +834,9 @@ export class ExcelService {
         colCount: excelRange.columnCount
       }
       
+      console.log(`📊 Original data size: ${result.rowCount}x${result.colCount} = ${result.rowCount * result.colCount} cells`)
+      console.log(`📊 First few values:`, result.values.slice(0, 3).map(row => row.slice(0, 5)))
+      
       if (include_formulas) {
         result.formulas = excelRange.formulas
       }
@@ -641,16 +846,20 @@ export class ExcelService {
         result.formatting = []
       }
       
-      console.log('📊 toolReadRange result:', result)
-      return result
+      // Apply filtering to reduce payload size
+      const filteredResult = this.filterEmptyRowsAndColumns(result);
+      
+      console.log(`📊 Filtered data size: ${filteredResult.rowCount}x${filteredResult.colCount} = ${filteredResult.rowCount * filteredResult.colCount} cells`)
+      console.log('📊 toolReadRange result:', filteredResult)
+      return filteredResult
     })
   }
 
-  private async toolWriteRange(input: any): Promise<any> {
+  private async toolWriteRange(input: any, excelContext?: any): Promise<any> {
     const { range, values } = input
     console.log(`[✅ Diff Apply Success] Executing toolWriteRange.`, { range, values });
     
-    return Excel.run(async (context: any) => {
+    const run = async (context: any) => {
       try {
         const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
         const excelRange = worksheet.getRange(rangeAddress);
@@ -689,14 +898,19 @@ export class ExcelService {
         }
         throw new Error(`Failed to write to range "${range}": ${(error as Error).message}`);
       }
-    })
+    };
+
+    if (excelContext) {
+      return run(excelContext);
+    }
+    return Excel.run(run);
   }
 
-  private async toolApplyFormula(input: any): Promise<any> {
+  private async toolApplyFormula(input: any, excelContext?: any): Promise<any> {
     const { range, formula } = input
     console.log(`[✅ Diff Apply Success] Executing toolApplyFormula.`, { range, formula });
     
-    return Excel.run(async (context: any) => {
+    const run = async (context: any) => {
       try {
         const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
         const excelRange = worksheet.getRange(rangeAddress);
@@ -720,7 +934,12 @@ export class ExcelService {
         }
         throw new Error(`Failed to apply formula to range "${range}": ${(error as Error).message}`);
       }
-    })
+    };
+
+    if (excelContext) {
+      return run(excelContext);
+    }
+    return Excel.run(run);
   }
 
   private async toolAnalyzeData(input: any): Promise<DataAnalysis> {
@@ -764,30 +983,31 @@ export class ExcelService {
     })
   }
 
-  private async retryOperation<T>(
-    operation: () => Promise<T>,
-    maxRetries: number = 3,
-    delay: number = 1000
-  ): Promise<T> {
-    let lastError: Error | null = null
+  // Commented out as it's no longer used after batching implementation
+  // private async retryOperation<T>(
+  //   operation: () => Promise<T>,
+  //   maxRetries: number = 3,
+  //   delay: number = 1000
+  // ): Promise<T> {
+  //   let lastError: Error | null = null
     
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        return await operation()
-      } catch (error) {
-        lastError = error as Error
-        console.warn(`Operation failed (attempt ${i + 1}/${maxRetries}):`, error)
+  //   for (let i = 0; i < maxRetries; i++) {
+  //     try {
+  //       return await operation()
+  //     } catch (error) {
+  //       lastError = error as Error
+  //       console.warn(`Operation failed (attempt ${i + 1}/${maxRetries}):`, error)
         
-        if (i < maxRetries - 1) {
-          await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)))
-        }
-      }
-    }
+  //       if (i < maxRetries - 1) {
+  //         await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)))
+  //       }
+  //     }
+  //   }
     
-    throw lastError
-  }
+  //   throw lastError
+  // }
 
-  private async toolFormatRange(input: any): Promise<any> {
+  private async toolFormatRange(input: any, excelContext?: any): Promise<any> {
     const { range, number_format, font, fill_color, alignment } = input
     
     console.log(`🎨 toolFormatRange called with:`, {
@@ -798,8 +1018,7 @@ export class ExcelService {
       alignment
     })
     
-    return this.retryOperation(async () => {
-      return Excel.run(async (context: any) => {
+    const run = async (context: any) => {
       try {
         const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
         const excelRange = worksheet.getRange(rangeAddress)
@@ -1059,8 +1278,12 @@ export class ExcelService {
         }
         throw error
       }
-    })
-    })
+    }
+
+    if (excelContext) {
+      return run(excelContext);
+    }
+    return Excel.run(run);
   }
 
   private async toolCreateChart(input: any): Promise<any> {

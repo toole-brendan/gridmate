@@ -71,7 +71,7 @@ export const RefactoredChatInterface: React.FC = () => {
   // --- Mention and Context System ---
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([]);
   const [activeContext, setActiveContext] = useState<ContextItem[]>([]);
-  const [isContextEnabled, setIsContextEnabled] = useState(false);
+  const [isContextEnabled, setIsContextEnabled] = useState(false); // Default to false - requires user activation
   const [rawSelection, setRawSelection] = useState<string | null>(null);
   const debouncedSelection = useDebounce(rawSelection, 300);
 
@@ -103,10 +103,6 @@ export const RefactoredChatInterface: React.FC = () => {
         contextItems.push({ id: 'selection', type: 'selection', label: label, value: context.selectedRange });
       }
       setActiveContext(contextItems);
-      // Automatically enable context when a real selection is made
-      if (contextItems.length > 0 && contextItems[0].id !== 'no-selection') {
-        setIsContextEnabled(true);
-      }
     } catch (error) {
       addDebugLog(`Failed to update mentions: ${error}`, 'error');
     }
@@ -187,22 +183,12 @@ export const RefactoredChatInterface: React.FC = () => {
   };
 
   const handleContextClick = () => {
-    // Check if we have the placeholder context
-    const hasPlaceholder = activeContext.some(item => item.id === 'no-selection');
-    
-    if (hasPlaceholder) {
-      // If placeholder is clicked, prompt user to select a range
-      addDebugLog('Placeholder context clicked - prompting user to select a range');
-      chatManager.addMessage({
-        id: `system_${Date.now()}`,
-        role: 'system',
-        content: 'Please select a range in Excel to add it as context for your messages.',
-        timestamp: new Date(),
-        type: 'system',
-      });
+    // This function becomes the explicit activation/deactivation handler
+    setIsContextEnabled(!isContextEnabled);
+    if (!isContextEnabled) {
+      addDebugLog('Context explicitly activated by user.', 'success');
     } else {
-      // Otherwise, toggle context enabled state
-      setIsContextEnabled(!isContextEnabled);
+      addDebugLog('Context deactivated by user.', 'info');
     }
   };
 
@@ -401,7 +387,7 @@ ${auditLogs || 'No audit logs.'}
           isContextEnabled={isContextEnabled}
           onContextToggle={handleContextClick}
           onClearChat={chatManager.clearMessages}
-          onAcceptDiff={diffPreview.acceptCurrentPreview}
+          onAcceptDiff={() => diffPreview.acceptCurrentPreview(messageHandlers.sendFinalToolResponse)}
           onRejectDiff={diffPreview.rejectCurrentPreview}
         />
       </div>

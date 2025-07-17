@@ -338,13 +338,14 @@ func (te *ToolExecutor) validateResponseSize(result *ToolResult) (*ToolResult, e
 }
 
 // ExecuteTool executes a tool call and returns the result
-func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolCall ToolCall) (*ToolResult, error) {
+func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolCall ToolCall, autonomyMode string) (*ToolResult, error) {
 	// Log tool execution start
 	log.Info().
 		Str("tool", toolCall.Name).
 		Str("session", sessionID).
 		Str("tool_id", toolCall.ID).
 		Interface("input", toolCall.Input).
+		Str("autonomy_mode", autonomyMode).
 		Msg("Executing Excel tool")
 
 	result := &ToolResult{
@@ -372,6 +373,10 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		}
 
 	case "write_range":
+		// Add preview mode flag for agent-default autonomy mode
+		if autonomyMode == "agent-default" {
+			toolCall.Input["preview_mode"] = true
+		}
 		err := te.executeWriteRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			// Check if it's a queued error
@@ -460,6 +465,10 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		}
 
 	case "apply_formula":
+		// Add preview mode flag for agent-default autonomy mode
+		if autonomyMode == "agent-default" {
+			toolCall.Input["preview_mode"] = true
+		}
 		err := te.executeApplyFormula(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			// Check if it's a queued error
@@ -550,6 +559,10 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		result.Content = content
 
 	case "format_range":
+		// Add preview mode flag for agent-default autonomy mode
+		if autonomyMode == "agent-default" {
+			toolCall.Input["preview_mode"] = true
+		}
 		err := te.executeFormatRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			// Check if it's a queued error

@@ -346,6 +346,11 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 		"preserve_formatting": preserveFormatting,
 	}
 
+	// Check if preview mode is set in context
+	if previewMode, ok := ctx.Value("preview_mode").(bool); ok && previewMode {
+		request["preview_mode"] = true
+	}
+
 	response, err := b.sendToolRequest(ctx, sessionID, request)
 	if err != nil {
 		return err
@@ -369,6 +374,11 @@ func (b *BridgeImpl) ApplyFormula(ctx context.Context, sessionID string, rangeAd
 		"range":               rangeAddr,
 		"formula":             formula,
 		"relative_references": relativeRefs,
+	}
+
+	// Check if preview mode is set in context
+	if previewMode, ok := ctx.Value("preview_mode").(bool); ok && previewMode {
+		request["preview_mode"] = true
 	}
 
 	response, err := b.sendToolRequest(ctx, sessionID, request)
@@ -462,6 +472,11 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 				"vertical":   format.Alignment.Vertical,
 			}
 		}
+	}
+
+	// Check if preview mode is set in context
+	if previewMode, ok := ctx.Value("preview_mode").(bool); ok && previewMode {
+		request["preview_mode"] = true
 	}
 
 	b.logger.Info().

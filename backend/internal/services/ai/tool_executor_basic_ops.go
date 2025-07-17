@@ -148,6 +148,11 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 		return err
 	}
 
+	// Add preview mode to context if present
+	if previewMode, ok := input["preview_mode"].(bool); ok && previewMode {
+		ctx = context.WithValue(ctx, "preview_mode", true)
+	}
+
 	// Execute the write
 	err = te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, expandedValues, preserveFormatting)
 
@@ -218,6 +223,11 @@ func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID strin
 	// Validate formula before applying
 	if err := te.validateFormulaBeforeApplication(ctx, sessionID, formula, rangeAddr); err != nil {
 		return fmt.Errorf("formula validation failed: %w", err)
+	}
+
+	// Add preview mode to context if present
+	if previewMode, ok := input["preview_mode"].(bool); ok && previewMode {
+		ctx = context.WithValue(ctx, "preview_mode", true)
 	}
 
 	// Execute the formula application
@@ -345,6 +355,11 @@ func (te *ToolExecutor) executeFormatRange(ctx context.Context, sessionID string
 		format.Alignment = &Alignment{
 			Horizontal: align,
 		}
+	}
+
+	// Add preview mode to context if present
+	if previewMode, ok := input["preview_mode"].(bool); ok && previewMode {
+		ctx = context.WithValue(ctx, "preview_mode", true)
 	}
 
 	// Execute the format operation

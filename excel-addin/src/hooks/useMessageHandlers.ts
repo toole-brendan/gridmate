@@ -187,8 +187,12 @@ export const useMessageHandlers = (
     
     // Process the tool based on type
     if (WRITE_TOOLS.has(toolRequest.tool)) {
-      // Check if preview is requested
-      const shouldPreview = toolRequest.preview !== false && autonomyMode !== 'full-autonomy';
+      // Check if preview is requested (check both preview and preview_mode fields)
+      // If preview_mode is explicitly set to true, use preview mode
+      const shouldPreview = (toolRequest.preview_mode === true || (toolRequest.preview !== false && autonomyMode !== 'full-autonomy'));
+      
+      // Debug logging for preview mode
+      addDebugLog(`Tool ${toolRequest.tool} - preview_mode: ${toolRequest.preview_mode}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
       
       // Log tool execution
       AuditLogger.logToolExecution({

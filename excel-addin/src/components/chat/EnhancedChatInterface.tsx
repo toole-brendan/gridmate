@@ -260,14 +260,14 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                   </code>
                 </div>
               )}
-              {message.operation.input.values && (
+              {/* {message.operation.input.values && (
                 <div className="text-sm">
                   <span className="text-text-secondary font-caption">Values:</span>
                   <div className="mt-1 text-xs bg-app-background rounded border border-border-primary p-2 max-h-32 overflow-auto font-caption" style={{ fontFamily: 'IBM Plex Mono, monospace' }}>
                     {JSON.stringify(message.operation.input.values, null, 2)}
                   </div>
                 </div>
-              )}
+              )} */}
               {message.operation.input.formula && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-text-secondary font-caption">Formula:</span>
@@ -290,7 +290,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                     }
                   }}
                   disabled={message.status !== 'pending'}
-                  className="px-3 py-1 text-sm font-caption rounded-md bg-[#0066CC] text-white hover:bg-[#0059b3] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 font-caption rounded-md bg-[#0066CC] text-white hover:bg-[#0059b3] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Accept
                 </button>
@@ -303,7 +303,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                     }
                   }}
                   disabled={message.status !== 'pending'}
-                  className="px-3 py-1 text-sm font-caption rounded-md bg-transparent text-[#0066CC] border border-[#0066CC] hover:bg-[#0066CC]/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 font-caption rounded-md bg-transparent text-[#0066CC] border border-[#0066CC] hover:bg-[#0066CC]/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Reject
                 </button>

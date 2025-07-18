@@ -218,6 +218,8 @@ export class GridVisualizer {
             case DiffKind.ValueChanged:
               // Light yellow background
               range.format.fill.color = this.COLORS[DiffKind.ValueChanged]
+              // Italic font for preview values
+              range.format.font.italic = true
               // Show new value (old value is shown with strikethrough ideally)
               if (hunk.after && hunk.after.v !== undefined) {
                 // Note: We can't show both old and new in the same cell
@@ -230,6 +232,8 @@ export class GridVisualizer {
             case DiffKind.FormulaChanged:
               // Light blue background
               range.format.fill.color = this.COLORS[DiffKind.FormulaChanged]
+              // Italic font for preview formulas
+              range.format.font.italic = true
               // Blue border to indicate formula change
               range.format.borders.getItem('EdgeTop').style = 'Double'
               range.format.borders.getItem('EdgeTop').color = '#0070C0'
@@ -240,6 +244,8 @@ export class GridVisualizer {
             case DiffKind.StyleChanged:
               // Light purple background
               range.format.fill.color = this.COLORS[DiffKind.StyleChanged]
+              // Italic font for preview
+              range.format.font.italic = true
               // Purple dotted border for style changes
               range.format.borders.getItem('EdgeTop').style = 'Dot'
               range.format.borders.getItem('EdgeTop').color = '#7030A0'
@@ -321,8 +327,11 @@ export class GridVisualizer {
 
   /**
    * Clear visual highlights from cells with full restoration
+   * @param hunks - Optional specific hunks to clear
+   * @param addLog - Optional logging function
+   * @param preserveValues - If true, only clear formatting but preserve cell values (used when accepting changes)
    */
-  static async clearHighlights(hunks?: DiffHunk[], addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
+  static async clearHighlights(hunks?: DiffHunk[], addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void, preserveValues: boolean = false): Promise<void> {
     const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
     
     const hunkCount = hunks?.length || this.originalStates.size
@@ -350,25 +359,40 @@ export class GridVisualizer {
               );
               
               if (originalState) {
-                // Complete restoration of original state
-                // Handle null color values properly
+                // Selective clearing - only clear preview-specific formatting
+                
+                // Clear preview background color
                 if (originalState.fillColor === null) {
                   range.format.fill.clear()
                 } else {
                   range.format.fill.color = originalState.fillColor
                 }
                 
-                if (originalState.fontColor === null) {
-                  range.format.font.color = '#000000' // Default font color
-                } else {
+                // Restore original font properties
+                if (originalState.fontColor !== null) {
                   range.format.font.color = originalState.fontColor
                 }
-                
                 range.format.font.italic = originalState.fontItalic
                 range.format.font.strikethrough = originalState.fontStrikethrough
-                range.numberFormat = originalState.numberFormat
                 
-                // Restore all borders to original state
+                // IMPORTANT: Don't touch number format - keep it as is
+                // This prevents the destructive clearing that causes values to disappear
+                
+                // Restore original values and formulas only if not preserving values
+                if (!preserveValues) {
+                  // REJECTION case: restore original values
+                  if (originalState.formula) {
+                    range.formulas = [[originalState.formula]]
+                  } else if (originalState.value !== null && originalState.value !== undefined) {
+                    range.values = [[originalState.value]]
+                  }
+                  log('info', `[Visualizer] Restored original value for cell ${cellKey}`)
+                } else {
+                  // ACCEPTANCE case: keep the new values
+                  log('info', `[Visualizer] Preserving new value for cell ${cellKey}`)
+                }
+                
+                // Restore original borders
                 const borders = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'] as const
                 for (const border of borders) {
                   const borderKey = border.replace('Edge', '').toLowerCase() as keyof CellState['borders']
@@ -381,17 +405,18 @@ export class GridVisualizer {
                 
                 this.originalStates.delete(cellKey)
               } else {
-                // Default restoration if no original state
-                range.format.fill.color = '#FFFFFF'
-                range.format.font.color = '#000000'
+                // No original state - just clear preview formatting
+                range.format.fill.clear()
                 range.format.font.italic = false
-                range.format.font.strikethrough = false
+                // Don't change font color or other properties that weren't part of preview
                 
-                // Clear all borders
+                // Clear preview borders
                 const borders = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'] as const
                 for (const border of borders) {
                   range.format.borders.getItem(border).style = 'None'
                 }
+                
+                log('info', `[Visualizer] No original state for ${cellKey}, cleared preview formatting only`)
               }
             }
           } catch (error) {
@@ -408,23 +433,37 @@ export class GridVisualizer {
             const worksheet = workbook.worksheets.getItem(sheetName)
             const range = worksheet.getCell(row, col);
             
-            // Complete restoration
-            // Handle null color values properly
+            // Selective clearing - only clear preview-specific formatting
+            
+            // Clear preview background color
             if (originalState.fillColor === null) {
               range.format.fill.clear()
             } else {
               range.format.fill.color = originalState.fillColor
             }
             
-            if (originalState.fontColor === null) {
-              range.format.font.color = '#000000' // Default font color
-            } else {
+            // Restore original font properties
+            if (originalState.fontColor !== null) {
               range.format.font.color = originalState.fontColor
             }
-            
             range.format.font.italic = originalState.fontItalic
             range.format.font.strikethrough = originalState.fontStrikethrough
-            range.numberFormat = originalState.numberFormat
+            
+            // IMPORTANT: Don't touch number format - keep it as is
+            
+            // Restore original values and formulas only if not preserving values
+            if (!preserveValues) {
+              // REJECTION case: restore original values
+              if (originalState.formula) {
+                range.formulas = [[originalState.formula]]
+              } else if (originalState.value !== null && originalState.value !== undefined) {
+                range.values = [[originalState.value]]
+              }
+              console.log(`[Visualizer] Restored original value for cell ${cellKey}`)
+            } else {
+              // ACCEPTANCE case: keep the new values
+              console.log(`[Visualizer] Preserving new value for cell ${cellKey}`)
+            }
             
             // Restore all borders
             const borders = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'] as const
@@ -468,6 +507,98 @@ export class GridVisualizer {
     }
     
     return grouped
+  }
+
+  /**
+   * Apply preview values to cells (Phase 2 of preview)
+   * This is separate from applyHighlights to avoid Excel internal errors
+   */
+  static async applyPreviewValues(hunks: DiffHunk[], addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
+    const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+    
+    if (!hunks || hunks.length === 0) {
+      log('info', '[Visualizer] No preview values to apply')
+      return
+    }
+
+    log('info', `[Visualizer] Applying preview values to ${hunks.length} cells`)
+    const startTime = performance.now()
+
+    return Excel.run(async (context: any) => {
+      const workbook = context.workbook
+      
+      // Group hunks by sheet for efficiency
+      const hunksBySheet = this.groupHunksBySheet(hunks)
+      
+      // Batch all operations for efficiency
+      const rangeOperations: Array<{
+        range: any
+        hunk: DiffHunk
+        cellKey: string
+      }> = []
+      
+      for (const [sheetName, sheetHunks] of hunksBySheet) {
+        try {
+          const worksheet = workbook.worksheets.getItem(sheetName)
+          
+          for (const hunk of sheetHunks) {
+            try {
+              const cellKey = cellKeyToA1(hunk.key)
+              
+              // Only set values for Added, ValueChanged, and FormulaChanged
+              if ((hunk.kind === DiffKind.Added || hunk.kind === DiffKind.ValueChanged) && 
+                  hunk.after && hunk.after.v !== undefined) {
+                const range = worksheet.getCell(hunk.key.row, hunk.key.col)
+                rangeOperations.push({ range, hunk, cellKey })
+              } else if (hunk.kind === DiffKind.FormulaChanged && 
+                         hunk.after && hunk.after.f !== undefined) {
+                const range = worksheet.getCell(hunk.key.row, hunk.key.col)
+                rangeOperations.push({ range, hunk, cellKey })
+              }
+            } catch (cellError) {
+              log('error', `[Visualizer] Error preparing cell ${cellKeyToA1(hunk.key)}: ${cellError}`)
+            }
+          }
+        } catch (error) {
+          log('error', `[Visualizer] Error processing sheet ${sheetName}: ${error}`)
+        }
+      }
+      
+      // Now apply all values in batch
+      for (const { range, hunk, cellKey } of rangeOperations) {
+        try {
+          // Load the font property for italic formatting
+          await range.load(['format/font/italic'])
+          await context.sync()
+          
+          if (hunk.kind === DiffKind.FormulaChanged && hunk.after && hunk.after.f) {
+            range.formulas = [[hunk.after.f]]
+            range.format.font.italic = true  // Make preview formulas italic
+            log('info', `[Visualizer] Set preview formula for ${cellKey}: ${hunk.after.f}`)
+          } else if (hunk.after && hunk.after.v !== undefined) {
+            // The value should be a single cell value, not an array
+            // If it's somehow an array, skip it as it's likely a bug
+            if (Array.isArray(hunk.after.v)) {
+              log('warn', `[Visualizer] Skipping array value for single cell ${cellKey}: ${JSON.stringify(hunk.after.v)}`)
+              continue
+            }
+            range.values = [[hunk.after.v]]
+            range.format.font.italic = true  // Make preview values italic
+            log('info', `[Visualizer] Set preview value for ${cellKey}: ${hunk.after.v}`)
+          }
+        } catch (error) {
+          log('error', `[Visualizer] Error setting value for ${cellKey}: ${error}`)
+        }
+      }
+      
+      await context.sync()
+      
+      const endTime = performance.now()
+      log('success', `[Visualizer] Preview values applied successfully in ${Math.round(endTime - startTime)}ms`)
+    }).catch((error: any) => {
+      log('error', `[Visualizer] Error applying preview values: ${error.message}`, { error })
+      throw error
+    })
   }
 
   /**

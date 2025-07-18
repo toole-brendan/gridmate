@@ -17,4 +17,6 @@ export interface SignalRAIResponse {
   content: string
   messageId: string
   isComplete: boolean
+  type?: 'completion' | 'response'
+  operationsSummary?: any
 } 

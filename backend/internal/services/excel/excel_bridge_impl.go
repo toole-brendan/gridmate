@@ -24,6 +24,8 @@ type BridgeImpl struct {
 	// Response queue for handling late-arriving responses
 	responseQueue map[string]*queuedResponse
 	queueMutex    sync.RWMutex
+	// Request ID mapper for tracking tool IDs
+	requestIDMapper interface{} // Will be set to *services.RequestIDMapper
 }
 
 // queuedResponse represents a response waiting for a handler
@@ -55,11 +57,30 @@ func (b *BridgeImpl) SetSignalRBridge(bridge interface{}) {
 	b.signalRBridge = bridge
 }
 
+// SetRequestIDMapper sets the request ID mapper for tracking tool IDs
+func (b *BridgeImpl) SetRequestIDMapper(mapper interface{}) {
+	b.requestIDMapper = mapper
+}
+
 // sendToolRequest sends a tool request to the Excel client and waits for response
 func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, request map[string]interface{}) (interface{}, error) {
 	// Generate unique request ID
 	requestID := uuid.New().String()
 	request["request_id"] = requestID
+
+	// Check if we have a tool ID to track
+	if toolID, ok := ctx.Value("tool_id").(string); ok && toolID != "" && b.requestIDMapper != nil {
+		// Register the mapping
+		if mapper, ok := b.requestIDMapper.(interface {
+			RegisterMapping(requestID, toolID string)
+		}); ok {
+			mapper.RegisterMapping(requestID, toolID)
+			log.Info().
+				Str("request_id", requestID).
+				Str("tool_id", toolID).
+				Msg("Registered request ID to tool ID mapping")
+		}
+	}
 
 	// Get client ID for routing
 	clientID := sessionID
@@ -186,12 +207,12 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 						"message": "Tool queued for visual diff preview",
 						"preview": true,
 					}
-					
+
 					// Include original operations if available
 					if operations, ok := request["operations"]; ok {
 						enhancedResponse["operations"] = operations
 					}
-					
+
 					return enhancedResponse, nil
 				}
 			}

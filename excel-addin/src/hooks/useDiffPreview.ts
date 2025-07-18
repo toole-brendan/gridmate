@@ -61,7 +61,7 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
           for (const op of store.activePreview.operations) {
             await excelService.executeToolRequest(op.tool, op.input);
           }
-          await GridVisualizer.clearHighlights(store.activePreview.hunks);
+          await GridVisualizer.clearHighlights(store.activePreview.hunks, undefined, true);
           chatManager.updateMessageDiff(store.activePreview.messageId, {
             operations: store.activePreview.operations,
             hunks: store.activePreview.hunks,
@@ -103,13 +103,23 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
         });
         const hunks = diffCalculator.calculateDiff(originalSnapshot, simulatedSnapshot);
         
-        // Apply highlights in batches for performance
+        // Two-phase preview approach
+        // Phase 1: Apply visual highlights (colors, borders, italic)
         await GridVisualizer.clearHighlights();
         const isBatched = hunks.length > 100;
         if (isBatched) {
           await GridVisualizer.applyHighlightsBatched(hunks, 50);
         } else {
           await GridVisualizer.applyHighlights(hunks);
+        }
+        
+        // Phase 2: Apply preview values in separate Excel context
+        try {
+          await GridVisualizer.applyPreviewValues(hunks);
+          console.log('[Diff Preview] Preview values applied successfully');
+        } catch (error) {
+          console.error('[Diff Preview] Failed to apply preview values:', error);
+          // Continue even if preview values fail - formatting is still useful
         }
         
         // Store preview
@@ -153,8 +163,8 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
           for (const op of store.activePreview.operations) {
             await excelService.executeToolRequest(op.tool, op.input);
           }
-          // Clear existing highlights
-          await GridVisualizer.clearHighlights(store.activePreview.hunks);
+          // Clear existing highlights (preserve values since we're accepting)
+          await GridVisualizer.clearHighlights(store.activePreview.hunks, undefined, true);
           
           // Persist the accepted state to the message
           chatManager.updateMessageDiff(store.activePreview.messageId, {
@@ -213,13 +223,23 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
       });
       const hunks = diffCalculator.calculateDiff(originalSnapshot, newSimulatedSnapshot);
 
-      // 5. Apply visual highlights (clear old ones first).
+      // 5. Two-phase preview approach
+      // Phase 1: Apply visual highlights (clear old ones first).
       await GridVisualizer.clearHighlights();
       const isBatched = hunks.length > 100;
       if (isBatched) {
         await GridVisualizer.applyHighlightsBatched(hunks, 50);
       } else {
         await GridVisualizer.applyHighlights(hunks);
+      }
+      
+      // Phase 2: Apply preview values in separate Excel context
+      try {
+        await GridVisualizer.applyPreviewValues(hunks);
+        console.log('[Diff Preview] Preview values applied successfully during re-calculation');
+      } catch (error) {
+        console.error('[Diff Preview] Failed to apply preview values during re-calculation:', error);
+        // Continue even if preview values fail
       }
 
       // 6. Set the new active preview, saving the latest simulated state.
@@ -300,7 +320,7 @@ export const useDiffPreview = (chatManager: ReturnType<typeof useChatManager>): 
 
       // Clear the live preview session
       store.clearPreview();
-      await GridVisualizer.clearHighlights(hunks);
+      await GridVisualizer.clearHighlights(hunks, undefined, true);
 
     } catch (error) {
       console.error('[Diff Preview] Error accepting preview:', error);

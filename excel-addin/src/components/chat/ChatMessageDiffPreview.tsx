@@ -69,10 +69,10 @@ export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
                 }
               }}
               disabled={isProcessing}
-              className="inline-flex items-center px-2 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded transition-colors"
+              className="inline-flex items-center gap-1 px-2 py-0.5 font-caption text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded transition-colors"
               aria-label="Accept changes"
             >
-              <CheckIcon className="w-3 h-3 mr-1" />
+              <CheckIcon className="w-3 h-3" />
               {isProcessing ? 'Accepting...' : 'Accept'}
             </button>
             <button
@@ -86,10 +86,10 @@ export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
                 }
               }}
               disabled={isProcessing}
-              className="inline-flex items-center px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:text-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 rounded transition-colors"
+              className="inline-flex items-center gap-1 px-2 py-0.5 font-caption text-gray-700 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:text-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 rounded transition-colors"
               aria-label="Reject changes"
             >
-              <XMarkIcon className="w-3 h-3 mr-1" />
+              <XMarkIcon className="w-3 h-3" />
               {isProcessing ? 'Rejecting...' : 'Reject'}
             </button>
           </div>
@@ -97,7 +97,7 @@ export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
       </div>
 
       {/* Show up to 3 changes for context */}
-      {hunks.length > 0 && (
+      {/* {hunks.length > 0 && (
         <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1">
           {hunks.slice(0, 3).map((hunk, index) => {
             const cellAddr = `${hunk.key.sheet}!${String.fromCharCode(65 + hunk.key.col)}${hunk.key.row + 1}`;
@@ -133,7 +133,7 @@ export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
             </div>
           )}
         </div>
-      )}
+      )} */}
     </div>
   );
 };

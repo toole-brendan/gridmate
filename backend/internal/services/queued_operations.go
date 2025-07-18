@@ -20,6 +20,10 @@ type QueuedOperationRegistry struct {
 	batchGroups  map[string][]string // batch ID -> operation IDs
 	undoStack    []string            // operation IDs in order of execution
 	redoStack    []string            // operation IDs that were undone
+
+	// Message tracking
+	messageOperations  map[string][]string // message ID -> operation IDs
+	operationCallbacks map[string]func()   // message ID -> callback when all ops complete
 }
 
 // QueuedOperation represents a pending operation
@@ -41,6 +45,9 @@ type QueuedOperation struct {
 	Context  string      `json:"context,omitempty"`   // Why this operation is needed
 	CanMerge bool        `json:"can_merge,omitempty"` // Can be merged with adjacent ops
 	Priority int         `json:"priority,omitempty"`  // Execution priority
+
+	// Message tracking
+	MessageID string `json:"message_id,omitempty"` // ID of the chat message that triggered this operation
 }
 
 type OperationStatus string
@@ -56,11 +63,13 @@ const (
 // NewQueuedOperationRegistry creates a new registry
 func NewQueuedOperationRegistry() *QueuedOperationRegistry {
 	return &QueuedOperationRegistry{
-		operations:   make(map[string]*QueuedOperation),
-		dependencies: make(map[string][]string),
-		batchGroups:  make(map[string][]string),
-		undoStack:    make([]string, 0),
-		redoStack:    make([]string, 0),
+		operations:         make(map[string]*QueuedOperation),
+		dependencies:       make(map[string][]string),
+		batchGroups:        make(map[string][]string),
+		undoStack:          make([]string, 0),
+		redoStack:          make([]string, 0),
+		messageOperations:  make(map[string][]string),
+		operationCallbacks: make(map[string]func()),
 	}
 }
 
@@ -96,6 +105,11 @@ func (r *QueuedOperationRegistry) QueueOperation(op interface{}) error {
 		if batchID := getStringFromMap(v, "BatchID"); batchID != "" {
 			operation.BatchID = batchID
 		}
+
+		// Handle message ID if present
+		if messageID := getStringFromMap(v, "MessageID"); messageID != "" {
+			operation.MessageID = messageID
+		}
 	default:
 		return fmt.Errorf("unsupported operation type: %T", op)
 	}
@@ -122,12 +136,18 @@ func (r *QueuedOperationRegistry) QueueOperation(op interface{}) error {
 		r.batchGroups[operation.BatchID] = append(r.batchGroups[operation.BatchID], operation.ID)
 	}
 
+	// Track message operations
+	if operation.MessageID != "" {
+		r.messageOperations[operation.MessageID] = append(r.messageOperations[operation.MessageID], operation.ID)
+	}
+
 	log.Info().
 		Str("operation_id", operation.ID).
 		Str("type", operation.Type).
 		Str("session_id", operation.SessionID).
 		Int("dependencies", len(operation.Dependencies)).
 		Interface("preview", operation.Preview).
+		Str("message_id", operation.MessageID).
 		Msg("Operation queued")
 
 	return nil
@@ -384,7 +404,13 @@ func (r *QueuedOperationRegistry) MarkOperationComplete(operationID string, resu
 	log.Info().
 		Str("operation_id", operationID).
 		Str("type", op.Type).
+		Str("message_id", op.MessageID).
 		Msg("Operation completed")
+
+	// Check if all operations for the message are completed
+	if op.MessageID != "" {
+		r.checkMessageCompletion(op.MessageID)
+	}
 
 	return nil
 }
@@ -410,8 +436,14 @@ func (r *QueuedOperationRegistry) MarkOperationFailed(operationID string, err er
 	log.Error().
 		Str("operation_id", operationID).
 		Str("type", op.Type).
+		Str("message_id", op.MessageID).
 		Err(err).
 		Msg("Operation failed")
+
+	// Check if all operations for the message are completed
+	if op.MessageID != "" {
+		r.checkMessageCompletion(op.MessageID)
+	}
 
 	return nil
 }
@@ -686,6 +718,25 @@ func (r *QueuedOperationRegistry) CleanupOldOperations(maxAge time.Duration) int
 		if op.CompletedAt != nil && op.CompletedAt.Before(cutoff) {
 			delete(r.operations, id)
 			delete(r.dependencies, id)
+
+			// Clean up message operations
+			if op.MessageID != "" {
+				if ops, exists := r.messageOperations[op.MessageID]; exists {
+					newOps := []string{}
+					for _, opID := range ops {
+						if opID != id {
+							newOps = append(newOps, opID)
+						}
+					}
+					if len(newOps) == 0 {
+						delete(r.messageOperations, op.MessageID)
+						delete(r.operationCallbacks, op.MessageID)
+					} else {
+						r.messageOperations[op.MessageID] = newOps
+					}
+				}
+			}
+
 			removed++
 		}
 	}
@@ -698,4 +749,157 @@ func (r *QueuedOperationRegistry) CleanupOldOperations(maxAge time.Duration) int
 	}
 
 	return removed
+}
+
+// RegisterMessageCompletionCallback registers a callback to be called when all operations for a message are completed
+func (r *QueuedOperationRegistry) RegisterMessageCompletionCallback(messageID string, callback func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	log.Info().
+		Str("message_id", messageID).
+		Int("existing_operations", len(r.messageOperations[messageID])).
+		Msg("Registering message completion callback")
+
+	r.operationCallbacks[messageID] = callback
+
+	// Check if already completed
+	r.checkMessageCompletion(messageID)
+}
+
+// checkMessageCompletion checks if all operations for a message are completed
+// Must be called with lock held
+func (r *QueuedOperationRegistry) checkMessageCompletion(messageID string) {
+	operationIDs, exists := r.messageOperations[messageID]
+	if !exists {
+		log.Debug().
+			Str("message_id", messageID).
+			Msg("No operations found for message")
+		return
+	}
+
+	allCompleted := true
+	hasOperations := false
+	statusCounts := map[OperationStatus]int{}
+
+	for _, opID := range operationIDs {
+		if op, exists := r.operations[opID]; exists {
+			hasOperations = true
+			statusCounts[op.Status]++
+			if op.Status != StatusCompleted && op.Status != StatusFailed && op.Status != StatusCancelled {
+				allCompleted = false
+			}
+		}
+	}
+
+	log.Debug().
+		Str("message_id", messageID).
+		Int("total_operations", len(operationIDs)).
+		Bool("all_completed", allCompleted).
+		Bool("has_operations", hasOperations).
+		Interface("status_counts", statusCounts).
+		Bool("has_callback", r.operationCallbacks[messageID] != nil).
+		Msg("Checking message completion")
+
+	if hasOperations && allCompleted {
+		log.Info().
+			Str("message_id", messageID).
+			Int("operation_count", len(operationIDs)).
+			Msg("All operations for message completed")
+
+		// Call callback if registered
+		if callback, exists := r.operationCallbacks[messageID]; exists {
+			log.Info().
+				Str("message_id", messageID).
+				Msg("Executing completion callback")
+			// Call callback asynchronously to avoid deadlock
+			go callback()
+			delete(r.operationCallbacks, messageID)
+		} else {
+			log.Warn().
+				Str("message_id", messageID).
+				Msg("No completion callback registered for completed message")
+		}
+	}
+}
+
+// GetMessageOperations returns all operations for a message
+func (r *QueuedOperationRegistry) GetMessageOperations(messageID string) []*QueuedOperation {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	operationIDs, exists := r.messageOperations[messageID]
+	if !exists {
+		return nil
+	}
+
+	ops := make([]*QueuedOperation, 0, len(operationIDs))
+	for _, id := range operationIDs {
+		if op, exists := r.operations[id]; exists {
+			ops = append(ops, op)
+		}
+	}
+
+	return ops
+}
+
+// GetMessageOperationsSummary returns a summary of operations for a message
+func (r *QueuedOperationRegistry) GetMessageOperationsSummary(messageID string) map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	operationIDs, exists := r.messageOperations[messageID]
+	if !exists {
+		return map[string]interface{}{
+			"total":         0,
+			"completed":     0,
+			"failed":        0,
+			"queued":        0,
+			"all_completed": true,
+		}
+	}
+
+	summary := map[string]interface{}{
+		"total":         len(operationIDs),
+		"completed":     0,
+		"failed":        0,
+		"queued":        0,
+		"in_progress":   0,
+		"cancelled":     0,
+		"all_completed": true,
+	}
+
+	for _, opID := range operationIDs {
+		if op, exists := r.operations[opID]; exists {
+			switch op.Status {
+			case StatusCompleted:
+				summary["completed"] = summary["completed"].(int) + 1
+			case StatusFailed:
+				summary["failed"] = summary["failed"].(int) + 1
+			case StatusQueued:
+				summary["queued"] = summary["queued"].(int) + 1
+				summary["all_completed"] = false
+			case StatusInProgress:
+				summary["in_progress"] = summary["in_progress"].(int) + 1
+				summary["all_completed"] = false
+			case StatusCancelled:
+				summary["cancelled"] = summary["cancelled"].(int) + 1
+			}
+		}
+	}
+
+	return summary
+}
+
+// UnregisterMessageCompletionCallback removes a completion callback for a message
+func (r *QueuedOperationRegistry) UnregisterMessageCompletionCallback(messageID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	if _, exists := r.operationCallbacks[messageID]; exists {
+		delete(r.operationCallbacks, messageID)
+		log.Info().
+			Str("message_id", messageID).
+			Msg("Unregistered completion callback")
+	}
 }

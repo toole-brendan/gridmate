@@ -76,15 +76,57 @@ async function simulateWriteOperation(
   const cellKeys = rangeToCellKeys(range);
   log('info', `[Simulator] Writing to ${cellKeys.length} cells`);
   
-  cellKeys.forEach((cellKey, index) => {
-    const value = Array.isArray(values) ? values[index] : values;
-    const key = cellKeyToString(cellKey);
+  // Check if values is a 2D array (for write_range operations)
+  if (Array.isArray(values) && Array.isArray(values[0])) {
+    // Handle 2D array: values[row][col]
+    let cellIndex = 0;
+    const numRows = values.length;
+    const numCols = values[0].length;
     
-    // Get existing cell or create new one
-    const cell: CellSnapshot = snapshot[key] || {};
-    cell.v = value;
-    snapshot[key] = cell;
-  });
+    // Parse range to get dimensions
+    const rangeMatch = range.match(/([A-Z]+)(\d+):([A-Z]+)(\d+)/);
+    if (rangeMatch) {
+      const startCol = parseCell(rangeMatch[1] + rangeMatch[2]).col;
+      const startRow = parseInt(rangeMatch[2], 10) - 1;
+      
+      for (let row = 0; row < numRows; row++) {
+        for (let col = 0; col < numCols; col++) {
+          if (cellIndex < cellKeys.length) {
+            const cellKey = cellKeys[cellIndex];
+            const key = cellKeyToString(cellKey);
+            const cell: CellSnapshot = snapshot[key] || {};
+            cell.v = values[row][col];
+            snapshot[key] = cell;
+            cellIndex++;
+          }
+        }
+      }
+    } else {
+      // Single cell range with 2D array - use first value
+      const key = cellKeyToString(cellKeys[0]);
+      const cell: CellSnapshot = snapshot[key] || {};
+      cell.v = values[0][0];
+      snapshot[key] = cell;
+    }
+  } else if (Array.isArray(values)) {
+    // Handle 1D array (legacy or simple case)
+    cellKeys.forEach((cellKey, index) => {
+      if (index < values.length) {
+        const key = cellKeyToString(cellKey);
+        const cell: CellSnapshot = snapshot[key] || {};
+        cell.v = values[index];
+        snapshot[key] = cell;
+      }
+    });
+  } else {
+    // Handle single value for all cells
+    cellKeys.forEach(cellKey => {
+      const key = cellKeyToString(cellKey);
+      const cell: CellSnapshot = snapshot[key] || {};
+      cell.v = values;
+      snapshot[key] = cell;
+    });
+  }
 }
 
 async function simulateFormulaOperation(

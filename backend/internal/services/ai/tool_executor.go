@@ -22,9 +22,13 @@ const (
 type ToolExecutor struct {
 	excelBridge      ExcelBridge
 	formulaValidator *formula.FormulaIntelligence
+	// Add mapping between tool IDs and request IDs
+	requestIDMap     map[string]string // Maps request ID -> tool ID
+	requestIDMapLock sync.RWMutex
 	// Performance optimization fields
 	modelDataCache  map[string]*CachedModelData
-	cacheMutex      sync.RWMutex
+	cacheLock       sync.RWMutex
+	cacheExpiry     time.Duration
 	parallelWorkers int
 	operationQueue  chan OperationRequest
 	// Queued operations registry
@@ -291,8 +295,10 @@ func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntell
 	return &ToolExecutor{
 		excelBridge:      bridge,
 		formulaValidator: formulaValidator,
+		requestIDMap:     make(map[string]string),
 		modelDataCache:   make(map[string]*CachedModelData),
 		parallelWorkers:  4, // Configurable based on system
+		cacheExpiry:      10 * time.Minute,
 	}
 }
 
@@ -339,7 +345,6 @@ func (te *ToolExecutor) validateResponseSize(result *ToolResult) (*ToolResult, e
 
 // ExecuteTool executes a tool call and returns the result
 func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolCall ToolCall, autonomyMode string) (*ToolResult, error) {
-	// Log tool execution start
 	log.Info().
 		Str("tool", toolCall.Name).
 		Str("session", sessionID).
@@ -348,12 +353,23 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		Str("autonomy_mode", autonomyMode).
 		Msg("Executing Excel tool")
 
+	// Create result structure
 	result := &ToolResult{
 		Type:      "tool_result",
 		ToolUseID: toolCall.ID,
+		IsError:   false,
 	}
 
 	startTime := time.Now()
+
+	// Extract message ID from context if available
+	messageID := ""
+	if msgID, ok := ctx.Value("message_id").(string); ok {
+		messageID = msgID
+	}
+
+	// Add tool ID to input for tracking
+	toolCall.Input["_tool_id"] = toolCall.ID
 
 	switch toolCall.Name {
 	case "read_range":
@@ -411,19 +427,18 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 
 					// If this is not the first in the batch, add dependency on previous operation
 					if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok && batchIndex > 0 {
-						// Create dependency on the previous operation in the batch
-						prevOpID := fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex-1)
-						dependencies = append(dependencies, prevOpID)
+						// Get the tool IDs from the batch
+						if batchToolIDs, ok := toolCall.Input["_batch_tool_ids"].([]string); ok && batchIndex < len(batchToolIDs) {
+							// Use the actual tool ID of the previous operation
+							prevOpID := batchToolIDs[batchIndex-1]
+							dependencies = append(dependencies, prevOpID)
+						}
 					}
 				}
 
-				// Create operation ID that includes batch index if in a batch
+				// Always use the toolCall.ID for operation tracking
+				// This ensures consistency with the request mapper
 				opID := toolCall.ID
-				if batchID != "" {
-					if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok {
-						opID = fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex)
-					}
-				}
 
 				// Register with queued operations if available
 				if te.queuedOpsRegistry != nil {
@@ -437,6 +452,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 						"Priority":     50, // Normal priority
 						"BatchID":      batchID,
 						"Dependencies": dependencies,
+						"MessageID":    messageID, // Add message ID
 					}
 
 					// Try to queue the operation
@@ -509,13 +525,9 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 						}
 					}
 
-					// Create operation ID that includes batch index if in a batch
+					// Always use the toolCall.ID for operation tracking
+					// This ensures consistency with the request mapper
 					opID := toolCall.ID
-					if batchID != "" {
-						if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok {
-							opID = fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex)
-						}
-					}
 
 					// Create a properly structured operation for the registry
 					queuedOp := map[string]interface{}{
@@ -528,6 +540,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 						"Priority":     50, // Normal priority
 						"BatchID":      batchID,
 						"Dependencies": dependencies,
+						"MessageID":    messageID, // Add message ID
 					}
 
 					// Try to queue the operation
@@ -602,13 +615,9 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 						}
 					}
 
-					// Create operation ID that includes batch index if in a batch
+					// Always use the toolCall.ID for operation tracking
+					// This ensures consistency with the request mapper
 					opID := toolCall.ID
-					if batchID != "" {
-						if batchIndex, ok := toolCall.Input["_batch_index"].(int); ok {
-							opID = fmt.Sprintf("%s_%s_%d", batchID, sessionID, batchIndex)
-						}
-					}
 
 					// Create a properly structured operation for the registry
 					queuedOp := map[string]interface{}{
@@ -621,6 +630,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 						"Priority":     40, // Lower priority for formatting
 						"BatchID":      batchID,
 						"Dependencies": dependencies,
+						"MessageID":    messageID, // Add message ID
 					}
 
 					// Try to queue the operation
@@ -2662,8 +2672,8 @@ type OperationResult struct {
 
 // getCachedModelData retrieves cached model data if valid
 func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
-	te.cacheMutex.RLock()
-	defer te.cacheMutex.RUnlock()
+	te.cacheLock.RLock()
+	defer te.cacheLock.RUnlock()
 
 	if te.modelDataCache == nil {
 		return nil
@@ -2678,9 +2688,9 @@ func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
 	if time.Now().After(cached.Expiration) {
 		// Remove expired cache entry (defer to avoid deadlock)
 		go func() {
-			te.cacheMutex.Lock()
+			te.cacheLock.Lock()
 			delete(te.modelDataCache, cacheKey)
-			te.cacheMutex.Unlock()
+			te.cacheLock.Unlock()
 		}()
 		return nil
 	}
@@ -2699,8 +2709,8 @@ func (te *ToolExecutor) getCachedModelData(cacheKey string) *RangeData {
 
 // cacheModelData stores model data in cache with TTL
 func (te *ToolExecutor) cacheModelData(cacheKey string, data *RangeData) {
-	te.cacheMutex.Lock()
-	defer te.cacheMutex.Unlock()
+	te.cacheLock.Lock()
+	defer te.cacheLock.Unlock()
 
 	if te.modelDataCache == nil {
 		te.modelDataCache = make(map[string]*CachedModelData)

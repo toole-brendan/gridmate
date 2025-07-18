@@ -1,62 +1,123 @@
-# Visual Diff Fix Plan
+# Visual Diff Preview and Acceptance Fix Plan
 
-## 1. Problem Analysis
+## 1. The Problem
 
-The current implementation of the visual diff feature is failing with the following error in the logs:
+When an AI suggestion is accepted, the new cell values flash briefly and then disappear. This is because the current `clearHighlights` function indiscriminately clears all cell formatting, including number formats, which causes the rendering issue. Additionally, the preview itself is incomplete because it only applies formatting (color, italics) but does not show the suggested new values in the cells.
 
+This plan addresses both issues to create a seamless and correct user experience.
+
+**Desired Workflow:**
+1.  **Preview:** When a diff is suggested, the affected cells should be highlighted with a background color, and the font should be italicized. Crucially, the **new, suggested value** should be displayed in the cell.
+2.  **Acceptance:** When the user clicks "Accept," the preview formatting (background color and italics) should be removed, but the **final cell value must remain**.
+3.  **Rejection:** When the user clicks "Reject," both the preview formatting and the suggested value should be cleared, reverting the cell to its original state.
+
+## 2. Root Cause Analysis
+
+The core issues are located in `excel-addin/src/services/diff/GridVisualizer.ts`.
+
+1.  **`applyHighlights` is incomplete:** It applies color and font styles but never sets the cell's `value` to the proposed new value from the diff hunk. This is why users don't see the suggested changes during the preview.
+2.  **`clearHighlights` is destructive:** It uses `range.format.clear()`, which is a blunt instrument. It resets the *entire* format, including fill, font, borders, and **number format**. When `executeToolRequest` sets a value (e.g., a number like `45000`), Excel applies a default number format. `range.format.clear()` then wipes this out, causing the value to be rendered incorrectly (e.g., as a date) or disappear if the column is too narrow for a generic format. The `preserveValues` flag is currently ignored.
+
+## 3. Implementation Plan
+
+I will refactor `applyHighlights` and `clearHighlights` in `excel-addin/src/services/diff/GridVisualizer.ts` to correctly manage cell values and formatting during the preview and acceptance phases.
+
+### File to be Modified:
+
+-   `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/diff/GridVisualizer.ts`
+
+### Step-by-Step Changes:
+
+#### **Part 1: Fix `applyHighlights` to Show Preview Values**
+
+I will modify the `applyHighlights` and `applyHighlightsBatched` methods to set the cell's value in addition to the formatting.
+
+**`applyHighlights` Refactoring:**
+
+```typescript
+// Current (Simplified)
+await Excel.run(async (context) => {
+  for (const hunk of hunks) {
+    const range = context.workbook.worksheets.getItem(hunk.sheet).getRange(hunk.address);
+    // ... applies color and font style ...
+  }
+  await context.sync();
+});
+
+// New (Simplified)
+await Excel.run(async (context) => {
+  for (const hunk of hunks) {
+    const range = context.workbook.worksheets.getItem(hunk.sheet).getRange(hunk.address);
+    
+    // Set the new value for preview
+    if (hunk.type === 'added' || hunk.type === 'modified') {
+      range.values = [[hunk.newValue]]; // This is the key addition
+    }
+
+    // Apply formatting
+    range.format.fill.color = getColorForHunk(hunk.type);
+    if (hunk.type !== 'removed') {
+      range.format.font.italic = true;
+    }
+  }
+  await context.sync();
+});
 ```
-[Visualizer] Error applying highlights: The argument is invalid or missing or has an incorrect format.
+
+This change ensures that when a preview is generated, the user sees the actual suggested value in the cell.
+
+#### **Part 2: Fix `clearHighlights` for Correct Acceptance and Rejection**
+
+I will completely replace the logic in `clearHighlights` to handle the `preserveValues` flag correctly.
+
+**`clearHighlights` Refactoring:**
+
+```typescript
+// Current (Problematic)
+public static async clearHighlights(hunks?: DiffHunk[], sheetName?: string, preserveValues?: boolean): Promise<void> {
+  await Excel.run(async (context) => {
+    // ... logic that eventually calls range.format.clear() ...
+  });
+}
+
+// New (Corrected)
+public static async clearHighlights(hunks?: DiffHunk[], sheetName?: string, preserveValues: boolean = false): Promise<void> {
+  await Excel.run(async (context) => {
+    if (!hunks || hunks.length === 0) {
+      // If no hunks are provided, clear all highlights from the sheet (optional, can be kept as is)
+      // This part is less critical but should avoid clear()
+      const sheet = context.workbook.worksheets.getItem(sheetName || 'Sheet1');
+      // A safer clear would be to reset specific properties if possible, or handle this case carefully.
+      // For now, we focus on the hunk-based clearing which is the primary use case.
+      return;
+    }
+
+    for (const hunk of hunks) {
+      const range = context.workbook.worksheets.getItem(hunk.sheet).getRange(hunk.address);
+
+      if (preserveValues) {
+        // ACCEPTANCE: Just remove preview formatting, keep the value.
+        range.format.fill.clear();
+        range.format.font.italic = false;
+      } else {
+        // REJECTION: Remove preview formatting AND revert the value.
+        range.format.fill.clear();
+        range.format.font.italic = false;
+        // Revert to the original value.
+        range.values = [[hunk.oldValue]]; 
+      }
+    }
+    await context.sync();
+  });
+}
 ```
 
-This error originates from the Office.js API, specifically during the `context.sync()` call within the `applyHighlights` and `clearHighlights` functions in `excel-addin/src/services/diff/GridVisualizer.ts`. This indicates that one of the API calls in the batched request is invalid.
+### Summary of Changes:
 
-The primary suspect is the `worksheet.getRangeByIndexes(row, col, 1, 1)` method. While technically correct for getting a single cell range, it might be less resilient than the more direct `worksheet.getCell(row, col)` method, especially considering recent frontend refactoring that might have introduced subtle changes.
+1.  **`applyHighlights`:** Will now write the `hunk.newValue` to the cell, making the preview show the actual suggested data.
+2.  **`clearHighlights`:**
+    -   If `preserveValues` is `true` (on accept), it will only reset the `fill` and `font.italic` properties, preserving the value and its number format.
+    -   If `preserveValues` is `false` (on reject), it will reset formatting and revert the cell's value to `hunk.oldValue`.
+    -   The destructive `range.format.clear()` call will be completely removed.
 
-## 2. Proposed Solution
-
-The proposed solution is to replace all occurrences of `worksheet.getRangeByIndexes(row, col, 1, 1)` with `worksheet.getCell(row, col)` inside `excel-addin/src/services/diff/GridVisualizer.ts`. This is a low-risk change that is likely to resolve the issue by using a more common and robust API for single-cell operations.
-
-## 3. Implementation Steps
-
-1.  **Modify `excel-addin/src/services/diff/GridVisualizer.ts`:**
-    *   Open the file: `/Users/brendantoole/projects2/gridmate/excel-addin/src/services/diff/GridVisualizer.ts`.
-    *   In the `applyHighlights` function, locate the following code block:
-        ```typescript
-        const range = worksheet.getRangeByIndexes(
-          hunk.key.row,
-          hunk.key.col,
-          1, // height
-          1  // width
-        )
-        ```
-    *   Replace it with:
-        ```typescript
-        const range = worksheet.getCell(hunk.key.row, hunk.key.col)
-        ```
-    *   In the `clearHighlights` function, locate the following code block (for specific hunks):
-        ```typescript
-        const range = worksheet.getRangeByIndexes(
-          hunk.key.row,
-          hunk.key.col,
-          1,
-          1
-        )
-        ```
-    *   Replace it with:
-        ```typescript
-        const range = worksheet.getCell(hunk.key.row, hunk.key.col)
-        ```
-    *   In the `clearHighlights` function, locate the following code block (for all stored highlights):
-        ```typescript
-        const range = worksheet.getRangeByIndexes(row, col, 1, 1)
-        ```
-    *   Replace it with:
-        ```typescript
-        const range = worksheet.getCell(row, col)
-        ```
-
-2.  **Verification:**
-    *   After applying the changes, the application should be rebuilt and tested to ensure the visual diff feature works as expected without any errors in the console.
-    *   The user should be asked to confirm that the issue is resolved.
-
-This plan ensures a targeted and safe fix for the reported bug.
+This plan will result in a robust and intuitive visual diff experience that aligns with the user's expectations.

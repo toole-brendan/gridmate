@@ -457,11 +457,20 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 
 		// For batches with multiple tools, we could optimize further
 		// For now, process sequentially but mark with batch IDs
+		
+		// Create a mapping of batch indices to tool IDs for dependency tracking
+		batchToolIDs := make([]string, len(batch))
+		for idx, tc := range batch {
+			batchToolIDs[idx] = tc.ID
+		}
+		
 		for j, toolCall := range batch {
 			// Add batch metadata if this is part of a batch
 			if len(batch) > 1 {
 				toolCall.Input["_batch_id"] = fmt.Sprintf("batch_%d_%s", i, sessionID)
 				toolCall.Input["_batch_index"] = j
+				// Pass the tool IDs of all tools in the batch for dependency tracking
+				toolCall.Input["_batch_tool_ids"] = batchToolIDs
 			}
 
 			log.Debug().
@@ -496,6 +505,15 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 		Msg("Tool calls processing completed")
 
 	return results, nil
+}
+
+// ProcessToolCallsWithMessageID processes multiple tool calls with a message ID for tracking
+func (s *Service) ProcessToolCallsWithMessageID(ctx context.Context, sessionID string, toolCalls []ToolCall, autonomyMode string, messageID string) ([]ToolResult, error) {
+	// Add message ID to context
+	if messageID != "" {
+		ctx = context.WithValue(ctx, "message_id", messageID)
+	}
+	return s.ProcessToolCalls(ctx, sessionID, toolCalls, autonomyMode)
 }
 
 // Helper function to get tool names for logging
@@ -858,7 +876,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 		log.Debug().
 			Int("tool_results_count", len(toolResults)).
 			Msg("Checking if all operations are queued")
-			
+
 		for i, result := range toolResults {
 			if result.Content != nil {
 				// Check if content is already a map
@@ -895,7 +913,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 				}
 			}
 		}
-		
+
 		log.Debug().
 			Bool("has_operations", hasOperations).
 			Bool("all_queued", allQueued).
@@ -906,22 +924,22 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			log.Info().
 				Int("queued_operations", len(toolResults)).
 				Msg("All operations queued for preview, returning final response")
-			
+
 			// Build a final response that includes the assistant's message content
 			// and indicates that operations are queued for preview
 			finalResponse := &CompletionResponse{
-				Content: response.Content, // Include the assistant's explanation
+				Content:   response.Content,   // Include the assistant's explanation
 				ToolCalls: response.ToolCalls, // Include the tool calls that were made
-				IsFinal: true,
-				Usage: response.Usage,
+				IsFinal:   true,
+				Usage:     response.Usage,
 				Actions: []Action{
 					{
-						Type: "preview_queued",
+						Type:        "preview_queued",
 						Description: fmt.Sprintf("%d operations queued for preview", len(toolResults)),
 					},
 				},
 			}
-			
+
 			// Important: Return here to exit the loop and prevent further processing
 			return finalResponse, nil
 		}

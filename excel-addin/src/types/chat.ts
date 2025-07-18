@@ -4,6 +4,7 @@ export interface ChatMessage {
   content: string
   timestamp: Date
   diff?: any // Will be typed properly when used in enhanced-chat
+  isComplete?: boolean // For tracking when AI responses are fully complete
   metadata?: {
     excelContext?: {
       workbook: string

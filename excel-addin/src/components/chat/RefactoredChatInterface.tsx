@@ -273,6 +273,21 @@ export const RefactoredChatInterface: React.FC = () => {
     }
   };
   
+  const handleClearChat = () => {
+    // Clear the chat messages
+    chatManager.clearMessages();
+    
+    // Reset the operation counters in messageHandlers
+    // This ensures the next message starts with fresh counters
+    if (messageHandlers.handleUserMessageSent) {
+      // Call handleUserMessageSent with a dummy ID to trigger the reset
+      // The counters are reset at the beginning of this function
+      messageHandlers.handleUserMessageSent('clear-chat-reset');
+    }
+    
+    addDebugLog('Chat cleared and operation counters reset');
+  };
+  
   const handleCopyDebugInfo = async () => {
     setCopyButtonText('⏳ Copying...');
     addDebugLog('Copy debug info initiated');
@@ -386,7 +401,7 @@ ${auditLogs || 'No audit logs.'}
           onMentionSelect={handleMentionSelect}
           isContextEnabled={isContextEnabled}
           onContextToggle={handleContextClick}
-          onClearChat={chatManager.clearMessages}
+          onClearChat={handleClearChat}
           onAcceptDiff={() => diffPreview.acceptCurrentPreview(messageHandlers.sendFinalToolResponse)}
           onRejectDiff={diffPreview.rejectCurrentPreview}
         />

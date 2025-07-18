@@ -44,6 +44,9 @@ type ExcelBridge struct {
 
 	// Queued operations registry
 	queuedOpsRegistry *QueuedOperationRegistry
+
+	// Request ID mapper for tool execution
+	requestIDMapper *RequestIDMapper
 }
 
 // ExcelSession represents an active Excel session
@@ -59,6 +62,9 @@ type ExcelSession struct {
 
 // NewExcelBridge creates a new Excel bridge service
 func NewExcelBridge(logger *logrus.Logger, aiService *ai.Service) *ExcelBridge {
+	// Create request ID mapper
+	requestIDMapper := NewRequestIDMapper()
+
 	bridge := &ExcelBridge{
 		logger:            logger,
 		cellCache:         make(map[string]interface{}),
@@ -67,11 +73,15 @@ func NewExcelBridge(logger *logrus.Logger, aiService *ai.Service) *ExcelBridge {
 		sessions:          make(map[string]*ExcelSession),
 		chatHistory:       chat.NewHistory(),
 		queuedOpsRegistry: NewQueuedOperationRegistry(),
+		requestIDMapper:   requestIDMapper,
 	}
 
 	// Create Excel bridge implementation for tool executor
 	excelBridgeImpl := excel.NewBridgeImpl()
 	bridge.excelBridgeImpl = excelBridgeImpl
+
+	// Set the request ID mapper on the bridge implementation
+	excelBridgeImpl.SetRequestIDMapper(requestIDMapper)
 
 	// Set client ID resolver
 	excelBridgeImpl.SetClientIDResolver(func(sessionID string) string {
@@ -309,6 +319,10 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 		// Process chat message with AI and history
 		ctx := context.Background()
+		// Add message ID to context if available
+		if message.MessageID != "" {
+			ctx = context.WithValue(ctx, "message_id", message.MessageID)
+		}
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
 		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
 		if err != nil {
@@ -973,4 +987,9 @@ func (eb *ExcelBridge) getCellAddress(col, row int) string {
 
 	// Return cell address
 	return fmt.Sprintf("%s%d", colStr, row+1)
+}
+
+// GetRequestIDMapper returns the request ID mapper
+func (eb *ExcelBridge) GetRequestIDMapper() *RequestIDMapper {
+	return eb.requestIDMapper
 }

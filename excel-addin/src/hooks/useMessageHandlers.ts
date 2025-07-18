@@ -146,6 +146,18 @@ export const useMessageHandlers = (
         // Clear the chat loading states since all operations are complete
         chatManager.setAiIsGenerating(false);
         chatManager.setIsLoading(false);
+        
+        // Force update the current AI message to show as complete
+        if (currentMessageIdRef.current) {
+          const aiMessage = chatManager.messages.find(
+            m => m.id === currentMessageIdRef.current && m.role === 'assistant'
+          );
+          if (aiMessage) {
+            chatManager.updateMessage(currentMessageIdRef.current, {
+              isComplete: true
+            });
+          }
+        }
       }
       return;
     }
@@ -355,7 +367,47 @@ export const useMessageHandlers = (
   }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch]);
 
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
-    addDebugLog(`AI response received: ${response.content.substring(0, 50)}...`);
+    addDebugLog(`AI response received: ${response.content?.substring(0, 50) || ''}...`);
+    
+    // Check if this is a completion message
+    if (response.type === 'completion') {
+      addDebugLog('Received completion message from backend', 'success');
+      
+      // Clear all loading states
+      chatManager.setAiIsGenerating(false);
+      chatManager.setIsLoading(false);
+      
+      // Clear timeout for this message
+      const timeout = messageTimeouts.get(response.messageId);
+      if (timeout) {
+        clearTimeout(timeout);
+        setMessageTimeouts(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(response.messageId);
+          return newMap;
+        });
+      }
+      
+      // Update or add the completion message
+      const existingMessage = chatManager.messages.find(m => m.id === response.messageId);
+      if (existingMessage) {
+        chatManager.updateMessage(response.messageId, { 
+          content: response.content,
+          isComplete: true 
+        });
+      } else {
+        chatManager.addMessage({
+          id: response.messageId,
+          role: 'assistant',
+          content: response.content,
+          timestamp: new Date(),
+          type: 'assistant',
+          isComplete: true
+        });
+      }
+      
+      return; // Early return for completion messages
+    }
     
     // Check if this is an error response
     const isError = response.content.includes("error") || response.content.includes("Please try again");
@@ -444,6 +496,14 @@ export const useMessageHandlers = (
     currentMessageIdRef.current = messageId;
     addDebugLog(`User message sent: ${messageId}`);
     chatManager.setAiIsGenerating(true);
+    
+    // Reset operation counters and queue for new message
+    currentOperationIndexRef.current = 0;
+    totalOperationsRef.current = 0;
+    operationQueueRef.current = [];
+    processedRequestsRef.current.clear();
+    pendingPreviewRef.current.clear();
+    isProcessingQueueRef.current = false;
     
     // Set timeout for stuck requests (60 seconds)
     const timeout = setTimeout(() => {

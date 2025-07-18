@@ -50,7 +50,14 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 		Msg("executeWriteRange called with input")
 
 	rangeAddr, _ := input["range"].(string)
+	values, ok := input["values"].([][]interface{})
 	preserveFormatting, _ := input["preserve_formatting"].(bool)
+
+	// Get tool ID from input if available
+	toolID, _ := input["_tool_id"].(string)
+	if toolID != "" {
+		ctx = context.WithValue(ctx, "tool_id", toolID)
+	}
 
 	if rangeAddr == "" {
 		log.Error().
@@ -60,17 +67,19 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 	}
 
 	// Handle values with better type checking and error messages
-	var values [][]interface{}
-	if valuesRaw, exists := input["values"]; exists {
+	var valuesToWrite [][]interface{}
+	if ok {
+		valuesToWrite = values
+	} else if valuesRaw, exists := input["values"]; exists {
 		// Try direct conversion first
 		if vals, ok := valuesRaw.([][]interface{}); ok {
-			values = vals
+			valuesToWrite = vals
 		} else if vals, ok := valuesRaw.([]interface{}); ok {
 			// Handle case where outer array exists
-			values = make([][]interface{}, len(vals))
+			valuesToWrite = make([][]interface{}, len(vals))
 			for i, row := range vals {
 				if rowArray, ok := row.([]interface{}); ok {
-					values[i] = rowArray
+					valuesToWrite[i] = rowArray
 				} else {
 					log.Error().
 						Interface("row", row).
@@ -93,7 +102,7 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 		return fmt.Errorf("values parameter is required")
 	}
 
-	if len(values) == 0 {
+	if len(valuesToWrite) == 0 {
 		log.Error().
 			Interface("input", input).
 			Msg("Values array is empty")
@@ -101,24 +110,24 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 	}
 
 	// Validate that we have a proper 2D array
-	if len(values[0]) == 0 {
+	if len(valuesToWrite[0]) == 0 {
 		log.Error().
-			Interface("values", values).
+			Interface("values", valuesToWrite).
 			Msg("First row of values array is empty")
 		return fmt.Errorf("values array rows cannot be empty")
 	}
 
 	// Check if values are incorrectly triple-nested (common AI mistake)
-	firstValue := values[0][0]
-	if arr, isArray := firstValue.([]interface{}); isArray && len(values) == 1 && len(values[0]) == 1 {
+	firstValue := valuesToWrite[0][0]
+	if arr, isArray := firstValue.([]interface{}); isArray && len(valuesToWrite) == 1 && len(valuesToWrite[0]) == 1 {
 		log.Warn().
 			Interface("detected_structure", arr).
 			Msg("Detected triple-nested array, attempting to flatten")
 		// Flatten triple-nested array [[["value"]]] to [["value"]]
 		if len(arr) > 0 {
-			values = [][]interface{}{arr}
+			valuesToWrite = [][]interface{}{arr}
 			log.Info().
-				Interface("corrected_values", values).
+				Interface("corrected_values", valuesToWrite).
 				Msg("Corrected triple-nested array to proper 2D array")
 		}
 	}
@@ -126,10 +135,10 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 	log.Info().
 		Str("session_id", sessionID).
 		Str("range", rangeAddr).
-		Int("rows", len(values)).
-		Int("cols", len(values[0])).
+		Int("rows", len(valuesToWrite)).
+		Int("cols", len(valuesToWrite[0])).
 		Bool("preserve_formatting", preserveFormatting).
-		Interface("first_value", values[0][0]).
+		Interface("first_value", valuesToWrite[0][0]).
 		Msg("Executing write range")
 
 	// Store previous values for undo functionality
@@ -143,7 +152,7 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 	}
 
 	// Check if we need to expand values to match the range
-	expandedValues, err := expandValuesToMatchRange(rangeAddr, values)
+	expandedValues, err := expandValuesToMatchRange(rangeAddr, valuesToWrite)
 	if err != nil {
 		return err
 	}
@@ -187,17 +196,17 @@ func (te *ToolExecutor) executeApplyFormula(ctx context.Context, sessionID strin
 	formula, _ := input["formula"].(string)
 	relativeRefs, _ := input["relative_references"].(bool)
 
-	if rangeAddr == "" {
-		log.Error().
-			Interface("input", input).
-			Msg("Range parameter is missing or empty")
-		return fmt.Errorf("range is required")
+	// Get tool ID from input if available
+	toolID, _ := input["_tool_id"].(string)
+	if toolID != "" {
+		ctx = context.WithValue(ctx, "tool_id", toolID)
 	}
-	if formula == "" {
+
+	if rangeAddr == "" || formula == "" {
 		log.Error().
 			Interface("input", input).
-			Msg("Formula parameter is missing or empty")
-		return fmt.Errorf("formula is required")
+			Msg("Range or formula parameter is missing or empty")
+		return fmt.Errorf("range and formula are required")
 	}
 
 	log.Info().
@@ -287,6 +296,12 @@ func (te *ToolExecutor) executeFormatRange(ctx context.Context, sessionID string
 		Str("session_id", sessionID).
 		Interface("input", input).
 		Msg("executeFormatRange called with input")
+
+	// Get tool ID from input if available
+	toolID, _ := input["_tool_id"].(string)
+	if toolID != "" {
+		ctx = context.WithValue(ctx, "tool_id", toolID)
+	}
 
 	rangeAddr, _ := input["range"].(string)
 	if rangeAddr == "" {

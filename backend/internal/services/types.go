@@ -12,6 +12,7 @@ type SelectionChanged struct {
 type ChatMessage struct {
 	Content      string                 `json:"content"`
 	SessionID    string                 `json:"session_id"`
+	MessageID    string                 `json:"message_id,omitempty"`
 	Context      map[string]interface{} `json:"context,omitempty"`
 	AutonomyMode string                 `json:"autonomy_mode,omitempty"`
 }

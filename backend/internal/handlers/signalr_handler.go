@@ -82,8 +82,74 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 	chatMsg := services.ChatMessage{
 		Content:      req.Content,
 		SessionID:    req.SessionID,
+		MessageID:    req.MessageID,
 		Context:      excelContext,
 		AutonomyMode: req.AutonomyMode,
+	}
+
+	// Register completion callback BEFORE processing, so it's ready when operations complete
+	var callbackRegistered bool
+	if req.MessageID != "" {
+		registry := h.excelBridge.GetQueuedOperationRegistry()
+		if registry != nil {
+			// Pre-register callback to ensure it's available when operations complete
+			registry.RegisterMessageCompletionCallback(req.MessageID, func() {
+				h.logger.WithField("message_id", req.MessageID).Info("All operations completed, sending final AI response")
+
+				// Get operation summary
+				opsSummary := registry.GetMessageOperationsSummary(req.MessageID)
+
+				// Build completion message
+				completionMessage := "I've completed all the requested operations:\n\n"
+
+				// Get all operations for detailed summary
+				ops := registry.GetMessageOperations(req.MessageID)
+				successCount := 0
+				failCount := 0
+
+				for _, op := range ops {
+					if op.Status == services.StatusCompleted {
+						successCount++
+					} else if op.Status == services.StatusFailed {
+						failCount++
+					}
+				}
+
+				if successCount > 0 {
+					completionMessage += fmt.Sprintf("✅ Successfully completed %d operations\n", successCount)
+				}
+				if failCount > 0 {
+					completionMessage += fmt.Sprintf("❌ Failed to complete %d operations\n", failCount)
+				}
+
+				// Add specific details about what was done
+				if len(ops) > 0 {
+					completionMessage += "\nHere's what I did:\n"
+					for i, op := range ops {
+						if op.Status == services.StatusCompleted {
+							completionMessage += fmt.Sprintf("%d. %s\n", i+1, op.Preview)
+						}
+					}
+				}
+
+				completionMessage += "\nThe DCF model structure is now in place. You can start adding your specific data and formulas to complete the model."
+
+				// Send final completion response
+				finalResponse := map[string]interface{}{
+					"messageId":         req.MessageID,
+					"content":           completionMessage,
+					"isComplete":        true,
+					"operationsSummary": opsSummary,
+					"type":              "completion", // Mark this as a completion message
+				}
+
+				if err := h.signalRBridge.SendAIResponse(req.SessionID, finalResponse); err != nil {
+					h.logger.WithError(err).Error("Failed to send completion response via SignalR")
+				}
+			})
+			callbackRegistered = true
+			h.logger.WithField("message_id", req.MessageID).Info("Pre-registered completion callback before AI processing")
+		}
 	}
 
 	// Process through Excel bridge
@@ -92,8 +158,8 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		h.logger.WithError(err).Error("Failed to process chat message")
 		// Send error back to client via SignalR
 		h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
-			"messageId": req.MessageID,
-			"error": err.Error(),
+			"messageId":  req.MessageID,
+			"error":      err.Error(),
 			"isComplete": true, // Mark as complete on error
 		})
 		// Still return a success to the .NET hub, as the error was handled.
@@ -105,12 +171,33 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if operations were queued
+	hasQueuedOps := false
+	if response.Actions != nil {
+		for _, action := range response.Actions {
+			if action.Type == "preview_queued" {
+				hasQueuedOps = true
+				break
+			}
+		}
+	}
+
+	// If no operations were queued but we registered a callback, remove it
+	if !hasQueuedOps && callbackRegistered {
+		registry := h.excelBridge.GetQueuedOperationRegistry()
+		if registry != nil {
+			// Remove the pre-registered callback since no operations were queued
+			h.logger.WithField("message_id", req.MessageID).Info("No operations queued, removing pre-registered callback")
+			registry.UnregisterMessageCompletionCallback(req.MessageID)
+		}
+	}
+
 	// Send response back to client via SignalR
 	err = h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
-		"messageId": req.MessageID, // Include the message ID from the request
-		"content": response.Content,
-		"actions": response.Actions,
-		"isComplete": response.IsFinal, // Frontend expects "isComplete", not "isFinal"
+		"messageId":  req.MessageID, // Include the message ID from the request
+		"content":    response.Content,
+		"actions":    response.Actions,
+		"isComplete": response.IsFinal && !hasQueuedOps, // Only mark as complete if no operations are queued
 	})
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to send response via SignalR")
@@ -194,7 +281,46 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 				"message": "Tool queued for user approval",
 			}, nil)
 		} else {
+			// Tool was executed - update the operation status in the registry
 			bridgeImpl.HandleToolResponse(req.SessionID, req.RequestID, req.Result, toolErr)
+
+			// Get the tool ID from the request ID
+			toolID := req.RequestID // Default to request ID
+			if mapper := h.excelBridge.GetRequestIDMapper(); mapper != nil {
+				if mappedToolID, exists := mapper.GetToolID(req.RequestID); exists {
+					toolID = mappedToolID
+					h.logger.WithFields(logrus.Fields{
+						"request_id": req.RequestID,
+						"tool_id":    toolID,
+					}).Info("Found tool ID mapping for request ID")
+				}
+			}
+
+			// Mark operation as completed or failed in the registry
+			// Only mark operations that were actually queued (have a tool ID mapping)
+			if registry := h.excelBridge.GetQueuedOperationRegistry(); registry != nil {
+				// Check if this operation exists in the registry first
+				if _, err := registry.GetOperationStatus(toolID); err == nil {
+					// Operation exists, mark it as completed or failed
+					if toolErr != nil {
+						// Mark as failed
+						if err := registry.MarkOperationFailed(toolID, toolErr); err != nil {
+							h.logger.WithError(err).WithField("tool_id", toolID).Error("Failed to mark operation as failed")
+						}
+					} else {
+						// Mark as completed
+						if err := registry.MarkOperationComplete(toolID, req.Result); err != nil {
+							h.logger.WithError(err).WithField("tool_id", toolID).Error("Failed to mark operation as completed")
+						}
+					}
+				} else {
+					// Operation not in registry - this is expected for non-queued operations
+					h.logger.WithFields(logrus.Fields{
+						"tool_id":    toolID,
+						"request_id": req.RequestID,
+					}).Debug("Operation not in registry, skipping status update")
+				}
+			}
 		}
 
 		h.logger.WithFields(logrus.Fields{

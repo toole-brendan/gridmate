@@ -7,6 +7,7 @@ import { DiffPreviewMessage } from '../types/enhanced-chat';
 import { AuditLogger } from '../utils/safetyChecks';
 import { ExcelService } from '../services/excel/ExcelService';
 import { BatchExecutor } from '../services/excel/batchExecutor';
+import { clearAppliedOperations } from '../utils/diffSimulator';
 
 const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
 
@@ -493,17 +494,33 @@ export const useMessageHandlers = (
   }, [addDebugLog, addLog, chatManager, handleToolRequest, handleAIResponse]);
 
   const handleUserMessageSent = useCallback(async (messageId: string) => {
-    currentMessageIdRef.current = messageId;
-    addDebugLog(`User message sent: ${messageId}`);
-    chatManager.setAiIsGenerating(true);
+    // Clear any pending operations from previous messages
+    if (pendingPreviewRef.current.size > 0) {
+      addDebugLog(`Clearing ${pendingPreviewRef.current.size} pending previews from previous message`, 'warning');
+      pendingPreviewRef.current.clear();
+    }
     
-    // Reset operation counters and queue for new message
+    // Reset all state for new message
+    currentMessageIdRef.current = messageId;
     currentOperationIndexRef.current = 0;
     totalOperationsRef.current = 0;
     operationQueueRef.current = [];
     processedRequestsRef.current.clear();
     pendingPreviewRef.current.clear();
     isProcessingQueueRef.current = false;
+    
+    // Clear any pending read requests
+    readRequestQueue.current = [];
+    if (batchTimeout.current) {
+      clearTimeout(batchTimeout.current);
+      batchTimeout.current = null;
+    }
+    
+    // Clear applied operations tracking from diff simulator
+    clearAppliedOperations();
+    
+    addDebugLog(`User message sent: ${messageId} - All state reset`);
+    chatManager.setAiIsGenerating(true);
     
     // Set timeout for stuck requests (60 seconds)
     const timeout = setTimeout(() => {

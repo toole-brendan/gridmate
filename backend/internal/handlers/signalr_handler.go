@@ -308,9 +308,15 @@ func (h *SignalRHandler) HandleSignalRToolResponse(w http.ResponseWriter, r *htt
 							h.logger.WithError(err).WithField("tool_id", toolID).Error("Failed to mark operation as failed")
 						}
 					} else {
-						// Mark as completed
-						if err := registry.MarkOperationComplete(toolID, req.Result); err != nil {
-							h.logger.WithError(err).WithField("tool_id", toolID).Error("Failed to mark operation as completed")
+						// Check if already completed to prevent duplicates
+						status, _ := registry.GetOperationStatus(toolID)
+						if status == services.StatusCompleted {
+							h.logger.WithField("tool_id", toolID).Warn("Operation already completed, skipping duplicate completion")
+						} else {
+							// Mark as completed
+							if err := registry.MarkOperationComplete(toolID, req.Result); err != nil {
+								h.logger.WithError(err).WithField("tool_id", toolID).Error("Failed to mark operation as completed")
+							}
 						}
 					}
 				} else {

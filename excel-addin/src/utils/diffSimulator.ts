@@ -1,6 +1,16 @@
 import { AISuggestedOperation, WorkbookSnapshot, CellSnapshot, CellKey } from '../types/diff';
 import { cellKeyToA1 } from './cellUtils';
 
+// Track applied operations to prevent duplicates
+const appliedOperations = new Set<string>();
+
+/**
+ * Clear the applied operations tracking (call this when starting a new message/session)
+ */
+export function clearAppliedOperations(): void {
+  appliedOperations.clear();
+}
+
 /**
  * Simulates applying an operation to a workbook snapshot without actually modifying Excel
  * This creates a new snapshot representing the state after the operation
@@ -11,6 +21,19 @@ export async function simulateOperation(
   addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void
 ): Promise<WorkbookSnapshot> {
   const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+  
+  // Validate operation structure
+  if (!operation.tool || !operation.input) {
+    log('error', '[Simulator] Invalid operation: missing tool or input', { operation });
+    throw new Error('Invalid operation structure');
+  }
+  
+  // Check for duplicate operations
+  const operationKey = `${operation.tool}_${operation.input.range || ''}_${JSON.stringify(operation.input.values || operation.input.formula || '')}`;
+  if (appliedOperations.has(operationKey)) {
+    log('warning', '[Simulator] Skipping duplicate operation', { operationKey });
+    return snapshot;
+  }
   
   log('info', `[Simulator] Starting simulation for ${operation.tool}`, { 
     tool: operation.tool,
@@ -49,6 +72,9 @@ export async function simulateOperation(
       log('warning', `[Simulator] Unknown operation type: ${operation.tool}`, { operation });
       console.warn(`[diffSimulator] Unknown operation type: ${operation.tool}`);
   }
+  
+  // Mark operation as applied after successful simulation
+  appliedOperations.add(operationKey);
   
   const finalCellCount = Object.keys(newSnapshot).length;
   const cellsModified = Math.abs(finalCellCount - initialCellCount);

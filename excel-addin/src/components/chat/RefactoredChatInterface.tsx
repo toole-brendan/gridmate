@@ -71,7 +71,7 @@ export const RefactoredChatInterface: React.FC = () => {
   // --- Mention and Context System ---
   const [availableMentions, setAvailableMentions] = useState<MentionItem[]>([]);
   const [activeContext, setActiveContext] = useState<ContextItem[]>([]);
-  const [isContextEnabled, setIsContextEnabled] = useState(false); // Default to false - requires user activation
+  const [isContextEnabled, setIsContextEnabled] = useState(true); // Default to true so AI can see spreadsheet data
   const [rawSelection, setRawSelection] = useState<string | null>(null);
   const debouncedSelection = useDebounce(rawSelection, 300);
 
@@ -130,7 +130,7 @@ export const RefactoredChatInterface: React.FC = () => {
       const placeholderContext: ContextItem[] = [{
         id: 'no-selection',
         type: 'selection',
-        label: 'No range selected',
+        label: 'NO RANGE SELECTED', // Changed to uppercase to match the hardcoded version
         value: '',
         removable: false
       }];
@@ -214,7 +214,34 @@ export const RefactoredChatInterface: React.FC = () => {
 
       const excelContext = isContextEnabled ? await ExcelService.getInstance().getSmartContext() : null;
       
-      await signalRClient.send({
+      // Debug logging for context
+      console.log('🔍 [CONTEXT DEBUG] Context Enabled:', isContextEnabled);
+      console.log('🔍 [CONTEXT DEBUG] Raw Excel Context from getSmartContext():', excelContext);
+      
+      if (excelContext) {
+        console.log('🔍 [CONTEXT DEBUG] Breakdown:');
+        console.log('  - Worksheet:', excelContext.worksheet);
+        console.log('  - Workbook:', excelContext.workbook);
+        console.log('  - Selected Range:', excelContext.selectedRange);
+        console.log('  - Selected Data:', excelContext.selectedData);
+        console.log('  - Nearby Data:', excelContext.nearbyData);
+        
+        // Log cell values if present
+        if (excelContext.selectedData?.values) {
+          console.log('📊 [CONTEXT DEBUG] Selected Cell Values:', 
+            excelContext.selectedData.values.slice(0, 5).map(row => row.slice(0, 5))
+          );
+        }
+        
+        if (excelContext.nearbyData?.values) {
+          console.log('📊 [CONTEXT DEBUG] Nearby Cell Values (first 5x5):', 
+            excelContext.nearbyData.values.slice(0, 5).map(row => row.slice(0, 5))
+          );
+        }
+      }
+      
+      // Build the message payload
+      const messagePayload = {
         type: 'chat_message',
         data: {
           messageId,
@@ -223,11 +250,18 @@ export const RefactoredChatInterface: React.FC = () => {
             worksheet: excelContext?.worksheet,
             workbook: excelContext?.workbook,
             selectedRange: excelContext?.selectedRange,
+            selectedData: excelContext?.selectedData,
+            nearbyRange: excelContext?.nearbyData,  // Fix: should be nearbyData not nearbyRange
             activeContext: activeContext.map(c => ({ type: c.type, value: c.value })),
           },
           autonomyMode,
         },
-      });
+      };
+      
+      console.log('📤 [CONTEXT DEBUG] Full Message Payload to SignalR:', JSON.stringify(messagePayload, null, 2));
+      console.log('📤 [CONTEXT DEBUG] What AI will receive - Excel Context:', messagePayload.data.excelContext);
+      
+      await signalRClient.send(messagePayload);
     } catch (error) {
       console.error('Failed to send message:', error);
       chatManager.setIsLoading(false);

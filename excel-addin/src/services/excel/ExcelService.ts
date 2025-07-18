@@ -402,13 +402,64 @@ export class ExcelService {
         selectedRange: selectedRange.address
       })
 
+      // Check if this is a blank sheet or default selection
+      const isDefaultSelection = selectedRange.address === 'A1' || 
+                               selectedRange.address === 'Sheet1!A1' ||
+                               (selectedRange.rowCount === 1 && selectedRange.columnCount === 1)
+      
       const result: ComprehensiveContext = {
         workbook: workbook.name,
         worksheet: worksheet.name,
         selectedRange: selectedRange.address
       }
 
-      // Get selected range data
+      // For blank sheet or default selection, provide intelligent context
+      if (isDefaultSelection) {
+        // Quick scan to check if sheet is empty
+        const scanRange = worksheet.getRange("A1:K30")
+        scanRange.load(['values'])
+        await context.sync()
+        
+        let hasData = false
+        for (let row of scanRange.values) {
+          if (row.some((cell: any) => cell !== null && cell !== "")) {
+            hasData = true
+            break
+          }
+        }
+        
+        if (!hasData) {
+          // Sheet is empty - provide starter context
+          console.log('[ExcelService] Detected blank sheet, providing starter context')
+          result.selectedData = {
+            values: [[""]],
+            formulas: [[""]],
+            address: "A1",
+            rowCount: 1,
+            colCount: 1,
+            isBlankSheet: true
+          }
+          
+          // Provide a reasonable working area for new content
+          const starterRange = worksheet.getRange("A1:K20")
+          starterRange.load(['values', 'formulas', 'address'])
+          await context.sync()
+          
+          result.nearbyData = {
+            values: starterRange.values,
+            formulas: starterRange.formulas,
+            address: starterRange.address,
+            rowCount: 20,
+            colCount: 11,
+            suggestedWorkArea: true
+          }
+          
+          console.log('[ExcelService] Blank sheet context prepared')
+          return result
+        }
+      }
+      
+      // Get selected range data for non-blank sheets
       selectedRange.load(['values', 'formulas'])
       await context.sync()
       
@@ -420,15 +471,33 @@ export class ExcelService {
         colCount: selectedRange.columnCount
       }
 
-      // Get nearby context (20 rows above/below, 10 columns left/right)
-      const startRow = Math.max(0, selectedRange.rowIndex - 20)
-      const startCol = Math.max(0, selectedRange.columnIndex - 10)
-      const endRow = selectedRange.rowIndex + selectedRange.rowCount + 20
-      const endCol = selectedRange.columnIndex + selectedRange.columnCount + 10
+      // For sheets with data, get context around selection or data
+      let contextStartRow, contextStartCol, contextRowCount, contextColCount
+      
+      if (isDefaultSelection && !result.selectedData.isBlankSheet) {
+        // Find where data actually exists
+        const usedRange = worksheet.getUsedRange()
+        usedRange.load(['rowIndex', 'columnIndex', 'rowCount', 'columnCount'])
+        await context.sync()
+        
+        // Build context around actual data, not just selection
+        contextStartRow = Math.max(0, usedRange.rowIndex - 5)
+        contextStartCol = Math.max(0, usedRange.columnIndex - 5)
+        contextRowCount = usedRange.rowCount + 20 // Extra space below for additions
+        contextColCount = usedRange.columnCount + 10
+      } else {
+        // Normal selection - get nearby context
+        contextStartRow = Math.max(0, selectedRange.rowIndex - 20)
+        contextStartCol = Math.max(0, selectedRange.columnIndex - 10)
+        contextRowCount = selectedRange.rowCount + 40
+        contextColCount = selectedRange.columnCount + 20
+      }
 
       try {
-        const nearbyRange = worksheet.getRangeByIndexes(startRow, startCol, 
-          endRow - startRow, endCol - startCol)
+        const nearbyRange = worksheet.getRangeByIndexes(
+          contextStartRow, contextStartCol, 
+          contextRowCount, contextColCount
+        )
         nearbyRange.load(['values', 'formulas', 'address', 'rowCount', 'columnCount'])
         await context.sync()
 
@@ -443,6 +512,28 @@ export class ExcelService {
         console.log('[ExcelService] Could not get nearby range:', e)
       }
 
+      // Debug log the complete context before returning
+      console.log('🎯 [ExcelService] Final Smart Context Result:', {
+        workbook: result.workbook,
+        worksheet: result.worksheet,
+        selectedRange: result.selectedRange,
+        selectedDataSummary: result.selectedData ? {
+          address: result.selectedData.address,
+          rowCount: result.selectedData.rowCount,
+          colCount: result.selectedData.colCount,
+          hasValues: !!result.selectedData.values,
+          firstValue: result.selectedData.values?.[0]?.[0],
+          isBlankSheet: result.selectedData.isBlankSheet
+        } : 'No selected data',
+        nearbyDataSummary: result.nearbyData ? {
+          address: result.nearbyData.address,
+          rowCount: result.nearbyData.rowCount,
+          colCount: result.nearbyData.colCount,
+          hasValues: !!result.nearbyData.values,
+          firstFewValues: result.nearbyData.values?.slice(0, 3).map(row => row.slice(0, 3))
+        } : 'No nearby data'
+      });
+      
       console.log('[ExcelService] getSmartContext completed successfully')
       return result
     }).catch((error: any) => {

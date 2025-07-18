@@ -389,11 +389,32 @@ func (r *QueuedOperationRegistry) MarkOperationComplete(operationID string, resu
 	if !exists {
 		return fmt.Errorf("operation %s not found", operationID)
 	}
+	
+	// Count operations for this message
+	totalOps := 0
+	completedCount := 0
+	for _, msgOp := range r.operations {
+		if msgOp.MessageID == op.MessageID {
+			totalOps++
+			if msgOp.Status == StatusCompleted {
+				completedCount++
+			}
+		}
+	}
 
 	now := time.Now()
 	op.Status = StatusCompleted
 	op.CompletedAt = &now
 	op.Result = result
+	
+	// Enhanced logging with operation sequence info
+	log.Info().
+		Str("operation_id", operationID).
+		Str("message_id", op.MessageID).
+		Str("type", op.Type).
+		Str("sequence", fmt.Sprintf("%d/%d", completedCount+1, totalOps)).
+		Interface("preview", op.Preview).
+		Msg("Marking operation complete")
 
 	// Add to undo stack (Cursor-style undo/redo)
 	r.undoStack = append(r.undoStack, operationID)

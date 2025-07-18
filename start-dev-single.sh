@@ -57,7 +57,7 @@ sleep 3
 echo -e "${YELLOW}2️⃣  Starting Go backend service...${NC}"
 cd "${PROJECT_ROOT}/backend"
 echo -e "${BLUE}--- Go Backend Service ---${NC}"
-go run cmd/api/main.go &
+LOG_LEVEL=debug go run cmd/api/main.go 2>&1 | grep -E "(Building financial context|selectedData|nearbyRange)" &
 GO_PID=$!
 cd "${PROJECT_ROOT}"
 echo ""

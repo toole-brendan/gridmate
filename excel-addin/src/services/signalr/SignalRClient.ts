@@ -185,6 +185,34 @@ export class SignalRClient extends EventEmitter {
           const excelContext = message.data.excelContext || null
           const autonomyMode = message.data.autonomyMode || 'agent-default'
           const messageId = message.data.messageId || null
+          
+          // Debug logging for context being sent to backend
+          console.log('🚀 [SignalR] Sending to Backend - SendChatMessage params:', {
+            sessionId: this.sessionId,
+            content: message.data.content,
+            messageId: messageId,
+            autonomyMode: autonomyMode,
+            excelContextSummary: excelContext ? {
+              hasWorksheet: !!excelContext.worksheet,
+              hasWorkbook: !!excelContext.workbook,
+              hasSelectedRange: !!excelContext.selectedRange,
+              hasSelectedData: !!excelContext.selectedData,
+              hasNearbyRange: !!excelContext.nearbyRange,
+              selectedDataDetails: excelContext.selectedData ? {
+                rowCount: excelContext.selectedData.rowCount,
+                colCount: excelContext.selectedData.colCount,
+                hasValues: !!excelContext.selectedData.values
+              } : 'No selected data',
+              nearbyRangeDetails: excelContext.nearbyRange ? {
+                rowCount: excelContext.nearbyRange.rowCount,
+                colCount: excelContext.nearbyRange.colCount,
+                hasValues: !!excelContext.nearbyRange.values
+              } : 'No nearby range'
+            } : 'No Excel context'
+          });
+          
+          console.log('🚀 [SignalR] Full Excel Context being sent:', JSON.stringify(excelContext, null, 2));
+          
           await this.connection.invoke('SendChatMessage', this.sessionId, message.data.content, excelContext, autonomyMode, messageId)
           break
           

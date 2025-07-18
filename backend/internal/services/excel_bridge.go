@@ -616,6 +616,15 @@ func generateActionID() string {
 	return fmt.Sprintf("action_%d", time.Now().UnixNano())
 }
 
+// Helper function to get map keys for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // buildFinancialContext converts session context to AI financial context
 // Optimized to only include relevant data, similar to how Cursor indexes codebases
 func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalContext map[string]interface{}) *ai.FinancialContext {
@@ -628,6 +637,17 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 
 	// Track if we have any actual data
 	hasData := false
+	
+	// Debug log the incoming context
+	eb.logger.WithField("context_keys", getMapKeys(additionalContext)).Debug("Building financial context from Excel data")
+	
+	// Log specific fields to debug the structure
+	if sd, exists := additionalContext["selectedData"]; exists {
+		eb.logger.WithField("selectedData_type", fmt.Sprintf("%T", sd)).Debug("Found selectedData field")
+	}
+	if nr, exists := additionalContext["nearbyRange"]; exists {
+		eb.logger.WithField("nearbyRange_type", fmt.Sprintf("%T", nr)).Debug("Found nearbyRange field")
+	}
 
 	// Extract workbook and worksheet names
 	if workbook, ok := additionalContext["workbook"].(string); ok {
@@ -663,8 +683,14 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		context.Formulas = formulas
 	}
 
-	// Extract selected data if available
-	if selectedData, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
+	// Extract selected data if available - check root context first
+	var selectedData map[string]interface{}
+	if sd, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
+		selectedData = sd
+		eb.logger.Debug("Found selectedData in root context")
+	}
+	
+	if selectedData != nil {
 		if values, ok := selectedData["values"].([]interface{}); ok {
 			// Convert 2D array to cell map
 			if address, ok := selectedData["address"].(string); ok {
@@ -672,6 +698,7 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 				if hasNonEmptyValues(values) {
 					eb.processCellData(context, values, address)
 					hasData = true
+					eb.logger.WithField("address", address).Debug("Processed selected cell values")
 				}
 			}
 		}
@@ -681,18 +708,29 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 				if hasNonEmptyValues(formulas) {
 					eb.processFormulaData(context, formulas, address)
 					hasData = true
+					eb.logger.WithField("address", address).Debug("Processed selected cell formulas")
 				}
 			}
 		}
 	}
 
-	// Extract nearby data if available - but only if it contains actual data
-	if nearbyData, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
+	// Extract nearby data if available - check both nearbyData and nearbyRange
+	var nearbyData map[string]interface{}
+	if nd, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
+		nearbyData = nd
+		eb.logger.Debug("Found nearbyData in context")
+	} else if nr, ok := additionalContext["nearbyRange"].(map[string]interface{}); ok {
+		nearbyData = nr
+		eb.logger.Debug("Found nearbyRange in context (using as nearbyData)")
+	}
+	
+	if nearbyData != nil {
 		if values, ok := nearbyData["values"].([]interface{}); ok {
 			if address, ok := nearbyData["address"].(string); ok {
 				if hasNonEmptyValues(values) {
 					eb.processCellData(context, values, address)
 					hasData = true
+					eb.logger.WithField("address", address).Debug("Processed nearby cell values")
 				}
 			}
 		}

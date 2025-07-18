@@ -323,6 +323,31 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		if message.MessageID != "" {
 			ctx = context.WithValue(ctx, "message_id", message.MessageID)
 		}
+		
+		// Log the financial context being sent to AI
+		eb.logger.WithFields(logrus.Fields{
+			"session_id":        session.ID,
+			"selected_range":    financialContext.SelectedRange,
+			"worksheet":         financialContext.WorksheetName,
+			"model_type":        financialContext.ModelType,
+			"cell_values_count": len(financialContext.CellValues),
+			"formulas_count":    len(financialContext.Formulas),
+		}).Debug("AI context summary")
+		
+		// Log sample of cell values to see what AI receives
+		if len(financialContext.CellValues) > 0 {
+			sample := make(map[string]interface{})
+			count := 0
+			for k, v := range financialContext.CellValues {
+				sample[k] = v
+				count++
+				if count >= 5 {
+					break
+				}
+			}
+			eb.logger.WithField("cell_values_sample", sample).Debug("AI context cell values sample")
+		}
+		
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
 		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
 		if err != nil {

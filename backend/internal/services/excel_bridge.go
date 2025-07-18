@@ -247,6 +247,37 @@ func (eb *ExcelBridge) GetQueuedOperationRegistry() *QueuedOperationRegistry {
 	return eb.queuedOpsRegistry
 }
 
+// isWriteTool checks if a tool name represents a write operation
+func isWriteTool(toolName string) bool {
+	writeTools := []string{
+		"write_cell", "write_range", "write_formula",
+		"write_multiple_cells", "create_chart", "format_cells",
+		"insert_rows", "insert_columns", "delete_rows", "delete_columns",
+	}
+	for _, wt := range writeTools {
+		if toolName == wt {
+			return true
+		}
+	}
+	return false
+}
+
+// hasRecentUserSelection checks if the user has made a recent selection
+// (within the last 5 seconds) to avoid overriding user intent
+func hasRecentUserSelection(session *ExcelSession) bool {
+	// Check if there's a timestamp for the last user selection in context
+	if session.Context != nil {
+		if lastSelectionTime, ok := session.Context["lastUserSelectionTime"].(string); ok {
+			if ts, err := time.Parse(time.RFC3339, lastSelectionTime); err == nil {
+				// Consider selection recent if within 5 seconds
+				return time.Since(ts) < 5*time.Second
+			}
+		}
+	}
+	// If no timestamp found, assume no recent selection
+	return false
+}
+
 // ProcessChatMessage processes a chat message from a client
 func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) (*ChatResponse, error) {
 	// Get or create session
@@ -323,7 +354,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		if message.MessageID != "" {
 			ctx = context.WithValue(ctx, "message_id", message.MessageID)
 		}
-		
+
 		// Log the financial context being sent to AI
 		eb.logger.WithFields(logrus.Fields{
 			"session_id":        session.ID,
@@ -333,7 +364,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			"cell_values_count": len(financialContext.CellValues),
 			"formulas_count":    len(financialContext.Formulas),
 		}).Debug("AI context summary")
-		
+
 		// Log sample of cell values to see what AI receives
 		if len(financialContext.CellValues) > 0 {
 			sample := make(map[string]interface{})
@@ -347,7 +378,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			}
 			eb.logger.WithField("cell_values_sample", sample).Debug("AI context cell values sample")
 		}
-		
+
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
 		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
 		if err != nil {
@@ -357,6 +388,67 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			content = aiResponse.Content
 			// Add AI response to history
 			eb.chatHistory.AddMessage(session.ID, "assistant", content)
+
+			// Track AI-edited ranges for context expansion
+			if len(aiResponse.ToolCalls) > 0 {
+				var lastEditedRange string
+				for _, toolCall := range aiResponse.ToolCalls {
+					// Check if this is a write operation
+					if isWriteTool(toolCall.Name) {
+						// Extract range from tool input
+						if rangeVal, ok := toolCall.Input["range"]; ok {
+							if rangeStr, ok := rangeVal.(string); ok {
+								lastEditedRange = rangeStr
+
+								// Add to recent edits in session context
+								if session.Context == nil {
+									session.Context = make(map[string]interface{})
+								}
+
+								// Initialize or get recent edits array
+								var recentEdits []interface{}
+								if re, ok := session.Context["recentEdits"].([]interface{}); ok {
+									recentEdits = re
+								} else {
+									recentEdits = make([]interface{}, 0)
+								}
+
+								// Add new edit entry
+								editEntry := map[string]interface{}{
+									"range":     rangeStr,
+									"timestamp": time.Now().Format(time.RFC3339),
+									"source":    "ai",
+									"tool":      toolCall.Name,
+								}
+								recentEdits = append(recentEdits, editEntry)
+
+								// Keep only last 10 edits
+								if len(recentEdits) > 10 {
+									recentEdits = recentEdits[len(recentEdits)-10:]
+								}
+
+								session.Context["recentEdits"] = recentEdits
+
+								eb.logger.WithFields(logrus.Fields{
+									"session_id": session.ID,
+									"tool":       toolCall.Name,
+									"range":      rangeStr,
+								}).Debug("Tracked AI edit for context expansion")
+							}
+						}
+					}
+				}
+
+				// If we had write operations and no new user selection,
+				// update session selection to the last edited range
+				if lastEditedRange != "" && !hasRecentUserSelection(session) {
+					session.Selection.SelectedRange = lastEditedRange
+					eb.logger.WithFields(logrus.Fields{
+						"session_id": session.ID,
+						"new_range":  lastEditedRange,
+					}).Info("Updated session selection to AI-edited range for context expansion")
+				}
+			}
 
 			// Convert AI actions to websocket actions
 			actions = eb.convertAIActions(aiResponse.Actions)
@@ -650,6 +742,16 @@ func getMapKeys(m map[string]interface{}) []string {
 	return keys
 }
 
+// Helper function to safely get string value from map
+func getStringValue(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if str, ok := v.(string); ok {
+			return str
+		}
+	}
+	return ""
+}
+
 // buildFinancialContext converts session context to AI financial context
 // Optimized to only include relevant data, similar to how Cursor indexes codebases
 func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalContext map[string]interface{}) *ai.FinancialContext {
@@ -662,16 +764,20 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 
 	// Track if we have any actual data
 	hasData := false
-	
+
 	// Debug log the incoming context
 	eb.logger.WithField("context_keys", getMapKeys(additionalContext)).Debug("Building financial context from Excel data")
-	
+
 	// Log specific fields to debug the structure
 	if sd, exists := additionalContext["selectedData"]; exists {
 		eb.logger.WithField("selectedData_type", fmt.Sprintf("%T", sd)).Debug("Found selectedData field")
 	}
+	// Check for both nearbyData and nearbyRange
+	if nd, exists := additionalContext["nearbyData"]; exists {
+		eb.logger.WithField("nearbyData_type", fmt.Sprintf("%T", nd)).Debug("Found nearbyData field")
+	}
 	if nr, exists := additionalContext["nearbyRange"]; exists {
-		eb.logger.WithField("nearbyRange_type", fmt.Sprintf("%T", nr)).Debug("Found nearbyRange field")
+		eb.logger.WithField("nearbyRange_type", fmt.Sprintf("%T", nr)).Warn("Found deprecated nearbyRange field - please use nearbyData instead")
 	}
 
 	// Extract workbook and worksheet names
@@ -708,30 +814,31 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		context.Formulas = formulas
 	}
 
-	// Extract selected data if available - check root context first
+	// Extract selected data if available - check root context first, then additionalContext
 	var selectedData map[string]interface{}
 	if sd, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
 		selectedData = sd
 		eb.logger.Debug("Found selectedData in root context")
+		hasData = true // Mark that we found data even before processing
 	}
-	
+
 	if selectedData != nil {
 		if values, ok := selectedData["values"].([]interface{}); ok {
 			// Convert 2D array to cell map
 			if address, ok := selectedData["address"].(string); ok {
-				// Only process if we have actual data
+				// Process even if values might be empty to detect actual emptiness
+				eb.processCellData(context, values, address)
 				if hasNonEmptyValues(values) {
-					eb.processCellData(context, values, address)
 					hasData = true
-					eb.logger.WithField("address", address).Debug("Processed selected cell values")
+					eb.logger.WithField("address", address).Debug("Processed selected cell values with data")
 				}
 			}
 		}
 		if formulas, ok := selectedData["formulas"].([]interface{}); ok {
 			// Process formulas similarly
 			if address, ok := selectedData["address"].(string); ok {
+				eb.processFormulaData(context, formulas, address)
 				if hasNonEmptyValues(formulas) {
-					eb.processFormulaData(context, formulas, address)
 					hasData = true
 					eb.logger.WithField("address", address).Debug("Processed selected cell formulas")
 				}
@@ -739,23 +846,33 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		}
 	}
 
-	// Extract nearby data if available - check both nearbyData and nearbyRange
+	// Extract nearby data - prioritize nearbyData over nearbyRange
 	var nearbyData map[string]interface{}
 	if nd, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
 		nearbyData = nd
-		eb.logger.Debug("Found nearbyData in context")
+		eb.logger.Debug("Using nearbyData from context")
 	} else if nr, ok := additionalContext["nearbyRange"].(map[string]interface{}); ok {
+		// Fallback to nearbyRange for backward compatibility
 		nearbyData = nr
-		eb.logger.Debug("Found nearbyRange in context (using as nearbyData)")
+		eb.logger.Warn("Using deprecated nearbyRange as nearbyData - frontend should be updated to use nearbyData")
 	}
-	
+
 	if nearbyData != nil {
 		if values, ok := nearbyData["values"].([]interface{}); ok {
 			if address, ok := nearbyData["address"].(string); ok {
+				eb.processCellData(context, values, address)
 				if hasNonEmptyValues(values) {
-					eb.processCellData(context, values, address)
 					hasData = true
 					eb.logger.WithField("address", address).Debug("Processed nearby cell values")
+				}
+			}
+		}
+		if formulas, ok := nearbyData["formulas"].([]interface{}); ok {
+			if address, ok := nearbyData["address"].(string); ok {
+				eb.processFormulaData(context, formulas, address)
+				if hasNonEmptyValues(formulas) {
+					hasData = true
+					eb.logger.WithField("address", address).Debug("Processed nearby cell formulas")
 				}
 			}
 		}
@@ -763,6 +880,35 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 
 	// Add cached data
 	eb.addCachedDataToFinancialContext(context, session)
+
+	// Incorporate recent edits from session if available
+	if session.Context != nil {
+		if recentEdits, ok := session.Context["recentEdits"].([]interface{}); ok {
+			for _, edit := range recentEdits {
+				if editMap, ok := edit.(map[string]interface{}); ok {
+					change := ai.CellChange{
+						Address:   getStringValue(editMap, "range"),
+						OldValue:  editMap["oldValue"],
+						NewValue:  editMap["newValue"],
+						Timestamp: time.Now(), // Default to now if not provided
+					}
+					if tsStr, ok := editMap["timestamp"].(string); ok {
+						if ts, err := time.Parse(time.RFC3339, tsStr); err == nil {
+							change.Timestamp = ts
+						}
+					}
+					// Set source if available
+					if source := getStringValue(editMap, "source"); source != "" {
+						change.Source = source
+					} else {
+						change.Source = "ai" // Default to AI as source for recent edits
+					}
+					context.RecentChanges = append(context.RecentChanges, change)
+				}
+			}
+			eb.logger.WithField("recent_edits_count", len(context.RecentChanges)).Debug("Incorporated recent edits into context")
+		}
+	}
 
 	// Only add model type detection if we have actual data
 	if hasData && context.ModelType == "" {
@@ -775,10 +921,11 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 
 	// Log context size for debugging
 	eb.logger.WithFields(logrus.Fields{
-		"has_data":      hasData,
-		"cell_count":    len(context.CellValues),
-		"formula_count": len(context.Formulas),
-		"model_type":    context.ModelType,
+		"has_data":       hasData,
+		"cell_count":     len(context.CellValues),
+		"formula_count":  len(context.Formulas),
+		"recent_changes": len(context.RecentChanges),
+		"model_type":     context.ModelType,
 	}).Debug("Built financial context")
 
 	return context

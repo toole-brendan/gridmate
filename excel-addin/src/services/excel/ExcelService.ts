@@ -115,6 +115,15 @@ export class ExcelService {
     timestamp: number
   }>()
   
+  // Activity tracking for dynamic context expansion
+  private activityLog: Array<{
+    timestamp: number
+    type: 'edit' | 'select'
+    range: string
+  }> = []
+  
+  // Maximum number of activities to track
+  private readonly MAX_ACTIVITY_LOG_SIZE = 50
 
   static getInstance(): ExcelService {
     if (!ExcelService.instance) {
@@ -129,9 +138,95 @@ export class ExcelService {
     return ExcelService.instance
   }
 
+  // Track user or AI activity
+  private trackActivity(type: 'edit' | 'select', range: string): void {
+    this.activityLog.push({
+      timestamp: Date.now(),
+      type,
+      range
+    })
+    
+    // Keep only the last MAX_ACTIVITY_LOG_SIZE entries
+    if (this.activityLog.length > this.MAX_ACTIVITY_LOG_SIZE) {
+      this.activityLog = this.activityLog.slice(-this.MAX_ACTIVITY_LOG_SIZE)
+    }
+    
+    console.log(`[ExcelService] Tracked activity: ${type} on range ${range}`)
+  }
+  
+  // Public method to track activity (for use by other components)
+  public trackUserSelection(range: string): void {
+    this.trackActivity('select', range)
+  }
+  
+  // Public method to track AI edits
+  public trackAIEdit(range: string): void {
+    this.trackActivity('edit', range)
+  }
+  
+  // Helper to expand a range by padding rows/columns
+  private expandRange(rangeAddress: string, rowPadding: number, colPadding: number): string {
+    // Parse the range address (e.g., "A1:C3" or "Sheet1!A1:C3")
+    const match = rangeAddress.match(/^(?:(.+)!)?([A-Z]+)(\d+):([A-Z]+)(\d+)$/i)
+    if (!match) return rangeAddress // Return original if can't parse
+    
+    const [, sheet, startCol, startRowStr, endCol, endRowStr] = match
+    const startRow = parseInt(startRowStr)
+    const endRow = parseInt(endRowStr)
+    
+    // Convert column letters to numbers
+    const colToNum = (col: string) => {
+      let num = 0
+      for (let i = 0; i < col.length; i++) {
+        num = num * 26 + (col.charCodeAt(i) - 65 + 1)
+      }
+      return num
+    }
+    
+    // Convert numbers back to column letters
+    const numToCol = (num: number) => {
+      let col = ''
+      while (num > 0) {
+        num--
+        col = String.fromCharCode(65 + (num % 26)) + col
+        num = Math.floor(num / 26)
+      }
+      return col
+    }
+    
+    const startColNum = colToNum(startCol)
+    const endColNum = colToNum(endCol)
+    
+    // Apply padding (but don't go below 1)
+    const newStartRow = Math.max(1, startRow - rowPadding)
+    const newEndRow = endRow + rowPadding
+    const newStartCol = Math.max(1, startColNum - colPadding)
+    const newEndCol = endColNum + colPadding
+    
+    const expandedRange = `${numToCol(newStartCol)}${newStartRow}:${numToCol(newEndCol)}${newEndRow}`
+    return sheet ? `${sheet}!${expandedRange}` : expandedRange
+  }
+
   // Clear cache when needed
   clearCache(): void {
     this.worksheetCache.clear()
+  }
+  
+  // Programmatically select a range in Excel
+  async selectRange(rangeAddress: string): Promise<void> {
+    console.log(`[ExcelService] Selecting range: ${rangeAddress}`)
+    return Excel.run(async (context: any) => {
+      try {
+        const worksheet = context.workbook.worksheets.getActiveWorksheet()
+        const range = worksheet.getRange(rangeAddress)
+        range.select()
+        await context.sync()
+        console.log(`[ExcelService] Successfully selected range: ${rangeAddress}`)
+      } catch (error) {
+        console.error(`[ExcelService] Error selecting range ${rangeAddress}:`, error)
+        throw error
+      }
+    })
   }
 
   // Filter empty rows and columns to reduce payload size
@@ -385,6 +480,18 @@ export class ExcelService {
   // Optimized method to get context around selection
   async getSmartContext(): Promise<ComprehensiveContext> {
     console.log('[ExcelService] getSmartContext called')
+    
+    // Check activity log for recent edits vs selections
+    const lastSelect = this.activityLog
+      .filter(a => a.type === 'select')
+      .slice(-1)[0]
+    const lastEdit = this.activityLog
+      .filter(a => a.type === 'edit')
+      .slice(-1)[0]
+    
+    // Determine if we should expand context based on recent AI edits
+    const shouldUseEditContext = lastEdit && (!lastSelect || lastEdit.timestamp > lastSelect.timestamp)
+    
     return Excel.run(async (context: any) => {
       const workbook = context.workbook
       const worksheet = workbook.worksheets.getActiveWorksheet()
@@ -399,7 +506,9 @@ export class ExcelService {
       console.log('[ExcelService] Basic context loaded:', {
         workbook: workbook.name,
         worksheet: worksheet.name,
-        selectedRange: selectedRange.address
+        selectedRange: selectedRange.address,
+        shouldUseEditContext,
+        lastEditRange: lastEdit?.range
       })
 
       // Check if this is a blank sheet or default selection
@@ -411,6 +520,48 @@ export class ExcelService {
         workbook: workbook.name,
         worksheet: worksheet.name,
         selectedRange: selectedRange.address
+      }
+
+      // If we should use edit context and no new user selection, focus on AI-edited area
+      if (shouldUseEditContext && isDefaultSelection && lastEdit) {
+        console.log('[ExcelService] Using AI edit context instead of default selection')
+        
+        try {
+          // Parse and use the AI-edited range
+          const editedRange = worksheet.getRange(lastEdit.range)
+          editedRange.load(['address', 'rowIndex', 'columnIndex', 'rowCount', 'columnCount', 'values', 'formulas'])
+          await context.sync()
+          
+          // Update the result to focus on edited area
+          result.selectedRange = editedRange.address
+          result.selectedData = {
+            values: editedRange.values,
+            formulas: editedRange.formulas,
+            address: editedRange.address,
+            rowCount: editedRange.rowCount,
+            colCount: editedRange.columnCount
+          }
+          
+          // Get expanded context around the edit
+          const expandedRange = this.expandRange(lastEdit.range, 5, 5)
+          const nearbyRange = worksheet.getRange(expandedRange)
+          nearbyRange.load(['values', 'formulas', 'address', 'rowCount', 'columnCount'])
+          await context.sync()
+          
+          result.nearbyData = {
+            values: nearbyRange.values,
+            formulas: nearbyRange.formulas,
+            address: nearbyRange.address,
+            rowCount: nearbyRange.rowCount,
+            colCount: nearbyRange.columnCount
+          }
+          
+          console.log('[ExcelService] Dynamic context expanded around AI edit:', expandedRange)
+          return result
+        } catch (e) {
+          console.warn('[ExcelService] Could not use AI edit context, falling back to normal flow:', e)
+          // Fall through to normal processing
+        }
       }
 
       // For blank sheet or default selection, provide intelligent context

@@ -81,6 +81,12 @@ export const RefactoredChatInterface: React.FC = () => {
       const context = await ExcelService.getInstance().getSmartContext();
       const mentions: MentionItem[] = [];
       
+      // Track user selection (this is called after selection changes)
+      if (context.selectedRange) {
+        ExcelService.getInstance().trackUserSelection(context.selectedRange);
+        addDebugLog(`Tracked user selection: ${context.selectedRange}`);
+      }
+      
       // For now, just add the current worksheet as a mention
       if (context.worksheet) {
         mentions.push({ 
@@ -251,7 +257,7 @@ export const RefactoredChatInterface: React.FC = () => {
             workbook: excelContext?.workbook,
             selectedRange: excelContext?.selectedRange,
             selectedData: excelContext?.selectedData,
-            nearbyRange: excelContext?.nearbyData,  // Fix: should be nearbyData not nearbyRange
+            nearbyData: excelContext?.nearbyData,  // Fixed: now using nearbyData correctly
             activeContext: activeContext.map(c => ({ type: c.type, value: c.value })),
           },
           autonomyMode,

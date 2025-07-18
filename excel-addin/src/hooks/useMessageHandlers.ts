@@ -302,6 +302,23 @@ export const useMessageHandlers = (
         addDebugLog(`Tool ${toolRequest.tool} executing immediately`);
         try {
           const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
+          
+          // Track AI edit and update selection if it's a write operation
+          if (WRITE_TOOLS.has(toolRequest.tool) && toolRequest.range) {
+            // Track the AI edit
+            ExcelService.getInstance().trackAIEdit(toolRequest.range);
+            addDebugLog(`Tracked AI edit for range: ${toolRequest.range}`, 'info');
+            
+            // Optionally select the edited range to update context
+            try {
+              await ExcelService.getInstance().selectRange(toolRequest.range);
+              addDebugLog(`Selected AI-edited range: ${toolRequest.range}`, 'success');
+            } catch (err) {
+              console.error("Failed to select AI-edited range:", err);
+              // Don't fail the operation if selection fails
+            }
+          }
+          
           await sendFinalToolResponse(toolRequest.request_id, result, null);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Operation failed';
@@ -574,6 +591,22 @@ export const useMessageHandlers = (
       
       // Execute the operation
       const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
+      
+      // Track AI edit and update selection if it's a write operation
+      if (WRITE_TOOLS.has(toolRequest.tool) && toolRequest.range) {
+        // Track the AI edit
+        ExcelService.getInstance().trackAIEdit(toolRequest.range);
+        addDebugLog(`Tracked AI edit for range: ${toolRequest.range}`, 'info');
+        
+        // Optionally select the edited range to update context
+        try {
+          await ExcelService.getInstance().selectRange(toolRequest.range);
+          addDebugLog(`Selected AI-edited range: ${toolRequest.range}`, 'success');
+        } catch (err) {
+          console.error("Failed to select AI-edited range:", err);
+          // Don't fail the operation if selection fails
+        }
+      }
       
       // Send final response to backend
       await sendFinalToolResponse(requestId, result, null);

@@ -79,6 +79,29 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		excelContext = make(map[string]interface{})
 	}
 
+	// Log the structure of Excel context received
+	contextKeys := make([]string, 0, len(excelContext))
+	for k := range excelContext {
+		contextKeys = append(contextKeys, k)
+	}
+	h.logger.WithFields(logrus.Fields{
+		"has_selected_data": excelContext["selectedData"] != nil,
+		"has_nearby_data":   excelContext["nearbyData"] != nil,
+		"has_worksheet":     excelContext["worksheet"] != nil,
+		"has_workbook":      excelContext["workbook"] != nil,
+		"context_keys":      contextKeys,
+	}).Debug("Excel context structure received from frontend")
+
+	// Log sample of selected data if present
+	if selectedData, ok := excelContext["selectedData"].(map[string]interface{}); ok {
+		if values, ok := selectedData["values"].([]interface{}); ok {
+			h.logger.WithFields(logrus.Fields{
+				"selected_data_rows": len(values),
+				"has_values":         len(values) > 0,
+			}).Debug("Selected data details")
+		}
+	}
+
 	chatMsg := services.ChatMessage{
 		Content:      req.Content,
 		SessionID:    req.SessionID,

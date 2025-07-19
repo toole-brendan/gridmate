@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -391,14 +392,14 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 			// Track AI-edited ranges for context expansion
 			if len(aiResponse.ToolCalls) > 0 {
-				var lastEditedRange string
+				var editedRanges []string
 				for _, toolCall := range aiResponse.ToolCalls {
 					// Check if this is a write operation
 					if isWriteTool(toolCall.Name) {
 						// Extract range from tool input
 						if rangeVal, ok := toolCall.Input["range"]; ok {
 							if rangeStr, ok := rangeVal.(string); ok {
-								lastEditedRange = rangeStr
+								editedRanges = append(editedRanges, rangeStr)
 
 								// Add to recent edits in session context
 								if session.Context == nil {
@@ -440,13 +441,15 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 				}
 
 				// If we had write operations and no new user selection,
-				// update session selection to the last edited range
-				if lastEditedRange != "" && !hasRecentUserSelection(session) {
-					session.Selection.SelectedRange = lastEditedRange
+				// update session selection to the union of all edited ranges
+				if len(editedRanges) > 0 && !hasRecentUserSelection(session) {
+					mergedRange := eb.mergeRanges(editedRanges)
+					session.Selection.SelectedRange = mergedRange
 					eb.logger.WithFields(logrus.Fields{
-						"session_id": session.ID,
-						"new_range":  lastEditedRange,
-					}).Info("Updated session selection to AI-edited range for context expansion")
+						"session_id":    session.ID,
+						"edited_ranges": editedRanges,
+						"merged_range":  mergedRange,
+					}).Info("Updated session selection to union of AI-edited ranges for context expansion")
 				}
 			}
 
@@ -878,6 +881,35 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		}
 	}
 
+	// Extract full sheet data if available - gives AI complete visibility
+	if fullSheetData, ok := additionalContext["fullSheetData"].(map[string]interface{}); ok {
+		eb.logger.Debug("Found fullSheetData in context - AI will have complete sheet visibility")
+
+		if values, ok := fullSheetData["values"].([]interface{}); ok {
+			if address, ok := fullSheetData["address"].(string); ok {
+				eb.processCellData(context, values, address)
+				if hasNonEmptyValues(values) {
+					hasData = true
+					eb.logger.WithField("address", address).Info("Processed full sheet data")
+				}
+			}
+		}
+
+		if formulas, ok := fullSheetData["formulas"].([]interface{}); ok {
+			if address, ok := fullSheetData["address"].(string); ok {
+				eb.processFormulaData(context, formulas, address)
+				eb.logger.Debug("Processed full sheet formulas")
+			}
+		}
+
+		// Add metadata about sheet size
+		if isFullSheet, ok := fullSheetData["isFullSheet"].(bool); ok && isFullSheet {
+			context.DocumentContext = append(context.DocumentContext, "Full sheet data loaded")
+		} else if note, ok := fullSheetData["note"].(string); ok {
+			context.DocumentContext = append(context.DocumentContext, note)
+		}
+	}
+
 	// Add cached data
 	eb.addCachedDataToFinancialContext(context, session)
 
@@ -1150,6 +1182,66 @@ func hasNonEmptyValues(values []interface{}) bool {
 		}
 	}
 	return false
+}
+
+// mergeRanges takes multiple Excel range strings and returns their bounding box
+// For example: mergeRanges(["A1:B2", "D5:E6"]) returns "A1:E6"
+func (eb *ExcelBridge) mergeRanges(ranges []string) string {
+	if len(ranges) == 0 {
+		return ""
+	}
+	if len(ranges) == 1 {
+		return ranges[0]
+	}
+
+	// Initialize min/max bounds
+	minRow, minCol := math.MaxInt32, math.MaxInt32
+	maxRow, maxCol := 0, 0
+
+	for _, rangeStr := range ranges {
+		// Handle different range formats
+		parts := strings.Split(rangeStr, "!")
+		actualRange := rangeStr
+		if len(parts) > 1 {
+			// Remove sheet name if present
+			actualRange = parts[len(parts)-1]
+		}
+
+		// Handle single cell (e.g., "A1") vs range (e.g., "A1:B2")
+		cellParts := strings.Split(actualRange, ":")
+		startCell := cellParts[0]
+		endCell := startCell
+		if len(cellParts) > 1 {
+			endCell = cellParts[1]
+		}
+
+		// Parse start cell
+		startCol, startRow := eb.parseCell(startCell)
+		if startRow < minRow {
+			minRow = startRow
+		}
+		if startCol < minCol {
+			minCol = startCol
+		}
+
+		// Parse end cell
+		endCol, endRow := eb.parseCell(endCell)
+		if endRow > maxRow {
+			maxRow = endRow
+		}
+		if endCol > maxCol {
+			maxCol = endCol
+		}
+	}
+
+	// Convert back to range string
+	startAddr := eb.getCellAddress(minCol, minRow)
+	endAddr := eb.getCellAddress(maxCol, maxRow)
+
+	if startAddr == endAddr {
+		return startAddr
+	}
+	return fmt.Sprintf("%s:%s", startAddr, endAddr)
 }
 
 // parseCell parses a cell reference like "A1" into column and row indices

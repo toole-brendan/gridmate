@@ -258,6 +258,7 @@ export const RefactoredChatInterface: React.FC = () => {
             selectedRange: excelContext?.selectedRange,
             selectedData: excelContext?.selectedData,
             nearbyData: excelContext?.nearbyData,  // Fixed: now using nearbyData correctly
+            fullSheetData: excelContext?.fullSheetData,  // Complete sheet data for AI
             activeContext: activeContext.map(c => ({ type: c.type, value: c.value })),
           },
           autonomyMode,

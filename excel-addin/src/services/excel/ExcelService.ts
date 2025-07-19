@@ -23,6 +23,13 @@ export interface RangeData {
   address: string
   rowCount: number
   colCount: number
+  isBlankSheet?: boolean
+  suggestedWorkArea?: boolean
+  isFullSheet?: boolean
+  isEmpty?: boolean
+  totalRows?: number
+  totalCols?: number
+  note?: string
 }
 
 export interface WorkbookData {
@@ -45,6 +52,7 @@ export interface ComprehensiveContext extends ExcelContext {
   visibleRangeData?: RangeData
   workbookSummary?: WorkbookData
   nearbyData?: RangeData  // Data around selection
+  fullSheetData?: RangeData  // Complete sheet data for AI visibility
 }
 
 export interface DataAnalysis {
@@ -520,6 +528,66 @@ export class ExcelService {
         workbook: workbook.name,
         worksheet: worksheet.name,
         selectedRange: selectedRange.address
+      }
+
+      // ALWAYS load the full sheet data to give AI complete visibility
+      try {
+        const fullSheetRange = worksheet.getUsedRange()
+        if (fullSheetRange) {
+          fullSheetRange.load(['values', 'formulas', 'address', 'rowCount', 'columnCount'])
+          await context.sync()
+          
+          // Check if the sheet size is reasonable (under 10,000 cells for performance)
+          const totalCells = fullSheetRange.rowCount * fullSheetRange.columnCount
+          if (totalCells <= 10000) {
+            result.fullSheetData = {
+              values: fullSheetRange.values,
+              formulas: fullSheetRange.formulas,
+              address: fullSheetRange.address,
+              rowCount: fullSheetRange.rowCount,
+              colCount: fullSheetRange.columnCount,
+              isFullSheet: true
+            }
+            console.log('[ExcelService] Loaded full sheet data:', {
+              address: fullSheetRange.address,
+              cells: totalCells
+            })
+          } else {
+            // For large sheets, load a reasonable subset
+            console.log('[ExcelService] Sheet too large, loading subset:', {
+              totalCells,
+              address: fullSheetRange.address
+            })
+            // Load first 100 rows as a sample
+            const sampleRange = worksheet.getRangeByIndexes(0, 0, Math.min(100, fullSheetRange.rowCount), fullSheetRange.columnCount)
+            sampleRange.load(['values', 'formulas', 'address'])
+            await context.sync()
+            
+            result.fullSheetData = {
+              values: sampleRange.values,
+              formulas: sampleRange.formulas,
+              address: sampleRange.address,
+              rowCount: sampleRange.rowCount,
+              colCount: sampleRange.columnCount,
+              isFullSheet: false,
+              totalRows: fullSheetRange.rowCount,
+              totalCols: fullSheetRange.columnCount,
+              note: `Sheet has ${totalCells} cells. Showing first 100 rows.`
+            }
+          }
+        }
+      } catch (e) {
+        console.log('[ExcelService] No used range found, sheet might be empty')
+        // Sheet is completely empty
+        result.fullSheetData = {
+          values: [[""]],
+          formulas: [[""]],
+          address: "A1",
+          rowCount: 1,
+          colCount: 1,
+          isFullSheet: true,
+          isEmpty: true
+        }
       }
 
       // If we should use edit context and no new user selection, focus on AI-edited area

@@ -1,38 +1,54 @@
-[Warning] 760 console messages are not shown.
-[Log] [info] [Visualizer] Set preview value for Sheet1!G3: Projection – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!H3: Projection – undefined (GridVisualizer.ts, line 408)
-[Log] [success] [Visualizer] Preview values applied successfully in 33ms – undefined (GridVisualizer.ts, line 416)
-[Log] [Diff Preview] Preview values applied successfully during re-calculation (useDiffPreview.ts, line 156)
-[Log] [12:31:12 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 47)
-[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 282)
-[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 294)
+[Warning] 1830 console messages are not shown.
+[Log] [ExcelService] Tracked activity: edit on range H1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
 Object
-[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 417)
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
 Object
-[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 437)
-[Log] [ExcelService] Tracked activity: select on range Sheet1!A1:H1 (ExcelService.ts, line 33)
-[Log] [12:31:12 AM] [INFO] Tracked user selection: Sheet1!A1:H1 (RefactoredChatInterface.tsx, line 47)
+[Log] [9:56:59 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 47)
+[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 358)
+[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 370)
+Object
+[Log] [ExcelService] Loaded full sheet data: – Object (ExcelService.ts, line 400)
+Object
+[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 547)
+Object
+[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 567)
+[Log] [ExcelService] Tracked activity: select on range Sheet1!A1:M1 (ExcelService.ts, line 109)
+[Log] [9:56:59 AM] [INFO] Tracked user selection: Sheet1!A1:M1 (RefactoredChatInterface.tsx, line 47)
+[Log] [9:57:00 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 47)
+[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 358)
+[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 370)
+Object
+[Log] [ExcelService] Loaded full sheet data: – Object (ExcelService.ts, line 400)
+Object
+[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 547)
+Object
+[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 567)
+[Log] [ExcelService] Tracked activity: select on range Sheet1!A1:M1 (ExcelService.ts, line 109)
+[Log] [9:57:00 AM] [INFO] Tracked user selection: Sheet1!A1:M1 (RefactoredChatInterface.tsx, line 47)
 [Log] [info] [Visualizer] Clearing 8 highlights – undefined (GridVisualizer.ts, line 232)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!A3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!B3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!C3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!D3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!E3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!F3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!G3 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!H3 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!A1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!B1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!C1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!D1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!E1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!F1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!G1 – undefined (GridVisualizer.ts, line 265)
+[Log] [info] [Visualizer] Restored original value for cell Sheet1!H1 – undefined (GridVisualizer.ts, line 265)
 [Log] [success] [Visualizer] Highlights cleared successfully – undefined (GridVisualizer.ts, line 336)
-[Log] [✅ Diff Apply Success] ExcelService received tool request to execute. – Object (ExcelService.ts, line 556)
+[Log] [✅ Diff Apply Success] ExcelService received tool request to execute. – Object (ExcelService.ts, line 686)
 Object
-[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 770)
+[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 900)
 Object
-[Log] [✅ Diff Apply Success] Target determined: Sheet='Sheet1', Range='A3:H3' (ExcelService.ts, line 775)
-[Log] [✅ Diff Apply Success] toolWriteRange completed successfully. (ExcelService.ts, line 792)
-[Log] [ExcelService] Tracked activity: edit on range A3:H3 (ExcelService.ts, line 33)
-[Log] [12:31:14 AM] [INFO] Tracked AI edit for range: A3:H3 (RefactoredChatInterface.tsx, line 47)
-[Log] [ExcelService] Selecting range: A3:H3 (ExcelService.ts, line 81)
-[Log] [ExcelService] Successfully selected range: A3:H3 (ExcelService.ts, line 88)
-[Log] [12:31:14 AM] [SUCCESS] Selected AI-edited range: A3:H3 (RefactoredChatInterface.tsx, line 47)
+[Log] [✅ Diff Apply Success] Target determined: Sheet='Sheet1', Range='A1:H1' (ExcelService.ts, line 905)
+[Log] [✅ Diff Apply Success] Stored rich edit tracking info – Object (ExcelService.ts, line 946)
+Object
+[Log] [✅ Diff Apply Success] toolWriteRange completed successfully. (ExcelService.ts, line 947)
+[Log] [ExcelService] Tracked activity: edit on range A1:H1 (ExcelService.ts, line 109)
+[Log] [9:57:01 AM] [INFO] Tracked AI edit for range: A1:H1 (RefactoredChatInterface.tsx, line 47)
+[Log] [ExcelService] Selecting range: A1:H1 (ExcelService.ts, line 157)
+[Log] [ExcelService] Successfully selected range: A1:H1 (ExcelService.ts, line 164)
+[Log] [9:57:01 AM] [SUCCESS] Selected AI-edited range: A1:H1 (RefactoredChatInterface.tsx, line 47)
 [Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
 Object
 [Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
@@ -41,77 +57,97 @@ Object
 Object
 [Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
 [Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [12:31:14 AM] [SUCCESS] Preview accepted and executed for 14b1cf71-5673-4405-a522-54cf379a8624 (RefactoredChatInterface.tsx, line 47)
-[Log] [12:31:14 AM] [INFO] Processing operation 3 of 3 (RefactoredChatInterface.tsx, line 47)
-[Log] [Diff Preview] Starting new preview session, creating initial snapshot. (useDiffPreview.ts, line 115)
-[Log] [info] [Simulator] Starting simulation for write_range – Object (diffSimulator.ts, line 17)
+[Log] [9:57:01 AM] [SUCCESS] Preview accepted and executed for 4459bd13-c17b-4b1d-b91c-9db9ccd958d4 (RefactoredChatInterface.tsx, line 47)
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
 Object
-[Log] [info] [Simulator] Applying write operation to range: A4:H4 – undefined (diffSimulator.ts, line 26)
-[Log] [info] [Simulator] Writing to 8 cells – undefined (diffSimulator.ts, line 63)
-[Log] [info] [Simulator] Simulation complete. Cells modified: 1 – Object (diffSimulator.ts, line 49)
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
 Object
-[Log] [ClientDiff] Calculated 8 diffs in 0.00ms (clientDiff.ts, line 56)
-[Log] [info] [Visualizer] Clearing 0 highlights – undefined (GridVisualizer.ts, line 232)
-[Log] [success] [Visualizer] Highlights cleared successfully – undefined (GridVisualizer.ts, line 336)
-[Log] [info] [Visualizer] Applying highlights to 8 cells – undefined (GridVisualizer.ts, line 37)
-[Log] [success] [Visualizer] Highlights applied successfully in 12ms – undefined (GridVisualizer.ts, line 175)
-[Log] [info] [Visualizer] Applying preview values to 8 cells – undefined (GridVisualizer.ts, line 366)
-[Log] [info] [Visualizer] Set preview value for Sheet1!A4: Year – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!B4: 2021 – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!C4: 2022 – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!D4: 2023E – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!E4: 2024E – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!F4: 2025E – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!G4: 2026E – undefined (GridVisualizer.ts, line 408)
-[Log] [info] [Visualizer] Set preview value for Sheet1!H4: 2027E – undefined (GridVisualizer.ts, line 408)
-[Log] [success] [Visualizer] Preview values applied successfully in 29ms – undefined (GridVisualizer.ts, line 416)
-[Log] [Diff Preview] Preview values applied successfully during re-calculation (useDiffPreview.ts, line 156)
-[Log] [12:31:14 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 47)
-[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 282)
-[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 294)
+[Log] [ExcelService] Tracked activity: edit on range A1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
 Object
-[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 417)
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
 Object
-[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 437)
-[Log] [ExcelService] Tracked activity: select on range Sheet1!A3:H3 (ExcelService.ts, line 33)
-[Log] [12:31:14 AM] [INFO] Tracked user selection: Sheet1!A3:H3 (RefactoredChatInterface.tsx, line 47)
-[Log] [info] [Visualizer] Clearing 8 highlights – undefined (GridVisualizer.ts, line 232)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!A4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!B4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!C4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!D4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!E4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!F4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!G4 – undefined (GridVisualizer.ts, line 265)
-[Log] [info] [Visualizer] Restored original value for cell Sheet1!H4 – undefined (GridVisualizer.ts, line 265)
-[Log] [success] [Visualizer] Highlights cleared successfully – undefined (GridVisualizer.ts, line 336)
-[Log] [✅ Diff Apply Success] ExcelService received tool request to execute. – Object (ExcelService.ts, line 556)
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
 Object
-[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 770)
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
 Object
-[Log] [✅ Diff Apply Success] Target determined: Sheet='Sheet1', Range='A4:H4' (ExcelService.ts, line 775)
-[Log] [✅ Diff Apply Success] toolWriteRange completed successfully. (ExcelService.ts, line 792)
-[Log] [ExcelService] Tracked activity: edit on range A4:H4 (ExcelService.ts, line 33)
-[Log] [12:31:15 AM] [INFO] Tracked AI edit for range: A4:H4 (RefactoredChatInterface.tsx, line 47)
-[Log] [ExcelService] Selecting range: A4:H4 (ExcelService.ts, line 81)
-[Log] [ExcelService] Successfully selected range: A4:H4 (ExcelService.ts, line 88)
-[Log] [12:31:15 AM] [SUCCESS] Selected AI-edited range: A4:H4 (RefactoredChatInterface.tsx, line 47)
-[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
+[Log] [ExcelService] Tracked activity: edit on range B1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
 Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
 Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
 Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [12:31:15 AM] [SUCCESS] Preview accepted and executed for d7f03af3-2399-45fa-be5d-07c226619ad3 (RefactoredChatInterface.tsx, line 47)
-[Log] [12:31:16 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 47)
-[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 282)
-[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 294)
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
 Object
-[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 417)
+[Log] [ExcelService] Tracked activity: edit on range C1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
 Object
-[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 437)
-[Log] [ExcelService] Tracked activity: select on range Sheet1!A4:H4 (ExcelService.ts, line 33)
-[Log] [12:31:16 AM] [INFO] Tracked user selection: Sheet1!A4:H4 (RefactoredChatInterface.tsx, line 47)
-[Log] 💓 Heartbeat sent (SignalRClient.ts, line 260)
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
+Object
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
+Object
+[Log] [ExcelService] Tracked activity: edit on range D1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
+Object
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
+Object
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
+Object
+[Log] [ExcelService] Tracked activity: edit on range E1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
+Object
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
+Object
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
+Object
+[Log] [ExcelService] Tracked activity: edit on range F1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
+Object
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
+Object
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
+Object
+[Log] [ExcelService] Tracked activity: edit on range G1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
+Object
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
+Object
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
+Object
+[Log] [ExcelService] Tracked activity: edit on range H1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
+Object
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 38)
+Object
+[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 63)
+Object
+[Log] [ExcelService] Tracked activity: edit on range A1:H1 (ExcelService.ts, line 109)
+[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 81)
+Object
+[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 74)
+Object
+[Log] [9:57:01 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 47)
+[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 358)
+[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 370)
+Object
+[Log] [ExcelService] Loaded full sheet data: – Object (ExcelService.ts, line 400)
+Object
+[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 547)
+Object
+[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 567)
+[Log] [ExcelService] Tracked activity: select on range Sheet1!A1:H1 (ExcelService.ts, line 109)
+[Log] [9:57:01 AM] [INFO] Tracked user selection: Sheet1!A1:H1 (RefactoredChatInterface.tsx, line 47)
+[Log] 💓 Heartbeat sent (SignalRClient.ts, line 260, x2)

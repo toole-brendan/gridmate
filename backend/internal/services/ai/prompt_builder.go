@@ -95,7 +95,7 @@ func (pb *PromptBuilder) buildContextPrompt(context *FinancialContext) string {
 	if context.SelectedRange != "" {
 		parts = append(parts, fmt.Sprintf("  <selection>%s</selection>", context.SelectedRange))
 	}
-	
+
 	// For empty spreadsheets, provide minimal context
 	if context.ModelType == "Empty" {
 		parts = append(parts, "  <status>The spreadsheet is currently empty.</status>")
@@ -286,7 +286,7 @@ func (pb *PromptBuilder) buildCellDataSection(context *FinancialContext) string 
 	return strings.Join(parts, "\n")
 }
 
-// buildRecentChangesSection builds the recent changes section
+// buildRecentChangesSection builds the recent changes section with enhanced formatting
 func (pb *PromptBuilder) buildRecentChangesSection(changes []CellChange) string {
 	if len(changes) == 0 {
 		return ""
@@ -294,12 +294,49 @@ func (pb *PromptBuilder) buildRecentChangesSection(changes []CellChange) string 
 
 	var parts []string
 	parts = append(parts, "<recent_changes>")
+
 	for i, change := range changes {
-		timeStr := change.Timestamp.Format("15:04:05")
-		changeStr := fmt.Sprintf("%s [%s]: %v → %v (%s)",
-			change.Address, timeStr, change.OldValue, change.NewValue, change.Source)
-		parts = append(parts, fmt.Sprintf("  <change_%d>%s</change_%d>", i+1, changeStr, i+1))
+		parts = append(parts, fmt.Sprintf("  <change_%d>", i+1))
+		parts = append(parts, fmt.Sprintf("    <cell>%s</cell>", change.Address))
+		parts = append(parts, fmt.Sprintf("    <timestamp>%s</timestamp>", change.Timestamp.Format("15:04:05")))
+
+		// Format old value
+		if change.OldValue != nil && change.OldValue != "" {
+			parts = append(parts, fmt.Sprintf("    <old_value>%v</old_value>", change.OldValue))
+		} else {
+			parts = append(parts, "    <old_value>empty</old_value>")
+		}
+
+		// Format new value
+		if change.NewValue != nil && change.NewValue != "" {
+			parts = append(parts, fmt.Sprintf("    <new_value>%v</new_value>", change.NewValue))
+		} else {
+			parts = append(parts, "    <new_value>empty</new_value>")
+		}
+
+		// Add source (user/ai/formula)
+		parts = append(parts, fmt.Sprintf("    <source>%s</source>", change.Source))
+
+		parts = append(parts, fmt.Sprintf("  </change_%d>", i+1))
 	}
+
+	// Add summary
+	aiChanges := 0
+	userChanges := 0
+	for _, change := range changes {
+		if change.Source == "ai" {
+			aiChanges++
+		} else {
+			userChanges++
+		}
+	}
+
+	parts = append(parts, "  <summary>")
+	parts = append(parts, fmt.Sprintf("    <total_changes>%d</total_changes>", len(changes)))
+	parts = append(parts, fmt.Sprintf("    <ai_changes>%d</ai_changes>", aiChanges))
+	parts = append(parts, fmt.Sprintf("    <user_changes>%d</user_changes>", userChanges))
+	parts = append(parts, "  </summary>")
+
 	parts = append(parts, "</recent_changes>")
 
 	return strings.Join(parts, "\n")

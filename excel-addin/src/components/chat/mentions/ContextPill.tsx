@@ -3,10 +3,11 @@ import { XMarkIcon } from '@heroicons/react/24/outline'
 
 export interface ContextItem {
   id: string
-  type: 'sheet' | 'range' | 'filter' | 'selection'
+  type: 'sheet' | 'range' | 'filter' | 'selection' | 'edit' | 'change'
   label: string
   value: string
   removable?: boolean
+  metadata?: Record<string, any>  // Additional metadata for context items
 }
 
 interface ContextPillProps {
@@ -41,6 +42,18 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
         return (
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        )
+      case 'edit':
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+        )
+      case 'change':
+        return (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
           </svg>
         )
       default:

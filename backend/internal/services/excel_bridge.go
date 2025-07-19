@@ -414,13 +414,18 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 									recentEdits = make([]interface{}, 0)
 								}
 
-								// Add new edit entry
+								// Create edit entry
 								editEntry := map[string]interface{}{
 									"range":     rangeStr,
 									"timestamp": time.Now().Format(time.RFC3339),
 									"source":    "ai",
 									"tool":      toolCall.Name,
 								}
+
+								// Note: Rich edit tracking (old/new values) is handled
+								// by the tool executor and passed through to the Excel client
+								// which can capture the values during the actual write operation
+
 								recentEdits = append(recentEdits, editEntry)
 
 								// Keep only last 10 edits
@@ -817,12 +822,22 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		context.Formulas = formulas
 	}
 
-	// Extract selected data if available - check root context first, then additionalContext
+	// Extract selected data if available - check excelContext first, then root context
 	var selectedData map[string]interface{}
-	if sd, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
-		selectedData = sd
-		eb.logger.Debug("Found selectedData in root context")
-		hasData = true // Mark that we found data even before processing
+	if excelCtx, ok := additionalContext["excelContext"].(map[string]interface{}); ok {
+		if sd, ok := excelCtx["selectedData"].(map[string]interface{}); ok {
+			selectedData = sd
+			eb.logger.Debug("Found selectedData in excelContext")
+			hasData = true // Mark that we found data even before processing
+		}
+	}
+	// Fallback to root level (backward compatibility)
+	if selectedData == nil {
+		if sd, ok := additionalContext["selectedData"].(map[string]interface{}); ok {
+			selectedData = sd
+			eb.logger.Debug("Found selectedData in root context")
+			hasData = true // Mark that we found data even before processing
+		}
 	}
 
 	if selectedData != nil {
@@ -849,15 +864,24 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		}
 	}
 
-	// Extract nearby data - prioritize nearbyData over nearbyRange
+	// Extract nearby data - check excelContext first
 	var nearbyData map[string]interface{}
-	if nd, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
-		nearbyData = nd
-		eb.logger.Debug("Using nearbyData from context")
-	} else if nr, ok := additionalContext["nearbyRange"].(map[string]interface{}); ok {
-		// Fallback to nearbyRange for backward compatibility
-		nearbyData = nr
-		eb.logger.Warn("Using deprecated nearbyRange as nearbyData - frontend should be updated to use nearbyData")
+	if excelCtx, ok := additionalContext["excelContext"].(map[string]interface{}); ok {
+		if nd, ok := excelCtx["nearbyData"].(map[string]interface{}); ok {
+			nearbyData = nd
+			eb.logger.Debug("Using nearbyData from excelContext")
+		}
+	}
+	// Fallback to root level
+	if nearbyData == nil {
+		if nd, ok := additionalContext["nearbyData"].(map[string]interface{}); ok {
+			nearbyData = nd
+			eb.logger.Debug("Using nearbyData from root context")
+		} else if nr, ok := additionalContext["nearbyRange"].(map[string]interface{}); ok {
+			// Fallback to nearbyRange for backward compatibility
+			nearbyData = nr
+			eb.logger.Warn("Using deprecated nearbyRange as nearbyData - frontend should be updated to use nearbyData")
+		}
 	}
 
 	if nearbyData != nil {
@@ -882,9 +906,23 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 	}
 
 	// Extract full sheet data if available - gives AI complete visibility
-	if fullSheetData, ok := additionalContext["fullSheetData"].(map[string]interface{}); ok {
-		eb.logger.Debug("Found fullSheetData in context - AI will have complete sheet visibility")
+	// First try from excelContext (new format)
+	var fullSheetData map[string]interface{}
+	if excelCtx, ok := additionalContext["excelContext"].(map[string]interface{}); ok {
+		if fsd, ok := excelCtx["fullSheetData"].(map[string]interface{}); ok {
+			fullSheetData = fsd
+			eb.logger.Debug("Found fullSheetData in excelContext - AI will have complete sheet visibility")
+		}
+	}
+	// Fallback to root level (backward compatibility)
+	if fullSheetData == nil {
+		if fsd, ok := additionalContext["fullSheetData"].(map[string]interface{}); ok {
+			fullSheetData = fsd
+			eb.logger.Debug("Found fullSheetData in root context - AI will have complete sheet visibility")
+		}
+	}
 
+	if fullSheetData != nil {
 		if values, ok := fullSheetData["values"].([]interface{}); ok {
 			if address, ok := fullSheetData["address"].(string); ok {
 				eb.processCellData(context, values, address)
@@ -913,7 +951,54 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 	// Add cached data
 	eb.addCachedDataToFinancialContext(context, session)
 
-	// Incorporate recent edits from session if available
+	// Incorporate recent edits from session AND from Excel context
+	// First check if we have recent edits from the Excel context (from ComprehensiveContext)
+	// The Excel context comes in as "excelContext" in the chat message data
+	if excelContext, ok := additionalContext["excelContext"].(map[string]interface{}); ok {
+		if recentEdits, ok := excelContext["recentEdits"].([]interface{}); ok {
+			eb.logger.WithField("excel_recent_edits_count", len(recentEdits)).Debug("Found recent edits from Excel context")
+
+			for _, edit := range recentEdits {
+				if editMap, ok := edit.(map[string]interface{}); ok {
+					change := ai.CellChange{
+						Address:   getStringValue(editMap, "range"),
+						Timestamp: time.Now(), // Default to now if not provided
+					}
+
+					// Parse timestamp if available
+					if tsStr, ok := editMap["timestamp"].(string); ok {
+						if ts, err := time.Parse(time.RFC3339, tsStr); err == nil {
+							change.Timestamp = ts
+						}
+					}
+
+					// Set source
+					if source := getStringValue(editMap, "source"); source != "" {
+						change.Source = source
+					} else {
+						change.Source = "ai"
+					}
+
+					// Extract first value from arrays for summary (later we'll use full arrays)
+					if oldValues, ok := editMap["oldValues"].([]interface{}); ok && len(oldValues) > 0 {
+						if row, ok := oldValues[0].([]interface{}); ok && len(row) > 0 {
+							change.OldValue = row[0]
+						}
+					}
+
+					if newValues, ok := editMap["newValues"].([]interface{}); ok && len(newValues) > 0 {
+						if row, ok := newValues[0].([]interface{}); ok && len(row) > 0 {
+							change.NewValue = row[0]
+						}
+					}
+
+					context.RecentChanges = append(context.RecentChanges, change)
+				}
+			}
+		}
+	}
+
+	// Also check session context for backward compatibility
 	if session.Context != nil {
 		if recentEdits, ok := session.Context["recentEdits"].([]interface{}); ok {
 			for _, edit := range recentEdits {
@@ -938,7 +1023,7 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 					context.RecentChanges = append(context.RecentChanges, change)
 				}
 			}
-			eb.logger.WithField("recent_edits_count", len(context.RecentChanges)).Debug("Incorporated recent edits into context")
+			eb.logger.WithField("session_recent_edits_count", len(context.RecentChanges)).Debug("Incorporated recent edits from session")
 		}
 	}
 

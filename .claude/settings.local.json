@@ -34,7 +34,10 @@
       "Bash(go build:*)",
       "Bash(go test:*)",
       "Bash(rm:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(az postgres server firewall-rule list:*)",
+      "Bash(az group:*)",
+      "Bash(az postgres flexible-server list:*)"
     ],
     "deny": []
   }

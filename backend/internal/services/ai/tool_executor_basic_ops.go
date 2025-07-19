@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -141,13 +142,31 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 		Interface("first_value", valuesToWrite[0][0]).
 		Msg("Executing write range")
 
-	// Store previous values for undo functionality
+	// ENHANCED: Capture previous values for rich edit tracking
 	var previousValues [][]interface{}
+	var previousFormulas [][]interface{}
 	isUndo, _ := input["_is_undo"].(bool)
+
 	if !isUndo { // Only capture previous state for non-undo operations
-		prevData, err := te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, false, false)
-		if err == nil && prevData != nil && prevData.Values != nil {
-			previousValues = prevData.Values
+		prevData, err := te.excelBridge.ReadRange(ctx, sessionID, rangeAddr, true, false) // Include formulas
+		if err == nil && prevData != nil {
+			if prevData.Values != nil {
+				previousValues = prevData.Values
+			}
+			if prevData.Formulas != nil {
+				previousFormulas = prevData.Formulas
+			}
+
+			log.Debug().
+				Str("range", rangeAddr).
+				Int("prev_rows", len(previousValues)).
+				Interface("prev_first_value", func() interface{} {
+					if len(previousValues) > 0 && len(previousValues[0]) > 0 {
+						return previousValues[0][0]
+					}
+					return nil
+				}()).
+				Msg("Captured previous values for edit tracking")
 		}
 	}
 
@@ -162,12 +181,38 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 		ctx = context.WithValue(ctx, "preview_mode", true)
 	}
 
+	// ENHANCED: Store rich edit information with old/new values BEFORE write operation
+	if !isUndo && previousValues != nil {
+		// Create edit tracking info with before/after values
+		editInfo := map[string]interface{}{
+			"operation": "write_range",
+			"range":     rangeAddr,
+			"timestamp": time.Now().Format(time.RFC3339),
+			"tool_id":   toolID,
+		}
+
+		// Add old and new values for each cell
+		editInfo["old_values"] = previousValues
+		if previousFormulas != nil {
+			editInfo["old_formulas"] = previousFormulas
+		}
+		editInfo["new_values"] = expandedValues
+
+		// Pass edit info through context for the Excel bridge to process
+		ctx = context.WithValue(ctx, "edit_tracking_info", editInfo)
+
+		log.Info().
+			Str("range", rangeAddr).
+			Bool("has_old_values", previousValues != nil).
+			Bool("has_old_formulas", previousFormulas != nil).
+			Msg("Prepared rich edit tracking info for Excel bridge")
+	}
+
 	// Execute the write
 	err = te.excelBridge.WriteRange(ctx, sessionID, rangeAddr, expandedValues, preserveFormatting)
 
-	// If successful and we have queued registry, update the operation result with previous values
-	if err == nil && te.queuedOpsRegistry != nil && previousValues != nil {
-		// Store previous values in the operation result for undo
+	// Also update through queued registry if available (for backward compatibility)
+	if err == nil && !isUndo && te.queuedOpsRegistry != nil && previousValues != nil {
 		if registry, ok := te.queuedOpsRegistry.(interface {
 			UpdateOperationResult(string, interface{}) error
 		}); ok {
@@ -175,8 +220,6 @@ func (te *ToolExecutor) executeWriteRange(ctx context.Context, sessionID string,
 				"success":         true,
 				"previous_values": previousValues,
 			}
-			// Try to update the result - we'll need the operation ID from somewhere
-			// This is a limitation we'll address in the next iteration
 			_ = registry.UpdateOperationResult(sessionID, result)
 		}
 	}

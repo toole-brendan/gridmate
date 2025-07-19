@@ -53,6 +53,15 @@ export interface ComprehensiveContext extends ExcelContext {
   workbookSummary?: WorkbookData
   nearbyData?: RangeData  // Data around selection
   fullSheetData?: RangeData  // Complete sheet data for AI visibility
+  recentEdits?: Array<{  // Recent edits with old/new values
+    range: string
+    timestamp: string
+    source: string
+    tool: string
+    oldValues?: any[][]
+    oldFormulas?: any[][]
+    newValues?: any[][]
+  }>
 }
 
 export interface DataAnalysis {
@@ -130,8 +139,23 @@ export class ExcelService {
     range: string
   }> = []
   
+  // Track recent edits with old/new values
+  private recentEdits: Array<{
+    range: string
+    timestamp: string
+    source: string
+    tool: string
+    oldValues?: any[][]
+    oldFormulas?: any[][]
+    newValues?: any[][]
+  }> = []
+  
   // Maximum number of activities to track
   private readonly MAX_ACTIVITY_LOG_SIZE = 50
+  private readonly MAX_RECENT_EDITS = 10
+  
+  // Track worksheet change handler for cleanup
+  private worksheetChangeHandler: any = null
 
   static getInstance(): ExcelService {
     if (!ExcelService.instance) {
@@ -142,8 +166,116 @@ export class ExcelService {
         console.log('[ExcelService] Excel object is available')
       }
       ExcelService.instance = new ExcelService()
+      // Initialize change tracking after instance creation
+      ExcelService.instance.initializeChangeTracking()
     }
     return ExcelService.instance
+  }
+
+  // Initialize real-time change tracking
+  private async initializeChangeTracking() {
+    try {
+      await Excel.run(async (context: Excel.RequestContext) => {
+        const worksheet = context.workbook.worksheets.getActiveWorksheet()
+        
+        // Remove any existing handler
+        if (this.worksheetChangeHandler) {
+          worksheet.onChanged.remove(this.worksheetChangeHandler)
+        }
+        
+        // Add new change handler
+        this.worksheetChangeHandler = worksheet.onChanged.add(async (event: Excel.WorksheetChangedEventArgs) => {
+          console.log('[ExcelService] Worksheet changed:', {
+            address: event.address,
+            changeType: event.changeType,
+            source: event.source,
+            details: event.details
+          })
+          
+          // Track user edits (not from API)
+          if (event.source === Excel.EventSource.local) {
+            await this.trackUserEdit({
+              range: event.address,
+              changeType: event.changeType,
+              details: event.details,
+              timestamp: new Date(),
+              worksheetId: event.worksheetId
+            })
+          }
+        })
+        
+        await context.sync()
+        console.log('[ExcelService] Change tracking initialized successfully')
+      })
+    } catch (error) {
+      console.error('[ExcelService] Failed to initialize change tracking:', error)
+    }
+  }
+  
+  // Track user edits
+  private async trackUserEdit(editInfo: {
+    range: string
+    changeType: string
+    details: any
+    timestamp: Date
+    worksheetId?: string
+  }) {
+    console.log('[ExcelService] Tracking user edit:', editInfo)
+    
+    // Add to activity log
+    this.trackActivity('edit', editInfo.range)
+    
+    // Try to capture old and new values if possible
+    try {
+      // For certain change types, we might have value info in details
+      const editRecord = {
+        range: editInfo.range,
+        changeType: editInfo.changeType,
+        timestamp: editInfo.timestamp.toISOString(),
+        source: 'user',
+        worksheetId: editInfo.worksheetId
+      }
+      
+      // Send to backend if we have a way to communicate
+      // This would be implemented based on your communication method
+      this.sendUserEditToBackend(editRecord)
+      
+      console.log('[ExcelService] User edit tracked successfully:', editRecord)
+    } catch (error) {
+      console.error('[ExcelService] Failed to track user edit:', error)
+    }
+  }
+  
+  // Send user edit to backend (placeholder - implement based on your communication method)
+  private sendUserEditToBackend(editRecord: any) {
+    // This would send the edit info to your backend
+    // Implementation depends on your SignalR or other communication setup
+    console.log('[ExcelService] Would send user edit to backend:', editRecord)
+    
+    // Example: If you have a SignalR client available
+    // if (window.signalRClient) {
+    //   window.signalRClient.send({
+    //     type: 'user_edit',
+    //     data: editRecord
+    //   })
+    // }
+  }
+
+  // Clean up change tracking
+  async cleanupChangeTracking() {
+    if (this.worksheetChangeHandler) {
+      try {
+        await Excel.run(async (context: Excel.RequestContext) => {
+          const worksheet = context.workbook.worksheets.getActiveWorksheet()
+          worksheet.onChanged.remove(this.worksheetChangeHandler)
+          await context.sync()
+        })
+        this.worksheetChangeHandler = null
+        console.log('[ExcelService] Change tracking cleaned up')
+      } catch (error) {
+        console.error('[ExcelService] Failed to cleanup change tracking:', error)
+      }
+    }
   }
 
   // Track user or AI activity
@@ -527,7 +659,8 @@ export class ExcelService {
       const result: ComprehensiveContext = {
         workbook: workbook.name,
         worksheet: worksheet.name,
-        selectedRange: selectedRange.address
+        selectedRange: selectedRange.address,
+        recentEdits: this.recentEdits // Include recent edits with old/new values
       }
 
       // ALWAYS load the full sheet data to give AI complete visibility
@@ -1166,7 +1299,7 @@ export class ExcelService {
   }
 
   private async toolWriteRange(input: any, excelContext?: any): Promise<any> {
-    const { range, values } = input
+    const { range, values, edit_tracking_info } = input
     console.log(`[✅ Diff Apply Success] Executing toolWriteRange.`, { range, values });
     
     const run = async (context: any) => {
@@ -1175,6 +1308,21 @@ export class ExcelService {
         const excelRange = worksheet.getRange(rangeAddress);
         
         console.log(`[✅ Diff Apply Success] Target determined: Sheet='${worksheet.name}', Range='${rangeAddress}'`);
+        
+        // If we have edit tracking info, we already have old values from backend
+        let oldValues: any[][] | undefined;
+        let oldFormulas: any[][] | undefined;
+        
+        if (edit_tracking_info?.old_values) {
+          oldValues = edit_tracking_info.old_values;
+          oldFormulas = edit_tracking_info.old_formulas;
+        } else {
+          // Capture current values and formulas before write
+          excelRange.load(['values', 'formulas']);
+          await context.sync();
+          oldValues = excelRange.values;
+          oldFormulas = excelRange.formulas;
+        }
         
         const cleanedValues = values.map((row: any[]) =>
           row.map((cell: any) => (cell === undefined || cell === null) ? '' : cell)
@@ -1197,6 +1345,27 @@ export class ExcelService {
       
       excelRange.values = finalValues;
       await context.sync();
+      
+      // Store the edit with old/new values in local recent edits
+      const editEntry = {
+        range: rangeAddress,
+        timestamp: new Date().toISOString(),
+        source: 'ai',
+        tool: 'write_range',
+        oldValues: oldValues,
+        oldFormulas: oldFormulas,
+        newValues: finalValues
+      };
+      
+      // Add to recent edits array
+      this.recentEdits.push(editEntry);
+      
+      // Keep only last MAX_RECENT_EDITS entries
+      if (this.recentEdits.length > this.MAX_RECENT_EDITS) {
+        this.recentEdits = this.recentEdits.slice(-this.MAX_RECENT_EDITS);
+      }
+      
+      console.log(`[✅ Diff Apply Success] Stored rich edit tracking info`, editEntry);
       
       console.log(`[✅ Diff Apply Success] toolWriteRange completed successfully.`);
       return { message: 'Range written successfully', status: 'success' };
@@ -1227,13 +1396,37 @@ export class ExcelService {
         
         console.log(`[✅ Diff Apply Success] Target determined: Sheet='${worksheet.name}', Range='${rangeAddress}'`);
       
-        // Load range properties to determine size
-        excelRange.load(['rowCount', 'columnCount', 'address'])
+        // Load range properties to determine size and capture old values
+        excelRange.load(['rowCount', 'columnCount', 'address', 'values', 'formulas'])
         await context.sync()
+        
+        // Capture old values and formulas before applying new formula
+        const oldValues = excelRange.values;
+        const oldFormulas = excelRange.formulas;
         
         excelRange.formulas = [[formula]]; // Apply to the top-left cell of the range
         await context.sync();
         
+        // Track this edit with old/new values
+        const editEntry = {
+          range: rangeAddress,
+          timestamp: new Date().toISOString(),
+          source: 'ai',
+          tool: 'apply_formula',
+          oldValues: oldValues,
+          oldFormulas: oldFormulas,
+          newValues: [[formula]] // Formula will be evaluated to a value by Excel
+        };
+        
+        // Add to recent edits array
+        this.recentEdits.push(editEntry);
+        
+        // Keep only last MAX_RECENT_EDITS entries
+        if (this.recentEdits.length > this.MAX_RECENT_EDITS) {
+          this.recentEdits = this.recentEdits.slice(-this.MAX_RECENT_EDITS);
+        }
+        
+        console.log(`[✅ Diff Apply Success] Stored formula edit tracking info`, editEntry);
         console.log(`[✅ Diff Apply Success] toolApplyFormula completed successfully.`);
         return { message: 'Formula applied successfully', status: 'success' };
 

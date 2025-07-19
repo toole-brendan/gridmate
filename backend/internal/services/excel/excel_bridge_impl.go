@@ -372,6 +372,15 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 		request["preview_mode"] = true
 	}
 
+	// Check if we have edit tracking info in context
+	if editInfo, ok := ctx.Value("edit_tracking_info").(map[string]interface{}); ok {
+		request["edit_tracking_info"] = editInfo
+		b.logger.Debug().
+			Str("range", rangeAddr).
+			Bool("has_old_values", editInfo["old_values"] != nil).
+			Msg("Including rich edit tracking info in write request")
+	}
+
 	response, err := b.sendToolRequest(ctx, sessionID, request)
 	if err != nil {
 		return err

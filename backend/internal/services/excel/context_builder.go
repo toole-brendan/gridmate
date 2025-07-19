@@ -43,8 +43,76 @@ func NewContextBuilder(bridge ai.ExcelBridge) *ContextBuilder {
 // BuildContext builds comprehensive context from the current Excel state
 // This overload is for the AI service interface
 func (cb *ContextBuilder) BuildContext(ctx context.Context, sessionID string) (*ai.FinancialContext, error) {
-	// Default to a reasonable range for context - can be enhanced later
-	return cb.BuildContextWithRange(ctx, sessionID, "A1:Z100")
+	// Try to get the actual used range of the worksheet first
+	fullRange, err := cb.getWorksheetUsedRange(ctx, sessionID)
+	if err != nil || fullRange == "" {
+		// Fall back to a reasonable default range if we can't determine used range
+		fullRange = "A1:Z100"
+	}
+
+	return cb.BuildContextWithRange(ctx, sessionID, fullRange)
+}
+
+// getWorksheetUsedRange attempts to determine the actual used range of the worksheet
+func (cb *ContextBuilder) getWorksheetUsedRange(ctx context.Context, sessionID string) (string, error) {
+	// First, try to scan for the last used cell by checking a reasonable area
+	// Start with a larger scan area to find data boundaries
+	scanRange := "A1:AZ1000"
+
+	data, err := cb.bridge.ReadRange(ctx, sessionID, scanRange, false, false)
+	if err != nil {
+		return "", err
+	}
+
+	// Find the actual bounds of data
+	maxRow := 0
+	maxCol := 0
+
+	for row := 0; row < len(data.Values); row++ {
+		for col := 0; col < len(data.Values[row]); col++ {
+			if data.Values[row][col] != nil && data.Values[row][col] != "" {
+				if row > maxRow {
+					maxRow = row
+				}
+				if col > maxCol {
+					maxCol = col
+				}
+			}
+		}
+	}
+
+	// If we found data, return the range
+	if maxRow > 0 || maxCol > 0 {
+		// Add some buffer to ensure we capture context
+		endRow := maxRow + 10
+		endCol := maxCol + 5
+		return fmt.Sprintf("A1:%s", getCellAddress(endRow+1, endCol+1)), nil
+	}
+
+	// No data found
+	return "", fmt.Errorf("no data found in worksheet")
+}
+
+// isWorksheetEmpty checks if the worksheet has no data
+func (cb *ContextBuilder) isWorksheetEmpty(ctx context.Context, sessionID string) (bool, error) {
+	// Check a reasonable initial area for any data
+	initialRange := "A1:Z50"
+
+	data, err := cb.bridge.ReadRange(ctx, sessionID, initialRange, false, false)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if any cell has data
+	for row := 0; row < len(data.Values); row++ {
+		for col := 0; col < len(data.Values[row]); col++ {
+			if data.Values[row][col] != nil && data.Values[row][col] != "" {
+				return false, nil // Found data
+			}
+		}
+	}
+
+	return true, nil // No data found
 }
 
 // BuildContextWithRange builds comprehensive context from the current Excel state with specific range
@@ -60,6 +128,20 @@ func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID s
 	rangeInfo, err := parseRange(selectedRange)
 	if err != nil {
 		return nil, fmt.Errorf("invalid range: %w", err)
+	}
+
+	// ENHANCEMENT: Check if the worksheet appears to be empty
+	isEmpty, err := cb.isWorksheetEmpty(ctx, sessionID)
+	if err == nil && isEmpty {
+		// For empty worksheets, provide minimal context focused on structure
+		context.ModelType = "Empty"
+		context.DocumentContext = append(context.DocumentContext,
+			"The worksheet is currently empty. Ready to create a new financial model.")
+
+		// Still try to get worksheet and workbook names
+		// (These would typically be set by the caller)
+
+		return context, nil
 	}
 
 	// 1. Get data from selected range

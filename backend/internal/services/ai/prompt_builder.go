@@ -22,44 +22,70 @@ func (pb *PromptBuilder) GetFinancialSystemPrompt() string {
 	return pb.systemPrompt
 }
 
-// BuildChatPrompt builds a prompt for chat interactions
+// BuildChatPrompt builds a prompt for chat interactions with merged context
 func (pb *PromptBuilder) BuildChatPrompt(userMessage string, context *FinancialContext) []Message {
-	messages := []Message{
-		{Role: "system", Content: pb.systemPrompt},
-	}
-
-	// Add context information if available
+	// Start with base system prompt
+	systemContent := pb.systemPrompt
+	
+	// Merge context into system message if available
 	if context != nil {
 		contextPrompt := pb.buildContextPrompt(context)
 		if contextPrompt != "" {
-			messages = append(messages, Message{
-				Role:    "system",
-				Content: fmt.Sprintf("Current Context:\n%s", contextPrompt),
-			})
+			systemContent += "\n\n<current_context>\n" + contextPrompt + "\n</current_context>"
 		}
 	}
+	
+	// Return single system message + user message
+	return []Message{
+		{Role: "system", Content: systemContent},
+		{Role: "user", Content: userMessage},
+	}
+}
 
-	// Add the user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
-
+// BuildPromptWithHistory builds a complete prompt including conversation history
+func (pb *PromptBuilder) BuildPromptWithHistory(userMessage string, context *FinancialContext, history []Message) []Message {
+	// Start with system message (includes context)
+	messages := []Message{}
+	
+	// Always include fresh system prompt with current context
+	systemContent := pb.systemPrompt
+	if context != nil {
+		contextPrompt := pb.buildContextPrompt(context)
+		if contextPrompt != "" {
+			systemContent += "\n\n<current_context>\n" + contextPrompt + "\n</current_context>"
+		}
+	}
+	
+	messages = append(messages, Message{Role: "system", Content: systemContent})
+	
+	// Add conversation history (excluding any old system messages)
+	for _, msg := range history {
+		if msg.Role != "system" {
+			messages = append(messages, msg)
+		}
+	}
+	
+	// Add current user message
+	messages = append(messages, Message{Role: "user", Content: userMessage})
+	
 	return messages
 }
 
 // BuildAnalysisPrompt builds a prompt for automatic analysis
 func (pb *PromptBuilder) BuildAnalysisPrompt(context *FinancialContext, analysisType string) []Message {
-	messages := []Message{
-		{Role: "system", Content: pb.systemPrompt},
+	// Start with base system prompt
+	systemContent := pb.systemPrompt
+	
+	// Merge context into system message if available
+	if context != nil {
+		contextPrompt := pb.buildContextPrompt(context)
+		if contextPrompt != "" {
+			systemContent += "\n\n<current_context>\n" + contextPrompt + "\n</current_context>"
+		}
 	}
-
-	contextPrompt := pb.buildContextPrompt(context)
-	if contextPrompt != "" {
-		messages = append(messages, Message{
-			Role:    "system",
-			Content: fmt.Sprintf("Current Context:\n%s", contextPrompt),
-		})
+	
+	messages := []Message{
+		{Role: "system", Content: systemContent},
 	}
 
 	var prompt string
@@ -675,12 +701,14 @@ Always generate complete implementations, not descriptions.
 
 // BuildFormulaPrompt builds a prompt specifically for formula generation
 func (pb *PromptBuilder) BuildFormulaPrompt(description string, context *FinancialContext) []Message {
-	messages := []Message{
-		{Role: "system", Content: pb.systemPrompt},
-	}
-
+	// Start with base system prompt
+	systemContent := pb.systemPrompt
+	
 	// Add specific formula generation instructions
-	formulaInstructions := `You are being asked to generate a formula. Please:
+	formulaInstructions := `
+
+<formula_generation_instructions>
+You are being asked to generate a formula. Please:
 1. Provide the exact formula syntax for Excel/Google Sheets
 2. Explain what the formula does
 3. Note any assumptions or requirements
@@ -689,21 +717,21 @@ func (pb *PromptBuilder) BuildFormulaPrompt(description string, context *Financi
 
 Format your response with the formula clearly marked, like:
 Formula: =YOUR_FORMULA_HERE
-Explanation: [Your explanation]`
-
-	messages = append(messages, Message{
-		Role:    "system",
-		Content: formulaInstructions,
-	})
-
+Explanation: [Your explanation]
+</formula_generation_instructions>`
+	
+	systemContent += formulaInstructions
+	
+	// Merge context into system message if available
 	if context != nil {
 		contextPrompt := pb.buildContextPrompt(context)
 		if contextPrompt != "" {
-			messages = append(messages, Message{
-				Role:    "system",
-				Content: fmt.Sprintf("Current Context:\n%s", contextPrompt),
-			})
+			systemContent += "\n\n<current_context>\n" + contextPrompt + "\n</current_context>"
 		}
+	}
+	
+	messages := []Message{
+		{Role: "system", Content: systemContent},
 	}
 
 	messages = append(messages, Message{
@@ -716,14 +744,15 @@ Explanation: [Your explanation]`
 
 // BuildValidationPrompt builds a prompt for formula/model validation
 func (pb *PromptBuilder) BuildValidationPrompt(context *FinancialContext, validationType string) []Message {
-	messages := []Message{
-		{Role: "system", Content: pb.systemPrompt},
-	}
-
+	// Start with base system prompt
+	systemContent := pb.systemPrompt
+	
 	var instructions string
 	switch validationType {
 	case "formula_check":
-		instructions = `Please review the formulas in the current context for:
+		instructions = `
+<validation_instructions>
+Please review the formulas in the current context for:
 1. Mathematical accuracy
 2. Proper cell references
 3. Excel/Sheets best practices
@@ -731,9 +760,12 @@ func (pb *PromptBuilder) BuildValidationPrompt(context *FinancialContext, valida
 5. Error handling (IFERROR, etc.)
 6. Performance considerations
 
-Provide specific recommendations for improvements.`
+Provide specific recommendations for improvements.
+</validation_instructions>`
 	case "model_validation":
-		instructions = `Please validate this financial model for:
+		instructions = `
+<validation_instructions>
+Please validate this financial model for:
 1. Structural integrity and logical flow
 2. Calculation accuracy
 3. Industry standard practices
@@ -741,24 +773,27 @@ Provide specific recommendations for improvements.`
 5. Sensitivity analysis opportunities
 6. Documentation and clarity
 
-Identify any red flags or areas needing attention.`
+Identify any red flags or areas needing attention.
+</validation_instructions>`
 	default:
-		instructions = "Please review the current context and identify any issues or improvements."
+		instructions = `
+<validation_instructions>
+Please review the current context and identify any issues or improvements.
+</validation_instructions>`
 	}
-
-	messages = append(messages, Message{
-		Role:    "system",
-		Content: instructions,
-	})
-
+	
+	systemContent += instructions
+	
+	// Merge context into system message if available
 	if context != nil {
 		contextPrompt := pb.buildContextPrompt(context)
 		if contextPrompt != "" {
-			messages = append(messages, Message{
-				Role:    "system",
-				Content: fmt.Sprintf("Current Context:\n%s", contextPrompt),
-			})
+			systemContent += "\n\n<current_context>\n" + contextPrompt + "\n</current_context>"
 		}
+	}
+	
+	messages := []Message{
+		{Role: "system", Content: systemContent},
 	}
 
 	messages = append(messages, Message{

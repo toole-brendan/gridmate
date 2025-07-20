@@ -46,6 +46,9 @@ export class SignalRClient extends EventEmitter {
         })
         .configureLogging(signalR.LogLevel.Information)
         .build()
+      
+      // Note: Message size limits are configured on the server side
+      // The backend should be configured to handle large messages for comprehensive context
 
       // Set up event handlers
       this.setupEventHandlers()

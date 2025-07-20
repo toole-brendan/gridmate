@@ -284,6 +284,46 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 	// Get or create session
 	session := eb.getOrCreateSession(clientID, message.SessionID)
 
+	// Build comprehensive context BEFORE adding message to history
+	var financialContext *ai.FinancialContext
+	if eb.contextBuilder != nil {
+		ctx := context.Background()
+		builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
+		if err != nil {
+			eb.logger.WithError(err).Warn("Failed to build comprehensive context")
+			financialContext = eb.buildFinancialContext(session, message.Context)
+		} else {
+			financialContext = builtContext
+			// Merge any additional context from the message
+			eb.mergeMessageContext(financialContext, message.Context)
+		}
+	} else {
+		financialContext = eb.buildFinancialContext(session, message.Context)
+	}
+
+	// Add pending operations to the financial context
+	if eb.queuedOpsRegistry != nil {
+		ctx := context.Background()
+		financialContext.PendingOperations = eb.queuedOpsRegistry.GetOperationSummary(ctx, session.ID)
+
+		eb.logger.WithFields(logrus.Fields{
+			"session_id":      session.ID,
+			"has_pending_ops": financialContext.PendingOperations != nil,
+		}).Debug("Added pending operations to initial context")
+	}
+
+	// Get existing history BEFORE adding new message
+	existingHistory := eb.chatHistory.GetHistory(session.ID)
+	
+	// Convert to AI message format
+	aiHistory := make([]ai.Message, 0, len(existingHistory))
+	for _, msg := range existingHistory {
+		aiHistory = append(aiHistory, ai.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+
 	// Build context for AI
 	msgContext := eb.buildContext(session, message.Context)
 
@@ -295,59 +335,6 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 	if eb.aiService != nil {
 		eb.logger.Info("AI service is available, processing message")
-
-		// Add user message to history
-		eb.chatHistory.AddMessage(session.ID, "user", message.Content)
-
-		// Build comprehensive context using context builder
-		var financialContext *ai.FinancialContext
-		if eb.contextBuilder != nil && session.Selection.SelectedRange != "" {
-			ctx := context.Background()
-			builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
-			if err != nil {
-				eb.logger.WithError(err).Warn("Failed to build comprehensive context")
-				// Fall back to simple context
-				financialContext = eb.buildFinancialContext(session, message.Context)
-			} else {
-				financialContext = builtContext
-				// Add any additional context from the message
-				for k, v := range message.Context {
-					if str, ok := v.(string); ok {
-						financialContext.DocumentContext = append(financialContext.DocumentContext, fmt.Sprintf("%s: %s", k, str))
-					}
-				}
-			}
-		} else {
-			// Use simple context if no selection or context builder
-			financialContext = eb.buildFinancialContext(session, message.Context)
-		}
-
-		// Add pending operations to the financial context
-		if eb.queuedOpsRegistry != nil {
-			ctx := context.Background()
-			financialContext.PendingOperations = eb.queuedOpsRegistry.GetOperationSummary(ctx, session.ID)
-
-			eb.logger.WithFields(logrus.Fields{
-				"session_id":      session.ID,
-				"has_pending_ops": financialContext.PendingOperations != nil,
-			}).Debug("Added pending operations to initial context")
-		}
-
-		// Get chat history for this session
-		history := eb.chatHistory.GetHistory(session.ID)
-
-		// Convert chat history to AI message format
-		aiHistory := make([]ai.Message, 0, len(history))
-		for _, msg := range history {
-			// Skip the current message as we'll add it in the AI call
-			if msg.Timestamp.Unix() == eb.chatHistory.GetHistory(session.ID)[len(history)-1].Timestamp.Unix() {
-				continue
-			}
-			aiHistory = append(aiHistory, ai.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
-		}
 
 		// Process chat message with AI and history
 		ctx := context.Background()
@@ -381,14 +368,28 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		}
 
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
-		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(ctx, session.ID, message.Content, financialContext, aiHistory, message.AutonomyMode)
+		
+		// Call AI with full context and history
+		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(
+			ctx, 
+			session.ID, 
+			message.Content, 
+			financialContext, 
+			aiHistory, 
+			message.AutonomyMode,
+		)
+		
+		// NOW add messages to history after processing
+		eb.chatHistory.AddMessage(session.ID, "user", message.Content)
+		if aiResponse != nil && err == nil {
+			eb.chatHistory.AddMessage(session.ID, "assistant", aiResponse.Content)
+		}
+		
 		if err != nil {
 			eb.logger.WithError(err).Error("AI processing failed")
 			content = "I encountered an error processing your request. Please try again."
 		} else {
 			content = aiResponse.Content
-			// Add AI response to history
-			eb.chatHistory.AddMessage(session.ID, "assistant", content)
 
 			// Track AI-edited ranges for context expansion
 			if len(aiResponse.ToolCalls) > 0 {
@@ -905,6 +906,101 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		}
 	}
 
+	// Extract visible range data (full active sheet)
+	var visibleRangeData map[string]interface{}
+	if excelCtx, ok := additionalContext["excelContext"].(map[string]interface{}); ok {
+		if vrd, ok := excelCtx["visibleRangeData"].(map[string]interface{}); ok {
+			visibleRangeData = vrd
+			eb.logger.Debug("Found visibleRangeData in excelContext")
+		}
+	}
+
+	if visibleRangeData != nil {
+		if values, ok := visibleRangeData["values"].([]interface{}); ok {
+			if address, ok := visibleRangeData["address"].(string); ok {
+				// Only process if not too large
+				if len(values) > 0 && len(values) <= 100 { // Limit rows for context
+					eb.processCellData(context, values, address)
+					if hasNonEmptyValues(values) {
+						hasData = true
+						eb.logger.WithField("address", address).Debug("Processed visible range data")
+					}
+				} else {
+					// Add summary to document context
+					rows := len(values)
+					cols := 0
+					if rows > 0 {
+						if firstRow, ok := values[0].([]interface{}); ok {
+							cols = len(firstRow)
+						}
+					}
+					context.DocumentContext = append(context.DocumentContext, 
+						fmt.Sprintf("Active sheet has %d×%d cells (truncated for context)", rows, cols))
+				}
+			}
+		}
+	}
+
+	// Handle workbook summary
+	if wbSummary, ok := additionalContext["workbookSummary"].(map[string]interface{}); ok {
+		if wbData, ok := wbSummary["sheets"].([]interface{}); ok {
+			summaryLines := []string{"Workbook structure:"}
+			totalSheets := len(wbData)
+			
+			for i, sheet := range wbData {
+				if i >= 5 { // Limit to first 5 sheets
+					summaryLines = append(summaryLines, fmt.Sprintf("  ... and %d more sheets", totalSheets-5))
+					break
+				}
+				
+				if sheetMap, ok := sheet.(map[string]interface{}); ok {
+					name := ""
+					if n, ok := sheetMap["name"].(string); ok {
+						name = n
+					}
+					
+					rows := 0
+					if r, ok := sheetMap["lastRow"].(float64); ok {
+						rows = int(r)
+					}
+					
+					cols := 0
+					if c, ok := sheetMap["lastColumn"].(float64); ok {
+						cols = int(c)
+					}
+					
+					// Check if data is truncated
+					truncated := false
+					if data, ok := sheetMap["data"].(map[string]interface{}); ok {
+						if values, ok := data["values"].([]interface{}); ok {
+							if len(values) == 1 {
+								if row, ok := values[0].([]interface{}); ok && len(row) == 1 {
+									if msg, ok := row[0].(string); ok && strings.Contains(msg, "too large") {
+										truncated = true
+									}
+								}
+							}
+						}
+					}
+					
+					status := ""
+					if truncated {
+						status = " (summary only)"
+					} else if rows*cols > 1000 {
+						status = " (partial)"
+					}
+					
+					summaryLines = append(summaryLines, 
+						fmt.Sprintf("  - %s: %d×%d cells%s", name, rows, cols, status))
+				}
+			}
+			
+			if len(summaryLines) > 1 { // Only add if we have actual sheet info
+				context.DocumentContext = append(context.DocumentContext, summaryLines...)
+			}
+		}
+	}
+
 	// Extract full sheet data if available - gives AI complete visibility
 	// First try from excelContext (new format)
 	var fullSheetData map[string]interface{}
@@ -1379,4 +1475,14 @@ func (eb *ExcelBridge) getCellAddress(col, row int) string {
 // GetRequestIDMapper returns the request ID mapper
 func (eb *ExcelBridge) GetRequestIDMapper() *RequestIDMapper {
 	return eb.requestIDMapper
+}
+
+// mergeMessageContext merges additional context from the message
+func (eb *ExcelBridge) mergeMessageContext(fc *ai.FinancialContext, msgContext map[string]interface{}) {
+	// Add any document context from the message
+	for k, v := range msgContext {
+		if str, ok := v.(string); ok && k != "selectedData" && k != "nearbyData" {
+			fc.DocumentContext = append(fc.DocumentContext, fmt.Sprintf("%s: %s", k, str))
+		}
+	}
 }

@@ -74,6 +74,7 @@ export const RefactoredChatInterface: React.FC = () => {
   const [isContextEnabled, setIsContextEnabled] = useState(true); // Default to true so AI can see spreadsheet data
   const [rawSelection, setRawSelection] = useState<string | null>(null);
   const debouncedSelection = useDebounce(rawSelection, 300);
+  const [contextSummary, setContextSummary] = useState<string>('');
 
   const updateAvailableMentions = useCallback(async () => {
     addDebugLog('Updating available mentions...');
@@ -291,11 +292,45 @@ export const RefactoredChatInterface: React.FC = () => {
 
       await messageHandlers.handleUserMessageSent(messageId);
 
-      const excelContext = isContextEnabled ? await ExcelService.getInstance().getSmartContext() : null;
+      let excelContext = null;
+      if (isContextEnabled) {
+        try {
+          // Try comprehensive context first
+          excelContext = await ExcelService.getInstance().getComprehensiveContext({ 
+            includeAllSheets: true,
+            maxCellsPerSheet: 10000 
+          });
+          
+          // Use full sheet as selected context if no specific selection
+          if (excelContext?.visibleRangeData && 
+              (!excelContext.selectedData || excelContext.selectedRange === 'A1')) {
+            excelContext.selectedData = excelContext.visibleRangeData;
+            excelContext.selectedRange = excelContext.visibleRangeData.address;
+          }
+        } catch (error) {
+          console.warn('Failed to get comprehensive context, falling back to smart context:', error);
+          addDebugLog('Comprehensive context failed, using smart context fallback', 'warning');
+          // Fallback to smart context
+          excelContext = await ExcelService.getInstance().getSmartContext();
+        }
+      }
+      
+      // Update context summary
+      if (excelContext?.workbookSummary) {
+        const sheets = excelContext.workbookSummary.sheets.length;
+        const totalCells = excelContext.workbookSummary.totalCells;
+        const activeSheet = excelContext.worksheet;
+        const selectedCells = excelContext.selectedData ? 
+          excelContext.selectedData.rowCount * excelContext.selectedData.colCount : 0;
+        
+        setContextSummary(
+          `Context: ${activeSheet} (${selectedCells} cells selected) + ${sheets - 1} other sheets (${totalCells.toLocaleString()} total cells)`
+        );
+      }
       
       // Debug logging for context
       console.log('🔍 [CONTEXT DEBUG] Context Enabled:', isContextEnabled);
-      console.log('🔍 [CONTEXT DEBUG] Raw Excel Context from getSmartContext():', excelContext);
+      console.log('🔍 [CONTEXT DEBUG] Raw Excel Context from getComprehensiveContext():', excelContext);
       
       if (excelContext) {
         console.log('🔍 [CONTEXT DEBUG] Breakdown:');
@@ -303,6 +338,8 @@ export const RefactoredChatInterface: React.FC = () => {
         console.log('  - Workbook:', excelContext.workbook);
         console.log('  - Selected Range:', excelContext.selectedRange);
         console.log('  - Selected Data:', excelContext.selectedData);
+        console.log('  - Visible Range Data:', excelContext.visibleRangeData);
+        console.log('  - Workbook Summary:', excelContext.workbookSummary);
         console.log('  - Nearby Data:', excelContext.nearbyData);
         
         // Log cell values if present
@@ -326,14 +363,16 @@ export const RefactoredChatInterface: React.FC = () => {
           messageId,
           content,
           excelContext: {
-            worksheet: excelContext?.worksheet,
             workbook: excelContext?.workbook,
+            worksheet: excelContext?.worksheet,
             selectedRange: excelContext?.selectedRange,
             selectedData: excelContext?.selectedData,
-            nearbyData: excelContext?.nearbyData,  // Fixed: now using nearbyData correctly
-            fullSheetData: excelContext?.fullSheetData,  // Complete sheet data for AI
-            recentEdits: excelContext?.recentEdits,  // Recent edits with old/new values
-            activeContext: activeContext.map(c => ({ type: c.type, value: c.value })),
+            visibleRangeData: excelContext?.visibleRangeData,     // ADD: full active sheet data
+            workbookSummary: excelContext?.workbookSummary,       // ADD: workbook summary
+            nearbyData: excelContext?.nearbyData,
+            fullSheetData: excelContext?.fullSheetData,           // KEEP: existing field
+            recentEdits: excelContext?.recentEdits,               // KEEP: recent edits tracking
+            activeContext: activeContext.map(c => ({ type: c.type, value: c.value }))
           },
           autonomyMode,
         },
@@ -499,6 +538,13 @@ ${auditLogs || 'No audit logs.'}
         </div>
       )}
 
+      {/* --- Context Summary --- */}
+      {contextSummary && (
+        <div className="text-xs text-gray-500 px-4 py-2 bg-gray-50 border-b border-gray-200">
+          {contextSummary}
+        </div>
+      )}
+      
       {/* --- Chat UI --- */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <EnhancedChatInterface

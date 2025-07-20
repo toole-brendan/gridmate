@@ -15,9 +15,10 @@ interface ContextPillProps {
   onRemove?: (id: string) => void
   onClick?: () => void
   isEnabled?: boolean
+  isClickDisabled?: boolean
 }
 
-export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClick, isEnabled = true }) => {
+export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClick, isEnabled = true, isClickDisabled = false }) => {
   const getIcon = () => {
     switch (item.type) {
       case 'sheet':
@@ -74,14 +75,14 @@ export const ContextPill: React.FC<ContextPillProps> = ({ item, onRemove, onClic
     return 'bg-transparent text-[#B85500] border-[#B85500] hover:border-[#D96600] hover:bg-[#B85500] hover:bg-opacity-10'
   }
   
-  const Component = onClick ? 'button' : 'div'
+  const Component = onClick && !isClickDisabled ? 'button' : 'div'
   
   const isNoSelection = item.id === 'no-selection'
   
   return (
     <Component
-      onClick={onClick}
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${onClick ? 'cursor-pointer' : 'cursor-default'} ${getTypeStyles()}`}
+      onClick={onClick && !isClickDisabled ? onClick : undefined}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${onClick && !isClickDisabled ? 'cursor-pointer' : 'cursor-default'} ${getTypeStyles()}`}
     >
       {getIcon()}
       <span className={isNoSelection ? 'flex-grow text-center' : ''}>{item.label}</span>
@@ -107,6 +108,7 @@ interface ContextPillsContainerProps {
   onRemove?: (id: string) => void
   onContextToggle?: () => void
   isContextEnabled?: boolean
+  isToggleDisabled?: boolean
   className?: string
 }
 
@@ -115,11 +117,12 @@ export const ContextPillsContainer: React.FC<ContextPillsContainerProps> = ({
   onRemove,
   onContextToggle,
   isContextEnabled = true,
+  isToggleDisabled = false,
   className = ''
 }) => {
   let displayItems: ContextItem[] = items;
   let pillsAreEnabled = isContextEnabled;
-  let pillClickHandler: ((item: ContextItem) => (() => void) | undefined) = (item) => (item.type === 'selection' ? onContextToggle : undefined);
+  let pillClickHandler: ((item: ContextItem) => (() => void) | undefined) = (item) => (item.type === 'selection' && !isToggleDisabled ? onContextToggle : undefined);
 
   const isPlaceholder = items.length === 0 || (items.length === 1 && items[0].id === 'no-selection');
 
@@ -144,6 +147,7 @@ export const ContextPillsContainer: React.FC<ContextPillsContainerProps> = ({
           onRemove={pillsAreEnabled ? onRemove : undefined}
           onClick={pillClickHandler(item)}
           isEnabled={pillsAreEnabled}
+          isClickDisabled={isToggleDisabled && item.type === 'selection'}
         />
       ))}
     </div>

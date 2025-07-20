@@ -769,28 +769,17 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 		Str("autonomy_mode", autonomyMode).
 		Msg("Starting ProcessChatWithToolsAndHistory")
 
-	// Build messages array with history
-	messages := make([]Message, 0, len(chatHistory)+1)
-
-	// Add chat history
-	for _, msg := range chatHistory {
-		messages = append(messages, Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
-	}
-
-	// Add current user message
-	messages = append(messages, Message{Role: "user", Content: userMessage})
-
-	// Add context if provided
-	if context != nil && context.ModelType == "" {
-		context.ModelType = s.promptBuilder.DetectModelType(context)
-	}
-
-	// If we have context and no history, build the full prompt with context
-	if context != nil && len(chatHistory) == 0 {
-		messages = s.promptBuilder.BuildChatPrompt(userMessage, context)
+	// Build messages array with fresh context every time
+	messages := make([]Message, 0)
+	
+	// Use the prompt builder to create system message with current context
+	if s.promptBuilder != nil {
+		// This will include both base prompt and current context
+		messages = s.promptBuilder.BuildPromptWithHistory(userMessage, context, chatHistory)
+	} else {
+		// Fallback: manually construct messages
+		messages = append(messages, chatHistory...)
+		messages = append(messages, Message{Role: "user", Content: userMessage})
 	}
 
 	// Maximum rounds of tool use
@@ -952,11 +941,38 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 		messages = append(messages, toolResultMsg)
 
 		// Refresh context after tool execution to get latest state
-		if context != nil {
+		if context != nil && s.contextBuilder != nil {
 			refreshedContext, err := s.RefreshContext(ctx, sessionID, context)
 			if err == nil {
 				context = refreshedContext
 				log.Info().Msg("Context refreshed after tool execution")
+				
+				// Rebuild messages with refreshed context for next round
+				if s.promptBuilder != nil && round < maxRounds-1 {
+					// Get all messages except the system message
+					var historyWithoutSystem []Message
+					for _, msg := range messages {
+						if msg.Role != "system" {
+							historyWithoutSystem = append(historyWithoutSystem, msg)
+						}
+					}
+					
+					// Rebuild with fresh context
+					newMessages := s.promptBuilder.BuildPromptWithHistory("", context, historyWithoutSystem)
+					
+					// Replace messages, but keep the last user message (tool results)
+					if len(messages) > 0 && messages[len(messages)-1].Role == "user" && messages[len(messages)-1].ToolResults != nil {
+						lastMsg := messages[len(messages)-1]
+						messages = newMessages[:len(newMessages)-1] // Remove empty user message from BuildPromptWithHistory
+						messages = append(messages, lastMsg)
+					} else {
+						messages = newMessages
+					}
+					
+					log.Info().
+						Int("messages_count", len(messages)).
+						Msg("Rebuilt messages with refreshed context")
+				}
 			} else {
 				log.Warn().Err(err).Msg("Failed to refresh context, continuing with existing")
 			}

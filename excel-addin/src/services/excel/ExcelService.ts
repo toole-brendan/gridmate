@@ -132,6 +132,11 @@ export class ExcelService {
     timestamp: number
   }>()
   
+  // Add cache for workbook summary
+  private workbookSummaryCache: WorkbookData | null = null
+  private cacheTimestamp: number = 0
+  private readonly CACHE_DURATION = 30000 // 30 seconds
+  
   // Activity tracking for dynamic context expansion
   private activityLog: Array<{
     timestamp: number
@@ -552,6 +557,15 @@ export class ExcelService {
 
       // Get all sheets data if requested
       if (includeAllSheets) {
+        // Check cache for workbook summary
+        const now = Date.now()
+        if (this.workbookSummaryCache && 
+            (now - this.cacheTimestamp) < this.CACHE_DURATION) {
+          result.workbookSummary = this.workbookSummaryCache
+          console.log('Using cached workbook summary')
+          return result
+        }
+        
         const sheets = workbook.worksheets
         sheets.load('items')
         await context.sync()
@@ -610,11 +624,21 @@ export class ExcelService {
           }
         }
 
+        // Cache the result
+        this.workbookSummaryCache = workbookData
+        this.cacheTimestamp = Date.now()
+        
         result.workbookSummary = workbookData
       }
 
       return result
     })
+  }
+  
+  // Add cache invalidation method
+  invalidateWorkbookCache() {
+    this.workbookSummaryCache = null
+    this.cacheTimestamp = 0
   }
 
   // Optimized method to get context around selection
@@ -1261,6 +1285,25 @@ export class ExcelService {
       }
       if (include_formatting) {
         loadProperties.push('format')
+      }
+      
+      // Check size before loading
+      excelRange.load(['rowCount', 'columnCount'])
+      await context.sync()
+      
+      const totalCells = excelRange.rowCount * excelRange.columnCount
+      const MAX_CELLS = 5000
+      
+      if (totalCells > MAX_CELLS) {
+        // Return summary for large ranges
+        console.log(`📊 Range too large (${totalCells} cells), returning summary`)
+        return {
+          values: [[`[Range contains ${excelRange.rowCount}×${excelRange.columnCount} cells - too large to display]`]],
+          address: excelRange.address,
+          rowCount: excelRange.rowCount,
+          colCount: excelRange.columnCount,
+          truncated: true
+        }
       }
       
       console.log('📊 Loading properties:', loadProperties)

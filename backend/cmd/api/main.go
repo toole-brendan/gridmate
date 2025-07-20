@@ -203,6 +203,7 @@ func main() {
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 6 * time.Minute, // Longer than max request timeout
 		IdleTimeout:  120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB - increased to handle larger context payloads
 	}
 
 	// Start periodic session cleanup

@@ -590,6 +590,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                 onRemove={onContextRemove}
                 onContextToggle={onContextToggle}
                 isContextEnabled={isContextEnabled}
+                isToggleDisabled={true}
                 className="flex flex-wrap gap-2"
               />
             </div>

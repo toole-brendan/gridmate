@@ -19,4 +19,12 @@ export interface SignalRAIResponse {
   isComplete: boolean
   type?: 'completion' | 'response'
   operationsSummary?: any
+  tokenUsage?: TokenUsage
+}
+
+export interface TokenUsage {
+  input: number
+  output: number
+  total: number
+  max: number
 } 

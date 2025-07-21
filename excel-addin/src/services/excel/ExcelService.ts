@@ -52,7 +52,13 @@ export interface ComprehensiveContext extends ExcelContext {
   visibleRangeData?: RangeData
   workbookSummary?: WorkbookData
   nearbyData?: RangeData  // Data around selection
-  fullSheetData?: RangeData  // Complete sheet data for AI visibility
+  fullSheetData?: RangeData & {  // Complete sheet data for AI visibility
+    mergedCells?: Array<{
+      range: string
+      anchor: string
+      size: string
+    }>
+  }
   recentEdits?: Array<{  // Recent edits with old/new values
     range: string
     timestamp: string
@@ -61,7 +67,28 @@ export interface ComprehensiveContext extends ExcelContext {
     oldValues?: any[][]
     oldFormulas?: any[][]
     newValues?: any[][]
+    layoutChange?: {
+      merge?: string
+      previousMergeState?: any
+      preservedContent?: boolean
+    }
   }>
+  mergeInfo?: {
+    totalMergedAreas: number
+    totalMergedCells: number
+    mergedAreas: Array<{
+      area: string
+      anchor: string
+      rowCount: number
+      colCount: number
+    }>
+    largestMergeArea: {
+      area: string
+      anchor: string
+      rowCount: number
+      colCount: number
+    }
+  }
 }
 
 export interface DataAnalysis {
@@ -641,6 +668,75 @@ export class ExcelService {
     this.cacheTimestamp = 0
   }
 
+  // Add comprehensive merge detection method
+  private async detectMergedCells(worksheet: any, rangeAddress: string): Promise<{
+    mergedCellsMap: Map<string, { area: string; anchor: string; cellCount: number }>;
+    mergedAreas: Array<{ area: string; anchor: string; rowCount: number; colCount: number }>;
+  }> {
+    const mergedCellsMap = new Map<string, { area: string; anchor: string; cellCount: number }>();
+    const mergedAreas: Array<{ area: string; anchor: string; rowCount: number; colCount: number }> = [];
+    
+    try {
+      // Get all merged areas in the worksheet
+      const allMergedAreas = worksheet.getMergedAreas();
+      allMergedAreas.load(['areaCount']);
+      await worksheet.context.sync();
+      
+      if (allMergedAreas.areaCount > 0) {
+        allMergedAreas.load('areas');
+        await worksheet.context.sync();
+        
+        // Load details for each merged area
+        for (let i = 0; i < allMergedAreas.areas.items.length; i++) {
+          const area = allMergedAreas.areas.items[i];
+          area.load(['address', 'rowCount', 'columnCount', 'rowIndex', 'columnIndex']);
+        }
+        await worksheet.context.sync();
+        
+        // Process each merged area
+        for (let i = 0; i < allMergedAreas.areas.items.length; i++) {
+          const area = allMergedAreas.areas.items[i];
+          const areaAddress = area.address;
+          const [anchorCell] = areaAddress.split(':');
+          const cellCount = area.rowCount * area.columnCount;
+          
+          // Add to areas list
+          mergedAreas.push({
+            area: areaAddress,
+            anchor: anchorCell,
+            rowCount: area.rowCount,
+            colCount: area.columnCount
+          });
+          
+          // Map all cells in this merged area
+          for (let row = 0; row < area.rowCount; row++) {
+            for (let col = 0; col < area.columnCount; col++) {
+              const cellAddress = this.getCellAddressRelative(
+                area.rowIndex + row,
+                area.columnIndex + col
+              );
+              mergedCellsMap.set(cellAddress, {
+                area: areaAddress,
+                anchor: anchorCell,
+                cellCount: cellCount
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[Context] Could not detect merged cells:', e);
+    }
+    
+    return { mergedCellsMap, mergedAreas };
+  }
+
+  // Helper to get cell address from indices
+  private getCellAddressRelative(row: number, col: number): string {
+    const colLetter = this.columnToLetter(col);
+    return `${colLetter}${row + 1}`;
+  }
+
   // Optimized method to get context around selection
   async getSmartContext(): Promise<ComprehensiveContext> {
     console.log('[ExcelService] getSmartContext called')
@@ -709,6 +805,34 @@ export class ExcelService {
               address: fullSheetRange.address,
               cells: totalCells
             })
+            
+            // Add comprehensive merge detection
+            const mergeInfo = await this.detectMergedCells(worksheet, fullSheetRange.address);
+            
+            if (mergeInfo.mergedAreas.length > 0) {
+              result.mergeInfo = {
+                totalMergedAreas: mergeInfo.mergedAreas.length,
+                totalMergedCells: mergeInfo.mergedCellsMap.size,
+                mergedAreas: mergeInfo.mergedAreas,
+                largestMergeArea: mergeInfo.mergedAreas.reduce((largest, current) => 
+                  (current.rowCount * current.colCount > largest.rowCount * largest.colCount) ? current : largest
+                )
+              };
+              
+              // Add merge state to individual cell data
+              if (result.fullSheetData) {
+                result.fullSheetData.mergedCells = mergeInfo.mergedAreas.map(area => ({
+                  range: area.area,
+                  anchor: area.anchor,
+                  size: `${area.rowCount}x${area.colCount}`
+                }));
+              }
+              
+              console.log('[ExcelService] Detected merged cells:', {
+                totalAreas: mergeInfo.mergedAreas.length,
+                totalCells: mergeInfo.mergedCellsMap.size
+              });
+            }
           } else {
             // For large sheets, load a reasonable subset
             console.log('[ExcelService] Sheet too large, loading subset:', {
@@ -1073,6 +1197,8 @@ export class ExcelService {
           return await this.toolClearRange(input)
         case 'insert_rows_columns':
           return await this.toolInsertRowsColumns(input)
+        case 'apply_layout':
+          return await this.toolApplyLayout(input)
         default:
           console.error(`[❌ Diff Error] Unknown tool requested in ExcelService: ${tool}`);
           throw new Error(`Unknown tool: ${tool}`)
@@ -1144,6 +1270,9 @@ export class ExcelService {
             // toolClearRange doesn't accept context parameter
             result = await this.toolClearRange(request);
             break;
+          case 'apply_layout':
+            result = await this.toolApplyLayout(request, context);
+            break;
           default:
             result = { error: `Tool ${tool} is not batchable` };
         }
@@ -1172,6 +1301,9 @@ export class ExcelService {
               break;
             case 'format_range':
               result = await this.toolFormatRange(request.input, context);
+              break;
+            case 'apply_layout':
+              result = await this.toolApplyLayout(request.input, context);
               break;
             // Add other batchable tools here
             default:
@@ -1263,6 +1395,162 @@ export class ExcelService {
       await context.sync();
       
       return { worksheet, rangeAddress };
+  }
+
+  // Helper method to check if a range is rectangular
+  private isRectangularRange(range: any): boolean {
+    try {
+      // A range is rectangular if it has consistent row and column counts
+      return range.rowCount > 0 && range.columnCount > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // Helper method to detect existing merge state
+  private async detectMergeState(range: any, context: any): Promise<{
+    hasMergedCells: boolean;
+    isFullyMerged: boolean;
+    mergeAreas: string[];
+  }> {
+    const mergedAreas = range.getMergedAreasOrNullObject();
+    mergedAreas.load(['areaCount', 'areas']);
+    await context.sync();
+    
+    if (mergedAreas.isNullObject) {
+      return { hasMergedCells: false, isFullyMerged: false, mergeAreas: [] };
+    }
+    
+    const areas: string[] = [];
+    for (let i = 0; i < mergedAreas.areas.items.length; i++) {
+      const area = mergedAreas.areas.items[i];
+      area.load('address');
+    }
+    await context.sync();
+    
+    for (let i = 0; i < mergedAreas.areas.items.length; i++) {
+      areas.push(mergedAreas.areas.items[i].address);
+    }
+    
+    // Check if the entire range is already merged
+    const isFullyMerged = areas.length === 1 && areas[0] === range.address;
+    
+    return {
+      hasMergedCells: areas.length > 0,
+      isFullyMerged,
+      mergeAreas: areas
+    };
+  }
+
+  private async toolApplyLayout(input: any, excelContext?: any): Promise<any> {
+    const { range, merge, preserve_content = true } = input;
+    
+    console.log(`[📐 Layout] Executing toolApplyLayout`, { range, merge, preserve_content });
+    
+    const run = async (context: any) => {
+      try {
+        const { worksheet, rangeAddress } = await this.getWorksheetFromRange(context, range);
+        const excelRange = worksheet.getRange(rangeAddress);
+        
+        // Load range properties for validation
+        excelRange.load(['rowCount', 'columnCount', 'values', 'formulas', 'address']);
+        await context.sync();
+        
+        // Validate rectangular range
+        if (!this.isRectangularRange(excelRange)) {
+          throw new Error(`Range "${range}" is not rectangular and cannot be merged`);
+        }
+        
+        // Store original state for edit tracking
+        const oldValues = excelRange.values;
+        const oldFormulas = excelRange.formulas;
+        
+        // Detect current merge state
+        const mergeState = await this.detectMergeState(excelRange, context);
+        
+        // Apply merge if requested
+        if (merge) {
+          // Handle different merge scenarios
+          if (merge === 'unmerge') {
+            if (!mergeState.hasMergedCells) {
+              console.log(`[📐 Layout] Range ${range} is not merged, skipping unmerge`);
+            } else {
+              excelRange.unmerge();
+              console.log(`[📐 Layout] Unmerged range ${range}`);
+            }
+          } else {
+            // Check for partial merges that would cause issues
+            if (mergeState.hasMergedCells && !mergeState.isFullyMerged) {
+              throw new Error(`Range "${range}" contains partially merged cells. Please unmerge first.`);
+            }
+            
+            // Warn if content will be lost
+            if (!preserve_content && oldValues.length > 0) {
+              const nonEmptyCells = [];
+              for (let i = 0; i < oldValues.length; i++) {
+                for (let j = 0; j < oldValues[i].length; j++) {
+                  if (oldValues[i][j] !== null && oldValues[i][j] !== '') {
+                    if (!(i === 0 && j === 0)) { // Not the top-left cell
+                      nonEmptyCells.push(`${this.columnToLetter(j)}${i + 1}`);
+                    }
+                  }
+                }
+              }
+              if (nonEmptyCells.length > 0) {
+                console.warn(`[⚠️ Layout] Merging will lose content in cells: ${nonEmptyCells.join(', ')}`);
+              }
+            }
+            
+            // Perform merge
+            const mergeAcross = merge === 'across';
+            excelRange.merge(mergeAcross);
+            console.log(`[📐 Layout] Merged range ${range} (across: ${mergeAcross})`);
+          }
+        }
+        
+        await context.sync();
+        
+        // Track the layout change with enhanced metadata
+        const editEntry = {
+          range: range,
+          timestamp: new Date().toISOString(),
+          source: 'ai',
+          tool: 'apply_layout',
+          oldValues: oldValues,
+          oldFormulas: oldFormulas,
+          layoutChange: { 
+            merge: merge,
+            previousMergeState: mergeState,
+            preservedContent: preserve_content
+          }
+        };
+        
+        this.recentEdits.unshift(editEntry);
+        if (this.recentEdits.length > this.MAX_RECENT_EDITS) {
+          this.recentEdits.pop();
+        }
+        
+        console.log(`[📐 Layout] Layout applied successfully to ${range}`);
+        return { 
+          message: `Layout applied successfully to ${range}`, 
+          status: 'success',
+          details: { 
+            merge: merge,
+            cellsAffected: excelRange.rowCount * excelRange.columnCount,
+            previouslyMerged: mergeState.hasMergedCells
+          }
+        };
+        
+      } catch (error) {
+        console.error(`[❌ Layout Error] Failed to apply layout to ${range}:`, error);
+        if (error instanceof Error && (error as any).code === 'ItemNotFound') {
+          throw new Error(`Sheet or range not found for "${range}". Please ensure the sheet exists.`);
+        }
+        throw new Error(`Failed to apply layout to range "${range}": ${(error as Error).message}`);
+      }
+    };
+    
+    return excelContext ? run(excelContext) : Excel.run(run);
   }
 
   private async toolReadRange(input: any): Promise<RangeData> {

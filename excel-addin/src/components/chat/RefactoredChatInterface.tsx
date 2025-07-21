@@ -25,6 +25,7 @@ import { StatusMessage } from '../../types/enhanced-chat';
 
 // --- Zustand Store ---
 import { useDiffSessionStore } from '../../store/useDiffSessionStore';
+import { usePersistedTokenUsage } from '../../hooks/usePersistedTokenUsage';
 
 export const RefactoredChatInterface: React.FC = () => {
   // --- State Management ---
@@ -51,13 +52,23 @@ export const RefactoredChatInterface: React.FC = () => {
     console.log(`[${time}] [${type.toUpperCase()}] ${message}`);
   }, []);
 
-  // Initialize SignalR and message handlers
-  const messageHandlers = useMessageHandlers(chatManager, diffPreview, autonomyMode, addDebugLog);
+  // Get session ID from SignalR client
+  const [sessionId, setSessionId] = useState<string>('default');
+  
+  // Token usage management
+  const { tokenUsage, updateTokenUsage, clearTokenUsage } = usePersistedTokenUsage(sessionId);
+  
+  // Initialize SignalR and message handlers with token usage callback
+  const messageHandlers = useMessageHandlers(chatManager, diffPreview, autonomyMode, addDebugLog, updateTokenUsage);
   const { signalRClient, connectionStatus, isAuthenticated } = useSignalRManager(messageHandlers.handleSignalRMessage, addDebugLog);
   
   // Give the message handlers access to the signalRClient once it's available
   useEffect(() => {
     messageHandlers.setSignalRClient(signalRClient);
+    // Update session ID when SignalR client is available
+    if (signalRClient && (signalRClient as any).sessionId) {
+      setSessionId((signalRClient as any).sessionId);
+    }
   }, [signalRClient, messageHandlers]);
 
   // Clear loading states on disconnection
@@ -431,6 +442,9 @@ export const RefactoredChatInterface: React.FC = () => {
     // Clear the chat messages
     chatManager.clearMessages();
     
+    // Clear token usage
+    clearTokenUsage();
+    
     // Reset the operation counters in messageHandlers
     // This ensures the next message starts with fresh counters
     if (messageHandlers.handleUserMessageSent) {
@@ -565,6 +579,7 @@ ${auditLogs || 'No audit logs.'}
           onClearChat={handleClearChat}
           onAcceptDiff={() => diffPreview.acceptCurrentPreview(messageHandlers.sendFinalToolResponse)}
           onRejectDiff={diffPreview.rejectCurrentPreview}
+          tokenUsage={tokenUsage}
         />
       </div>
 

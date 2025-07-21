@@ -221,6 +221,7 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		"content":    response.Content,
 		"actions":    response.Actions,
 		"isComplete": response.IsFinal && !hasQueuedOps, // Only mark as complete if no operations are queued
+		"tokenUsage": response.TokenUsage, // Add token usage data
 	})
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to send response via SignalR")

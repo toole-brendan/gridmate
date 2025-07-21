@@ -68,6 +68,11 @@ export async function simulateOperation(
       await simulateFormatOperation(newSnapshot, operation, log);
       break;
       
+    case 'apply_layout':
+      log('info', `[Simulator] Applying layout operation to range: ${operation.input?.range}`);
+      await simulateLayoutOperation(newSnapshot, operation, log);
+      break;
+      
     default:
       log('warning', `[Simulator] Unknown operation type: ${operation.tool}`, { operation });
       console.warn(`[diffSimulator] Unknown operation type: ${operation.tool}`);
@@ -221,7 +226,86 @@ async function simulateFormatOperation(
   });
 }
 
+async function simulateLayoutOperation(
+  snapshot: WorkbookSnapshot,
+  operation: AISuggestedOperation,
+  log: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void
+): Promise<void> {
+  const { range, merge, preserve_content = true } = operation.input || {};
+  if (!range) {
+    log('warning', '[Simulator] Layout operation missing range', { input: operation.input });
+    return;
+  }
+  
+  const cellKeys = rangeToCellKeys(range);
+  
+  if (merge === 'all' || merge === 'across') {
+    // For merge operations, we need to simulate the merge behavior
+    // In a merge, only the top-left cell retains its value
+    const anchorCell = cellKeys[0]; // First cell is the anchor
+    const anchorKey = cellKeyToString(anchorCell);
+    const anchorSnapshot = snapshot[anchorKey];
+    
+    // Get the active sheet from the first cell
+    const sheetName = anchorCell.sheet;
+    
+    // Clear all cells except the anchor
+    for (let i = 1; i < cellKeys.length; i++) {
+      const cellKey = cellKeyToString(cellKeys[i]);
+      if (snapshot[cellKey]) {
+        // Mark cell as part of merged area (for diff visualization)
+        snapshot[cellKey] = {
+          ...snapshot[cellKey],
+          isMerged: true,
+          mergeAnchor: `${sheetName}!${colNumberToLetter(anchorCell.col)}${anchorCell.row + 1}`
+        };
+        
+        // Clear value if not preserving content
+        if (!preserve_content) {
+          delete snapshot[cellKey].v;
+          delete snapshot[cellKey].f;
+        }
+      }
+    }
+    
+    // Mark anchor cell as merged
+    if (anchorSnapshot) {
+      snapshot[anchorKey] = {
+        ...anchorSnapshot,
+        isMerged: true,
+        mergeArea: range
+      };
+    }
+    
+    log('info', `[Simulator] Simulated merge for range ${range} (${cellKeys.length} cells)`);
+  } else if (merge === 'unmerge') {
+    // For unmerge, restore individual cell states
+    for (const cellKey of cellKeys) {
+      const key = cellKeyToString(cellKey);
+      if (snapshot[key] && snapshot[key].isMerged) {
+        // Remove merge metadata
+        delete snapshot[key].isMerged;
+        delete snapshot[key].mergeAnchor;
+        delete snapshot[key].mergeArea;
+      }
+    }
+    
+    log('info', `[Simulator] Simulated unmerge for range ${range}`);
+  }
+}
+
 // Helper functions
+
+function colNumberToLetter(col: number): string {
+  let letter = '';
+  let colNum = col + 1; // Convert to 1-based
+  while (colNum > 0) {
+    const remainder = (colNum - 1) % 26;
+    letter = String.fromCharCode(65 + remainder) + letter;
+    colNum = Math.floor((colNum - 1) / 26);
+  }
+  return letter;
+}
 
 function rangeToCellKeys(range: string): CellKey[] {
   // Parse the range (e.g., "Sheet1!A1:B2" or "A1:B2")

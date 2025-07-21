@@ -481,6 +481,7 @@ You have FULL READ AND WRITE ACCESS to Excel through these tools:
 - write_range: Write values to cells
 - apply_formula: Apply formulas to cells
 - format_range: Format cells
+- apply_layout: Merge/unmerge cells and apply visual layout changes
 - read_range: Read cell values
 - analyze_data: Analyze data structure
 - validate_model: Check for errors
@@ -696,7 +697,71 @@ Example approach:
 4. Create outputs AND format results
 
 Always generate complete implementations, not descriptions.
-</action_generation>`
+</action_generation>
+
+<tool_documentation>
+Tool: apply_layout
+Purpose: Apply visual layout changes to cells, including merging, unmerging, and future layout features
+Parameters:
+  - range: Target range (e.g., "A1:E1") - must be a rectangular range
+  - merge: Merge operation type:
+    - "all": Merge entire range into one cell
+    - "across": Merge each row individually
+    - "unmerge": Split previously merged cells
+  - preserve_content: Boolean (default: true) - preserve content in top-left cell when merging
+
+Important Notes:
+  - When merging cells with existing content, only the top-left cell's value is preserved
+  - Attempting to merge a range with partial merges will result in an error
+  - Always write content to the first cell BEFORE merging
+  - The tool will warn if non-empty cells will lose content during merge
+
+Example workflows:
+  1. Create a merged header:
+     {"tool": "write_range", "range": "A1", "values": [["Financial Model Overview"]]}
+     {"tool": "apply_layout", "range": "A1:G1", "merge": "all"}
+     {"tool": "format_range", "range": "A1:G1", "font": {"bold": true, "size": 14}}
+  
+  2. Create row-wise merged cells:
+     {"tool": "apply_layout", "range": "A1:C3", "merge": "across"}
+     // This creates 3 merged rows: A1:C1, A2:C2, A3:C3
+  
+  3. Unmerge cells:
+     {"tool": "apply_layout", "range": "A1:G1", "merge": "unmerge"}
+</tool_documentation>
+
+<cell_merging_best_practices>
+CELL MERGING BEST PRACTICES:
+
+1. **Creating Headers**: Always write content BEFORE merging
+   Correct workflow:
+   [
+     {"tool": "write_range", "range": "A1", "values": [["Financial Model Overview"]]},
+     {"tool": "apply_layout", "range": "A1:G1", "merge": "all"},
+     {"tool": "format_range", "range": "A1:G1", "font": {"bold": true, "size": 14}, "alignment": {"horizontal": "center"}}
+   ]
+
+2. **Creating Section Headers**: Use row-wise merge for multi-row headers
+   [
+     {"tool": "write_range", "range": "A1:C3", "values": [["Revenue"], ["Costs"], ["EBITDA"]]},
+     {"tool": "apply_layout", "range": "A1:C3", "merge": "across"},
+     {"tool": "format_range", "range": "A1:C3", "font": {"bold": true}, "fill_color": "#E7E6E6"}
+   ]
+
+3. **Handling Existing Merges**: Check context for merged cells before writing
+   - If cells are already merged, write only to the anchor cell
+   - To modify merged cells, unmerge first if needed
+
+4. **Error Prevention**:
+   - Never merge non-rectangular ranges
+   - Always check for partial merges in the target range
+   - Use preserve_content: true (default) to avoid data loss
+
+5. **Common Patterns**:
+   - Model title: Merge A1:G1 or full width
+   - Section headers: Merge across relevant columns
+   - Category labels: Merge 2-3 columns for readability
+</cell_merging_best_practices>`
 }
 
 // BuildFormulaPrompt builds a prompt specifically for formula generation

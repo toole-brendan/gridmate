@@ -24,6 +24,15 @@ type ChatResponse struct {
 	Actions     []ProposedAction `json:"actions,omitempty"`
 	SessionID   string           `json:"session_id"`
 	IsFinal     bool             `json:"is_final"`
+	TokenUsage  *TokenUsage      `json:"token_usage,omitempty"`
+}
+
+// TokenUsage represents token usage information
+type TokenUsage struct {
+	Input  int `json:"input"`  // Tokens in the prompt
+	Output int `json:"output"` // Tokens in the completion
+	Total  int `json:"total"`  // Current context usage (not cumulative)
+	Max    int `json:"max"`    // Maximum context window (200,000)
 }
 
 // ProposedAction represents an action proposed by the AI

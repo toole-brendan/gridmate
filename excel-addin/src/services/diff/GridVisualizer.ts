@@ -37,6 +37,10 @@ interface CellState {
   }
   value: any
   formula: string
+  isMerged?: boolean
+  mergeArea?: string // e.g., "A1:E1"
+  mergeAnchor?: string // Top-left cell of merge area (e.g., "A1")
+  originalMergeState?: 'merged' | 'unmerged' | 'partial'
 }
 
 export class GridVisualizer {
@@ -152,6 +156,46 @@ export class GridVisualizer {
             const value = range.values[0][0]
             const formula = range.formulas[0][0]
             
+            // Enhanced merge detection
+            const mergedAreas = range.getMergedAreasOrNullObject();
+            mergedAreas.load(['areaCount', 'areas']);
+            await context.sync();
+
+            let isMerged = false;
+            let mergeArea = null;
+            let mergeAnchor = null;
+            let originalMergeState: 'merged' | 'unmerged' | 'partial' = 'unmerged';
+
+            if (!mergedAreas.isNullObject && mergedAreas.areaCount > 0) {
+              // Load all merge areas
+              for (let i = 0; i < mergedAreas.areas.items.length; i++) {
+                const area = mergedAreas.areas.items[i];
+                area.load(['address', 'rowIndex', 'columnIndex']);
+              }
+              await context.sync();
+              
+              // Check if this specific cell is in a merge area
+              for (let i = 0; i < mergedAreas.areas.items.length; i++) {
+                const area = mergedAreas.areas.items[i];
+                const areaAddress = area.address;
+                
+                // Parse addresses to check if current cell is within this merge area
+                const [areaStart, areaEnd] = areaAddress.split(':');
+                if (this.cellIsWithinRange(cellKey, areaStart, areaEnd)) {
+                  isMerged = true;
+                  mergeArea = areaAddress;
+                  mergeAnchor = areaStart;
+                  originalMergeState = 'merged';
+                  break;
+                }
+              }
+              
+              // Check if this is a partial merge situation
+              if (mergedAreas.areaCount > 1 || (mergedAreas.areaCount === 1 && !isMerged)) {
+                originalMergeState = 'partial';
+              }
+            }
+            
             const originalState: CellState = {
               fillColor,
               fontColor,
@@ -177,7 +221,11 @@ export class GridVisualizer {
                 }
               },
               value,
-              formula
+              formula,
+              isMerged,
+              mergeArea,
+              mergeAnchor,
+              originalMergeState
             }
             
             this.originalStates.set(cellKey, originalState)
@@ -392,6 +440,53 @@ export class GridVisualizer {
                   log('info', `[Visualizer] Preserving new value for cell ${cellKey}`)
                 }
                 
+                // Handle merge restoration
+                if (originalState.originalMergeState && !preserveValues) {
+                  // Handle different merge restoration scenarios
+                  if (originalState.originalMergeState === 'merged') {
+                    // Cell was originally part of a merged range
+                    if (!originalState.isMerged) {
+                      // Cell is no longer merged - need to restore merge
+                      try {
+                        const mergeRange = worksheet.getRange(originalState.mergeArea);
+                        mergeRange.merge(false); // Merge without across option
+                        await context.sync();
+                        log('info', `[Visualizer] Restored merge for area ${originalState.mergeArea}`);
+                      } catch (e) {
+                        log('warning', `[Visualizer] Could not restore merge for ${originalState.mergeArea}:`, e);
+                      }
+                    }
+                  } else if (originalState.originalMergeState === 'unmerged') {
+                    // Cell was originally not merged
+                    if (originalState.isMerged) {
+                      // Cell is now merged - need to unmerge
+                      try {
+                        range.unmerge();
+                        await context.sync();
+                        log('info', `[Visualizer] Unmerged cell ${cellKey} to restore original state`);
+                      } catch (e) {
+                        log('warning', `[Visualizer] Could not unmerge cell ${cellKey}:`, e);
+                      }
+                    }
+                  }
+                }
+                
+                // Enhanced value restoration for merged cells
+                if (!preserveValues && originalState.mergeArea) {
+                  // For merged cells, only restore value to the anchor cell
+                  if (cellKey === originalState.mergeAnchor || cellKey === originalState.mergeArea.split(':')[0]) {
+                    if (originalState.formula) {
+                      range.formulas = [[originalState.formula]];
+                    } else if (originalState.value !== null && originalState.value !== undefined) {
+                      range.values = [[originalState.value]];
+                    }
+                  }
+                  // Other cells in the merge area should be cleared
+                  else if (this.cellIsWithinRange(cellKey, originalState.mergeArea.split(':')[0], originalState.mergeArea.split(':')[1])) {
+                    range.clear(Excel.ClearApplyTo.contents);
+                  }
+                }
+                
                 // Restore original borders
                 const borders = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'] as const
                 for (const border of borders) {
@@ -490,6 +585,26 @@ export class GridVisualizer {
       log('error', `[Visualizer] Error clearing highlights: ${error.message}`, { error })
       throw error
     })
+  }
+
+  /**
+   * Helper function to check if a cell is within a range
+   */
+  private static cellIsWithinRange(cellKey: string, rangeStart: string, rangeEnd: string): boolean {
+    try {
+      // Parse cell addresses
+      const cell = parseA1Reference(cellKey);
+      const start = parseA1Reference(rangeStart);
+      const end = parseA1Reference(rangeEnd);
+      
+      if (!cell || !start || !end) return false;
+      
+      // Check if cell is within the range boundaries
+      return cell.row >= start.row && cell.row <= end.row &&
+             cell.col >= start.col && cell.col <= end.col;
+    } catch {
+      return false;
+    }
   }
 
   /**

@@ -494,6 +494,16 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		IsFinal:     isFinal,
 	}
 
+	// Add token usage if available from AI response
+	if aiResponse != nil && aiResponse.Usage.TotalTokens > 0 {
+		response.TokenUsage = &TokenUsage{
+			Input:  aiResponse.Usage.PromptTokens,
+			Output: aiResponse.Usage.CompletionTokens,
+			Total:  aiResponse.Usage.PromptTokens, // This represents current context size
+			Max:    200000, // Claude 3.5's context window
+		}
+	}
+
 	// Update session activity
 	session.LastActivity = time.Now()
 

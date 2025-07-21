@@ -15,7 +15,8 @@ export const useMessageHandlers = (
   chatManager: ReturnType<typeof useChatManager>,
   diffPreview: ReturnType<typeof useDiffPreview>,
   autonomyMode: string,
-  addDebugLog: (message: string, type?: 'info' | 'error' | 'warning' | 'success') => void
+  addDebugLog: (message: string, type?: 'info' | 'error' | 'warning' | 'success') => void,
+  onTokenUsage?: (usage: import('../types/signalr').TokenUsage) => void
 ) => {
   const signalRClientRef = useRef<any>(null);
   const currentMessageIdRef = useRef<string | null>(null);
@@ -387,6 +388,12 @@ export const useMessageHandlers = (
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content?.substring(0, 50) || ''}...`);
     
+    // Handle token usage if present
+    if (response.tokenUsage && onTokenUsage) {
+      addDebugLog(`Token usage update: ${response.tokenUsage.total}/${response.tokenUsage.max} tokens`, 'info');
+      onTokenUsage(response.tokenUsage);
+    }
+    
     // Check if this is a completion message
     if (response.type === 'completion') {
       addDebugLog('Received completion message from backend', 'success');
@@ -460,7 +467,7 @@ export const useMessageHandlers = (
         type: 'assistant'
       });
     }
-  }, [addDebugLog, chatManager, messageTimeouts]);
+  }, [addDebugLog, chatManager, messageTimeouts, onTokenUsage]);
 
   const handleSignalRMessage = useCallback((message: any) => {
     // Enhanced diagnostic logging - log the entire raw message

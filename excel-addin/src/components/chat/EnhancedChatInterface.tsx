@@ -37,6 +37,8 @@ import {
   useSlashCommands,
   SlashCommand
 } from './SlashCommands'
+import { TokenCounter } from './TokenCounter'
+import { TokenUsage } from '../../types/signalr'
 
 interface EnhancedChatInterfaceProps {
   messages: EnhancedChatMessage[]
@@ -67,6 +69,8 @@ interface EnhancedChatInterfaceProps {
   // Diff preview
   onAcceptDiff?: () => Promise<void>
   onRejectDiff?: () => Promise<void>
+  // Token tracking
+  tokenUsage?: TokenUsage | null
 }
 
 export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
@@ -94,7 +98,8 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   isContextEnabled = true,
   onContextToggle,
   onAcceptDiff,
-  onRejectDiff
+  onRejectDiff,
+  tokenUsage = null
 }) => {
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const [focusedMessageId, setFocusedMessageId] = React.useState<string | null>(null)
@@ -513,6 +518,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   return (
     <KeyboardShortcuts shortcuts={shortcuts}>
       <div className="h-full flex flex-col bg-app-background text-text-primary">
+        {/* Token Counter */}
+        <TokenCounter tokenUsage={tokenUsage} />
+        
         {/* Messages Container */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (

@@ -38,7 +38,9 @@
       "Bash(az postgres server firewall-rule list:*)",
       "Bash(az group:*)",
       "Bash(az postgres flexible-server list:*)",
-      "Bash(az postgres server firewall-rule create:*)"
+      "Bash(az postgres server firewall-rule create:*)",
+      "Bash(az:*)",
+      "Bash(PGPASSWORD='Dunlainge1' psql -h gridmate-db-server.postgres.database.azure.com -U gridmateadmin -d gridmate_db -p 5432 -c \"SELECT version();\")"
     ],
     "deny": []
   }

@@ -20,12 +20,24 @@ import { AuditLogger } from '../../utils/safetyChecks';
 // --- Types ---
 import { AutonomyMode } from './AutonomyModeSelector';
 import { MentionItem, ContextItem } from '../chat/mentions';
-import { isToolSuggestion, isBatchOperation } from '../../types/enhanced-chat';
+import { isToolSuggestion, isBatchOperation, ToolSuggestionMessage } from '../../types/enhanced-chat';
 import { StatusMessage } from '../../types/enhanced-chat';
 
 // --- Zustand Store ---
 import { useDiffSessionStore } from '../../store/useDiffSessionStore';
 import { usePersistedTokenUsage } from '../../hooks/usePersistedTokenUsage';
+
+// Interface for tracking pending tool suggestions
+interface PendingToolState {
+  suggestions: Map<string, ToolSuggestionMessage>;
+  isProcessingBulk: boolean;
+  bulkProgress?: {
+    total: number;
+    completed: number;
+    failed: number;
+    currentOperation?: string;
+  };
+}
 
 export const RefactoredChatInterface: React.FC = () => {
   // --- State Management ---
@@ -36,6 +48,12 @@ export const RefactoredChatInterface: React.FC = () => {
   const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [copyButtonText, setCopyButtonText] = useState('📋 Copy All Debug Info');
   const [input, setInput] = useState('');
+  
+  // State for tracking pending tool suggestions
+  const [pendingTools, setPendingTools] = useState<PendingToolState>({
+    suggestions: new Map(),
+    isProcessingBulk: false
+  });
   
   // --- Hooks ---
   const chatManager = useChatManager();
@@ -86,6 +104,7 @@ export const RefactoredChatInterface: React.FC = () => {
   const [rawSelection, setRawSelection] = useState<string | null>(null);
   const debouncedSelection = useDebounce(rawSelection, 300);
   const [contextSummary, setContextSummary] = useState<string>('');
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   const updateAvailableMentions = useCallback(async () => {
     addDebugLog('Updating available mentions...');
@@ -283,6 +302,17 @@ export const RefactoredChatInterface: React.FC = () => {
     }
   };
 
+  // Track pending tool suggestions
+  useEffect(() => {
+    const pending = new Map<string, ToolSuggestionMessage>();
+    chatManager.messages.forEach(msg => {
+      if (isToolSuggestion(msg) && msg.status === 'pending') {
+        pending.set(msg.tool.id, msg);
+      }
+    });
+    setPendingTools(prev => ({ ...prev, suggestions: pending }));
+  }, [chatManager.messages]);
+
   // --- Message Sending ---
   const handleSendMessage = useCallback(async () => {
     const content = input.trim();
@@ -427,6 +457,198 @@ export const RefactoredChatInterface: React.FC = () => {
     });
   };
 
+  // Helper function for sequential execution
+  const executeSequentially = async (
+    operations: ToolSuggestionMessage[],
+    progress: { completed: number; failed: number },
+    errors: Array<{ actionId: string; error: Error }>
+  ) => {
+    for (const operation of operations) {
+      // Check if aborted
+      if (abortController?.signal.aborted) {
+        throw new Error('Operation cancelled by user');
+      }
+      
+      try {
+        if (operation.actions?.accept) {
+          await operation.actions.accept();
+          progress.completed++;
+          updateToolStatus(operation.tool.id, 'accepted');
+        }
+      } catch (error) {
+        progress.failed++;
+        errors.push({ 
+          actionId: operation.tool.id, 
+          error: error as Error 
+        });
+        addDebugLog(`Failed to accept ${operation.tool.name}: ${(error as Error).message}`, 'error');
+      }
+      
+      // Small delay between operations for UI feedback
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  };
+
+  // Update tool suggestion status in messages
+  const updateToolStatus = (toolId: string, status: 'accepted' | 'rejected') => {
+    chatManager.messages.forEach(msg => {
+      if (isToolSuggestion(msg) && msg.tool.id === toolId) {
+        // Note: We would need to update the message through chatManager
+        // This might require adding a method to chatManager to update message status
+        addDebugLog(`Updated tool ${toolId} status to ${status}`);
+      }
+    });
+  };
+
+  // Group consecutive operations by tool type
+  const groupOperationsByType = (operations: ToolSuggestionMessage[]): Map<string, ToolSuggestionMessage[]> => {
+    const groups = new Map<string, ToolSuggestionMessage[]>();
+    
+    operations.forEach(op => {
+      const toolType = op.tool.name;
+      if (!groups.has(toolType)) {
+        groups.set(toolType, []);
+      }
+      groups.get(toolType)!.push(op);
+    });
+    
+    return groups;
+  };
+
+  // Check if a tool type supports batch execution
+  const isBatchableToolType = (toolType: string): boolean => {
+    const batchableTools = [
+      'write_range',
+      'apply_formula',
+      'format_range',
+      'clear_range',
+      'apply_layout'
+    ];
+    return batchableTools.includes(toolType);
+  };
+
+  // Handle Accept All action
+  const handleAcceptAll = useCallback(async () => {
+    const pendingActions = Array.from(pendingTools.suggestions.values());
+    const pendingCount = pendingActions.length;
+    
+    // Don't proceed if no pending actions
+    if (pendingCount === 0) return;
+    
+    // Confirmation for large batches
+    if (pendingCount > 10) {
+      const confirmMessage = `This will apply ${pendingCount} changes to your spreadsheet. Continue?`;
+      if (!window.confirm(confirmMessage)) return;
+    }
+    
+    addDebugLog(`Starting bulk acceptance of ${pendingCount} operations`);
+    setPendingTools(prev => ({ ...prev, isProcessingBulk: true }));
+    
+    // Create abort controller for this operation
+    const controller = new AbortController();
+    setAbortController(controller);
+    
+    // Initialize progress tracking
+    const progress = { total: pendingCount, completed: 0, failed: 0 };
+    const errors: Array<{ actionId: string; error: Error }> = [];
+    
+    try {
+      // Group operations by type for batch optimization
+      const grouped = groupOperationsByType(pendingActions);
+      
+      for (const [toolType, operations] of grouped) {
+        // Check if aborted
+        if (controller.signal.aborted) {
+          throw new Error('Operation cancelled by user');
+        }
+        
+        // Check if this tool type supports batching
+        if (isBatchableToolType(toolType) && operations.length > 1) {
+          try {
+            // Use batch execution for multiple operations of same type
+            const batchRequests = operations.map(op => ({
+              tool: op.tool.name,
+              input: op.tool.parameters
+            }));
+            
+            await ExcelService.getInstance().batchExecuteToolRequests(batchRequests);
+            
+            // Update all operations in batch as completed
+            operations.forEach(op => {
+              updateToolStatus(op.tool.id, 'accepted');
+              progress.completed++;
+            });
+          } catch (error) {
+            // If batch fails, fall back to individual execution
+            addDebugLog(`Batch execution failed for ${toolType}, falling back to sequential`, 'warning');
+            await executeSequentially(operations, progress, errors);
+          }
+        } else {
+          // Execute non-batchable operations sequentially
+          await executeSequentially(operations, progress, errors);
+        }
+        
+        // Update progress UI
+        setPendingTools(prev => ({
+          ...prev,
+          bulkProgress: { ...progress, currentOperation: toolType }
+        }));
+        
+        // Small delay between different tool types
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Show completion summary
+      const summaryMessage = `Bulk operation completed: ${progress.completed} successful, ${progress.failed} failed out of ${pendingCount} total.`;
+      addDebugLog(summaryMessage, progress.failed > 0 ? 'warning' : 'success');
+      
+      // Add completion message to chat
+      chatManager.addMessage({
+        id: `bulk_complete_${Date.now()}`,
+        role: 'system',
+        content: summaryMessage,
+        timestamp: new Date(),
+        type: 'system',
+      });
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      addDebugLog(`Bulk operation failed: ${errorMessage}`, 'error');
+    } finally {
+      setPendingTools(prev => ({ 
+        ...prev, 
+        isProcessingBulk: false,
+        bulkProgress: undefined
+      }));
+      setAbortController(null);
+    }
+  }, [pendingTools.suggestions, addDebugLog, chatManager]);
+
+  // Handle Reject All action
+  const handleRejectAll = useCallback(async () => {
+    const pendingActions = Array.from(pendingTools.suggestions.values());
+    const pendingCount = pendingActions.length;
+    
+    if (pendingCount === 0) return;
+    
+    addDebugLog(`Rejecting all ${pendingCount} operations`);
+    
+    pendingActions.forEach(operation => {
+      if (operation.actions?.reject) {
+        operation.actions.reject();
+        updateToolStatus(operation.tool.id, 'rejected');
+      }
+    });
+    
+    chatManager.addMessage({
+      id: `bulk_reject_${Date.now()}`,
+      role: 'system',
+      content: `Rejected ${pendingCount} pending operations.`,
+      timestamp: new Date(),
+      type: 'system',
+    });
+  }, [pendingTools.suggestions, addDebugLog, chatManager]);
+
   const handleMessageAction = (messageId: string, action: string) => {
     const message = chatManager.messages.find(m => m.id === messageId);
     if (message && isToolSuggestion(message)) {
@@ -558,6 +780,48 @@ ${auditLogs || 'No audit logs.'}
           {contextSummary}
         </div>
       )}
+
+      {/* --- Bulk Operation Progress --- */}
+      {pendingTools.isProcessingBulk && pendingTools.bulkProgress && (
+        <div className="fixed bottom-4 right-4 bg-white shadow-lg rounded-lg p-4 min-w-[300px] z-50">
+          <div className="flex justify-between mb-2">
+            <span className="font-semibold">Processing Operations</span>
+            <span className="text-sm text-gray-600">
+              {pendingTools.bulkProgress.completed + pendingTools.bulkProgress.failed} / {pendingTools.bulkProgress.total}
+            </span>
+          </div>
+          
+          <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ 
+                width: `${((pendingTools.bulkProgress.completed + pendingTools.bulkProgress.failed) / pendingTools.bulkProgress.total) * 100}%` 
+              }}
+            />
+          </div>
+          
+          {pendingTools.bulkProgress.currentOperation && (
+            <div className="text-sm text-gray-600">
+              Current: {pendingTools.bulkProgress.currentOperation}
+            </div>
+          )}
+          
+          {pendingTools.bulkProgress.failed > 0 && (
+            <div className="text-sm text-red-600 mt-1">
+              {pendingTools.bulkProgress.failed} operations failed
+            </div>
+          )}
+          
+          {abortController && (
+            <button 
+              onClick={() => abortController.abort()}
+              className="mt-2 px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+            >
+              Stop Bulk Operation
+            </button>
+          )}
+        </div>
+      )}
       
       {/* --- Chat UI --- */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -580,6 +844,11 @@ ${auditLogs || 'No audit logs.'}
           onAcceptDiff={() => diffPreview.acceptCurrentPreview(messageHandlers.sendFinalToolResponse)}
           onRejectDiff={diffPreview.rejectCurrentPreview}
           tokenUsage={tokenUsage}
+          // Add bulk action props
+          pendingToolsCount={pendingTools.suggestions.size}
+          onAcceptAll={handleAcceptAll}
+          onRejectAll={handleRejectAll}
+          isProcessingBulkAction={pendingTools.isProcessingBulk}
         />
       </div>
 

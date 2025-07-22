@@ -3,7 +3,7 @@ export interface PendingAction {
   type: string;
   description: string;
   input: Record<string, any>;
-  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'failed' | 'cancelled';
   createdAt: string;
   completedAt?: string;
   batchId?: string;
@@ -11,7 +11,7 @@ export interface PendingAction {
   priority?: number;
   preview?: string;
   context?: string;
-  canApprove?: boolean; // From backend's CanExecute check
+  canAccept?: boolean; // From backend's CanExecute check
   error?: string; // Error message if failed
   result?: any; // Result of completed operation
 }
@@ -20,7 +20,7 @@ export interface OperationBatch {
   id: string;
   size: number;
   ready_count: number;
-  can_approve_all: boolean;
+  can_accept_all: boolean;
 }
 
 export interface OperationSummary {

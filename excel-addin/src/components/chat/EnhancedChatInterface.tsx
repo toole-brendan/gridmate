@@ -59,7 +59,7 @@ interface EnhancedChatInterfaceProps {
   hasRedo?: boolean
   // Bulk actions
   pendingToolsCount?: number
-  onApproveAll?: () => void
+  onAcceptAll?: () => void
   onRejectAll?: () => void
   isProcessingBulkAction?: boolean
   aiIsGenerating?: boolean
@@ -91,7 +91,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   hasUndo = false,
   hasRedo = false,
   pendingToolsCount = 0,
-  onApproveAll,
+  onAcceptAll,
   onRejectAll,
   isProcessingBulkAction = false,
   aiIsGenerating = false,
@@ -185,7 +185,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
         >
           <ToolSuggestionCard 
             message={message}
-            onApprove={() => onMessageAction?.(message.id, 'approve')}
+            onAccept={() => onMessageAction?.(message.id, 'accept')}
             onReject={() => onMessageAction?.(message.id, 'reject')}
             diffData={message.diff}
             onAcceptDiff={message.diff?.status === 'previewing' ? onAcceptDiff : undefined}
@@ -420,7 +420,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     {
       key: 'Enter',
       ctrlOrCmd: true,
-      description: 'Approve all pending actions',
+      description: 'Accept all pending actions',
       handler: () => {
         const pendingActions = messages.filter(m => 
           (isToolSuggestion(m) && m.status === 'pending') ||
@@ -428,9 +428,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
         )
         pendingActions.forEach(action => {
           if (isToolSuggestion(action)) {
-            action.actions.approve()
+            action.actions.accept()
           } else if (isBatchOperation(action)) {
-            action.actions.approveAll()
+            action.actions.acceptAll()
           }
         })
       }
@@ -496,10 +496,10 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     },
     {
       key: 'Enter',
-      description: 'Approve focused action',
+      description: 'Accept focused action',
       handler: () => {
         if (focusedMessageId) {
-          onMessageAction?.(focusedMessageId, 'approve')
+          onMessageAction?.(focusedMessageId, 'accept')
         }
       }
     },
@@ -606,7 +606,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
             {/* Bulk action buttons */}
             <div className="flex items-center gap-2">
               <button
-                onClick={onApproveAll}
+                onClick={onAcceptAll}
                 disabled={isProcessingBulkAction || pendingToolsCount === 0}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${
                   pendingToolsCount > 0

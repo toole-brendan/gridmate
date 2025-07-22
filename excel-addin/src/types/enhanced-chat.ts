@@ -40,11 +40,11 @@ export interface ToolSuggestionMessage extends BaseEnhancedMessage {
     riskLevel?: 'low' | 'medium' | 'high'
   }
   actions: {
-    approve: () => void
+    accept: () => void
     reject: () => void
     modify?: () => void
   }
-  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  status: 'pending' | 'accepted' | 'rejected' | 'expired'
   expiresAt?: Date
   responseId?: string // Track which AI response generated this tool
 }
@@ -91,7 +91,7 @@ export interface BatchOperationMessage extends BaseEnhancedMessage {
     }>
   }
   actions: {
-    approveAll: () => void
+    acceptAll: () => void
     rejectAll: () => void
     expand: () => void
     collapse: () => void
@@ -105,7 +105,7 @@ export interface ResponseToolsGroupMessage extends BaseEnhancedMessage {
   aiResponseContent: string
   tools: ToolSuggestionMessage[]
   actions: {
-    approveAll: () => void
+    acceptAll: () => void
     rejectAll: () => void
     expandAll: () => void
     collapseAll: () => void

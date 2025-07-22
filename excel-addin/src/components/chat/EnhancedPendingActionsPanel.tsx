@@ -4,10 +4,10 @@ import { PendingAction, OperationSummary } from '../../types/operations';
 interface EnhancedPendingActionsPanelProps {
   actions: PendingAction[];
   summary: OperationSummary; // From backend GetOperationSummary
-  onApprove: (actionId: string) => void;
+  onAccept: (actionId: string) => void;
   onReject: (actionId: string) => void;
-  onApproveAll: () => void;
-  onApproveAllInOrder: () => void;
+  onAcceptAll: () => void;
+  onAcceptAllInOrder: () => void;
   onUndo: () => void;
   onRedo: () => void;
   dependencies: Record<string, string[]>;
@@ -18,10 +18,10 @@ interface EnhancedPendingActionsPanelProps {
 export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelProps> = ({
   actions,
   summary,
-  onApprove,
+  onAccept,
   onReject,
-  onApproveAll,
-  onApproveAllInOrder,
+  onAcceptAll,
+  onAcceptAllInOrder,
   onUndo,
   onRedo,
   dependencies,
@@ -48,15 +48,15 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
     return { batches, standalone };
   }, [actions]);
 
-  // Check if action can be approved based on dependencies
-  const canApprove = (actionId: string): boolean => {
+  // Check if action can be accepted based on dependencies
+  const canAccept = (actionId: string): boolean => {
     const action = actions.find(a => a.id === actionId);
-    return action?.canApprove || false; // Use backend's canApprove flag
+    return action?.canAccept || false; // Use backend's canAccept flag
   };
 
   // Get visual indicator for action status
   const getStatusIcon = (action: PendingAction): React.ReactNode => {
-    if (!canApprove(action.id)) {
+    if (!canAccept(action.id)) {
       return <div className="w-2 h-2 bg-yellow-500 rounded-full" title="Waiting for dependencies" />;
     }
     if (action.batchId) {
@@ -65,7 +65,7 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
     if (action.priority && action.priority > 50) {
       return <div className="w-2 h-2 bg-purple-500 rounded-full" title="High priority" />;
     }
-    return <div className="w-2 h-2 bg-green-500 rounded-full" title="Ready to approve" />;
+    return <div className="w-2 h-2 bg-green-500 rounded-full" title="Ready to accept" />;
   };
 
   // Get operation type display name
@@ -137,7 +137,7 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
           </button>
           <div className="w-px bg-gray-300" />
           <button
-            onClick={onApproveAllInOrder}
+            onClick={onAcceptAllInOrder}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
                      flex items-center gap-2 text-sm font-semibold shadow-sm
                      disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors
@@ -147,16 +147,16 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
-            Approve All in Order
+            Accept All in Order
           </button>
           <button
-            onClick={onApproveAll}
+            onClick={onAcceptAll}
             className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 
                      text-sm font-medium disabled:bg-gray-50 disabled:text-gray-400 
                      disabled:cursor-not-allowed transition-colors"
             disabled={actions.length === 0 || summary.has_blocked}
           >
-            Approve All
+            Accept All
           </button>
         </div>
       </div>
@@ -177,7 +177,7 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
           {summary.batches.map(batch => (
             <div key={batch.id}>
               Batch: {batch.ready_count}/{batch.size} ready
-              {batch.can_approve_all && ' ✓'}
+              {batch.can_accept_all && ' ✓'}
             </div>
           ))}
         </div>
@@ -191,9 +191,9 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
           actions={batchActions}
           expanded={expandedBatches.has(batchId)}
           onToggle={() => toggleBatch(batchId)}
-          onApprove={onApprove}
+          onAccept={onAccept}
           onReject={onReject}
-          canApprove={canApprove}
+          canAccept={canAccept}
           getStatusIcon={getStatusIcon}
           getOperationTypeDisplay={getOperationTypeDisplay}
         />
@@ -204,10 +204,10 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
         <OperationCard
           key={action.id}
           action={action}
-          canApprove={canApprove(action.id)}
+          canAccept={canAccept(action.id)}
           statusIcon={getStatusIcon(action)}
           operationTypeDisplay={getOperationTypeDisplay(action.type)}
-          onApprove={() => onApprove(action.id)}
+          onAccept={() => onAccept(action.id)}
           onReject={() => onReject(action.id)}
         />
       ))}
@@ -226,17 +226,17 @@ export const EnhancedPendingActionsPanel: React.FC<EnhancedPendingActionsPanelPr
 // Individual Operation Card Component
 const OperationCard: React.FC<{
   action: PendingAction;
-  canApprove: boolean;
+  canAccept: boolean;
   statusIcon: React.ReactNode;
   operationTypeDisplay: string;
-  onApprove: () => void;
+  onAccept: () => void;
   onReject: () => void;
-}> = ({ action, canApprove, statusIcon, operationTypeDisplay, onApprove, onReject }) => {
+}> = ({ action, canAccept, statusIcon, operationTypeDisplay, onAccept, onReject }) => {
   const [showPreview, setShowPreview] = useState(false);
 
   return (
     <div className={`operation-card border rounded-lg p-3 mb-2 
-                    ${canApprove ? 'bg-white' : 'bg-gray-100 opacity-75'}`}>
+                    ${canAccept ? 'bg-white' : 'bg-gray-100 opacity-75'}`}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
@@ -279,15 +279,15 @@ const OperationCard: React.FC<{
         {/* Action Buttons */}
         <div className="flex gap-2 ml-2">
           <button
-            onClick={onApprove}
-            disabled={!canApprove}
+            onClick={onAccept}
+            disabled={!canAccept}
             className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              canApprove
+              canAccept
                 ? 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
             }`}
           >
-            Approve
+            Accept
           </button>
           <button
             onClick={onReject}
@@ -299,7 +299,7 @@ const OperationCard: React.FC<{
       </div>
 
       {/* Dependency Info */}
-      {!canApprove && action.dependencies && action.dependencies.length > 0 && (
+      {!canAccept && action.dependencies && action.dependencies.length > 0 && (
         <div className="mt-2 text-xs text-amber-600 flex items-center gap-1">
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -324,12 +324,12 @@ const BatchedOperations: React.FC<{
   actions: PendingAction[];
   expanded: boolean;
   onToggle: () => void;
-  onApprove: (id: string) => void;
+  onAccept: (id: string) => void;
   onReject: (id: string) => void;
-  canApprove: (id: string) => boolean;
+  canAccept: (id: string) => boolean;
   getStatusIcon: (action: PendingAction) => React.ReactNode;
   getOperationTypeDisplay: (type: string) => string;
-}> = ({ batchId, actions, expanded, onToggle, onApprove, onReject, canApprove, getStatusIcon, getOperationTypeDisplay }) => {
+}> = ({ batchId, actions, expanded, onToggle, onAccept, onReject, canAccept, getStatusIcon, getOperationTypeDisplay }) => {
   return (
     <div className="batch-group mb-4">
       <button
@@ -346,7 +346,7 @@ const BatchedOperations: React.FC<{
             <span className="text-xs text-gray-500">({actions.length} operations)</span>
           </span>
           <span className="text-xs text-blue-600 font-medium">
-            {actions.filter(a => canApprove(a.id)).length}/{actions.length} ready
+            {actions.filter(a => canAccept(a.id)).length}/{actions.length} ready
           </span>
         </div>
       </button>
@@ -357,10 +357,10 @@ const BatchedOperations: React.FC<{
             <OperationCard
               key={action.id}
               action={action}
-              canApprove={canApprove(action.id)}
+              canAccept={canAccept(action.id)}
               statusIcon={getStatusIcon(action)}
               operationTypeDisplay={getOperationTypeDisplay(action.type)}
-              onApprove={() => onApprove(action.id)}
+              onAccept={() => onAccept(action.id)}
               onReject={() => onReject(action.id)}
             />
           ))}

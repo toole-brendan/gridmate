@@ -7,7 +7,7 @@ import { ChatMessageDiffPreview } from '../ChatMessageDiffPreview'
 
 interface ToolSuggestionCardProps {
   message: ToolSuggestionMessage
-  onApprove?: () => void
+  onAccept?: () => void
   onReject?: () => void
   diffData?: any
   onAcceptDiff?: () => Promise<void>
@@ -16,7 +16,7 @@ interface ToolSuggestionCardProps {
 
 export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
   message,
-  onApprove,
+  onAccept,
   onReject,
   diffData,
   onAcceptDiff,
@@ -51,16 +51,16 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
   const getStatusColor = () => {
     // Clean iOS-style card - all cards have same background
     switch (message.status) {
-      case 'approved': return 'border-success'
+      case 'accepted': return 'border-success'
       case 'rejected': return 'border-destructive'
       case 'expired': return 'border-border-primary'
       default: return 'border-primary'
     }
   }
 
-  const handleApprove = () => {
-    message.actions.approve()
-    onApprove?.()
+  const handleAccept = () => {
+    message.actions.accept()
+    onAccept?.()
   }
 
   const handleReject = () => {
@@ -91,7 +91,7 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
             </span>
           )}
 
-          {message.status === 'approved' && (
+          {message.status === 'accepted' && (
             <CheckCircleSolidIcon className="w-5 h-5 text-success" />
           )}
           
@@ -122,7 +122,7 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
             </button>
             
             <button
-              onClick={handleApprove}
+              onClick={handleAccept}
               className="px-3 py-1.5 rounded-md font-subhead text-white bg-primary hover:bg-[#0059b3] transition-colors"
             >
               Accept

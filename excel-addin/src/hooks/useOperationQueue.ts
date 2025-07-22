@@ -64,23 +64,23 @@ export const useOperationQueue = (_sessionId: string) => {
     return approvable.map(a => a.id);
   }, []);
 
-  // Approve all operations in order
-  const approveAllInOrder = useCallback(async (
+  // Accept all operations in order
+  const acceptAllInOrder = useCallback(async (
     actions: PendingAction[],
-    onApprove: (id: string) => Promise<void>
+    onAccept: (id: string) => Promise<void>
   ) => {
     setProcessing(true);
     const order = getExecutionOrder(actions);
     
-    console.log('Approving operations in order:', order);
+    console.log('Accepting operations in order:', order);
     
     for (const actionId of order) {
       try {
-        await onApprove(actionId);
+        await onAccept(actionId);
         // Add small delay for UI feedback
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
-        console.error(`Failed to approve action ${actionId}:`, error);
+        console.error(`Failed to accept action ${actionId}:`, error);
         // Continue with next operations even if one fails
       }
     }
@@ -95,7 +95,7 @@ export const useOperationQueue = (_sessionId: string) => {
     processing,
     undoStack,
     redoStack,
-    approveAllInOrder,
+    acceptAllInOrder,
     getExecutionOrder,
     updateFromBackendSummary,
   };

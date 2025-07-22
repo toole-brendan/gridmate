@@ -4,9 +4,9 @@ import { CheckIcon, XMarkIcon, SparklesIcon, ArrowPathIcon, ExclamationTriangleI
 
 interface PendingActionsPanelProps {
   actions: PendingAction[]
-  onApproveAll: () => void
+  onAcceptAll: () => void
   onRejectAll: () => void
-  onApproveOne: (actionId: string) => void
+  onAcceptOne: (actionId: string) => void
   onRejectOne: (actionId: string) => void
   isProcessing?: boolean
   aiIsGenerating?: boolean
@@ -14,9 +14,9 @@ interface PendingActionsPanelProps {
 
 export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
   actions,
-  onApproveAll,
+  onAcceptAll,
   onRejectAll,
-  onApproveOne,
+  onAcceptOne,
   onRejectOne,
   isProcessing = false,
   aiIsGenerating = false
@@ -89,7 +89,7 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
         {!aiIsGenerating && actions.length > 1 && (
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              onClick={onApproveAll}
+              onClick={onAcceptAll}
               disabled={isProcessing}
               style={{
                 display: 'flex',
@@ -252,7 +252,7 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
             {(!action.status || action.status === 'pending') && (
               <div style={{ display: 'flex', gap: '6px' }}>
                 <button
-                  onClick={() => onApproveOne(action.id)}
+                  onClick={() => onAcceptOne(action.id)}
                   disabled={isProcessing}
                   style={{
                     padding: '4px 8px',
@@ -270,7 +270,7 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
                   }}
                 >
                   <CheckIcon style={{ width: '12px', height: '12px' }} />
-                  Approve
+                  Accept
                 </button>
                 <button
                   onClick={() => onRejectOne(action.id)}

@@ -1,6 +1,7 @@
 import React from 'react'
 import { PendingAction } from './ActionPreview'
 import { CheckIcon, XMarkIcon, SparklesIcon, ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { useAcceptRejectButtonStyles } from '../../hooks/useAcceptRejectButtonStyles'
 
 interface PendingActionsPanelProps {
   actions: PendingAction[]
@@ -29,6 +30,13 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
   const failedCount = actions.filter(a => a.status === 'failed').length
   const totalProcessed = completedCount + failedCount
   const isExecutingBatch = executingCount > 0 || (totalProcessed > 0 && totalProcessed < actions.length)
+
+  // Get dynamic button styles
+  const pendingActionsCount = actions.filter(a => !a.status || a.status === 'pending').length
+  const { acceptAllStyle, rejectAllStyle, acceptAllAnimationClass, rejectAllAnimationClass } = useAcceptRejectButtonStyles(
+    aiIsGenerating,
+    pendingActionsCount > 0
+  )
 
   const getToolDisplayName = (toolName: string): string => {
     const displayNames: { [key: string]: string } = {
@@ -91,19 +99,28 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
             <button
               onClick={onAcceptAll}
               disabled={isProcessing}
+              className={acceptAllAnimationClass}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
                 padding: '6px 12px',
-                backgroundColor: 'transparent',
-                color: '#10b981',
-                border: '1px solid #10b981',
+                ...acceptAllStyle,
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: '500',
                 cursor: isProcessing ? 'not-allowed' : 'pointer',
                 opacity: isProcessing ? 0.5 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!isProcessing && acceptAllStyle[':hover']) {
+                  e.currentTarget.style.backgroundColor = acceptAllStyle[':hover'].backgroundColor
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isProcessing) {
+                  e.currentTarget.style.backgroundColor = acceptAllStyle.backgroundColor
+                }
               }}
             >
               <CheckIcon style={{ width: '14px', height: '14px' }} />
@@ -112,19 +129,28 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
             <button
               onClick={onRejectAll}
               disabled={isProcessing}
+              className={rejectAllAnimationClass}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
                 padding: '6px 12px',
-                backgroundColor: 'transparent',
-                color: '#ef4444',
-                border: '1px solid #ef4444',
+                ...rejectAllStyle,
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: '500',
                 cursor: isProcessing ? 'not-allowed' : 'pointer',
                 opacity: isProcessing ? 0.5 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!isProcessing && rejectAllStyle[':hover']) {
+                  e.currentTarget.style.backgroundColor = rejectAllStyle[':hover'].backgroundColor
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isProcessing) {
+                  e.currentTarget.style.backgroundColor = rejectAllStyle.backgroundColor
+                }
               }}
             >
               <XMarkIcon style={{ width: '14px', height: '14px' }} />

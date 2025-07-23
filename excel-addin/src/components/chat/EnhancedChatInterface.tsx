@@ -39,6 +39,7 @@ import {
 } from './SlashCommands'
 import { TokenCounter } from './TokenCounter'
 import { TokenUsage } from '../../types/signalr'
+import { useAcceptRejectButtonStyles } from '../../hooks/useAcceptRejectButtonStyles'
 
 interface EnhancedChatInterfaceProps {
   messages: EnhancedChatMessage[]
@@ -223,7 +224,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
             focusedMessageId === message.id ? 'ring-2 ring-blue-500/50 rounded-lg' : ''
           }`}
         >
-          <ResponseToolsGroupCard message={message} />
+          <ResponseToolsGroupCard message={message} aiIsGenerating={aiIsGenerating} />
         </div>
       )
     }
@@ -514,6 +515,11 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
     }
   ]
 
+  // Get dynamic button styles
+  const { acceptAllClasses, rejectAllClasses } = useAcceptRejectButtonStyles(
+    aiIsGenerating,
+    pendingToolsCount > 0
+  )
 
   return (
     <KeyboardShortcuts shortcuts={shortcuts}>
@@ -619,11 +625,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                   }
                 }}
                 disabled={isProcessingBulkAction || pendingToolsCount === 0}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${
-                  pendingToolsCount > 0
-                    ? 'bg-secondary-background text-text-secondary border-border-primary hover:border-text-secondary cursor-pointer'
-                    : 'bg-secondary-background text-text-tertiary border-border-primary opacity-50 cursor-not-allowed'
-                } disabled:opacity-50`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border ${acceptAllClasses} ${
+                  (isProcessingBulkAction || pendingToolsCount === 0) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
                 <CheckCircleIcon className="w-3 h-3" />
                 <span>ACCEPT ALL</span>
@@ -635,11 +639,9 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
               <button
                 onClick={onRejectAll}
                 disabled={isProcessingBulkAction || pendingToolsCount === 0}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${
-                  pendingToolsCount > 0 
-                    ? 'bg-secondary-background text-text-secondary border-border-primary hover:border-text-secondary cursor-pointer' 
-                    : 'bg-secondary-background text-text-tertiary border-border-primary opacity-50 cursor-not-allowed'
-                } disabled:opacity-50`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border ${rejectAllClasses} ${
+                  (isProcessingBulkAction || pendingToolsCount === 0) ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
                 <XCircleIcon className="w-3 h-3" />
                 <span>REJECT ALL</span>

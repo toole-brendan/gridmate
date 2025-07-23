@@ -1,5 +1,6 @@
 import React from 'react'
 import { CheckIcon, XMarkIcon, SparklesIcon } from '@heroicons/react/24/outline'
+import { useAcceptRejectButtonStyles } from '../../hooks/useAcceptRejectButtonStyles'
 
 export interface PendingAction {
   id: string
@@ -111,6 +112,7 @@ interface BatchActionPreviewProps {
   onApproveOne: (actionId: string) => void
   onRejectOne: (actionId: string) => void
   isProcessing?: boolean
+  aiIsGenerating?: boolean
 }
 
 export const BatchActionPreview: React.FC<BatchActionPreviewProps> = ({
@@ -119,9 +121,17 @@ export const BatchActionPreview: React.FC<BatchActionPreviewProps> = ({
   onRejectAll,
   onApproveOne,
   onRejectOne,
-  isProcessing = false
+  isProcessing = false,
+  aiIsGenerating = false
 }) => {
   if (actions.length === 0) return null
+  
+  // Get dynamic button styles for batch actions
+  const pendingActionsCount = actions.filter(a => !a.status || a.status === 'pending').length
+  const { acceptAllStyle, rejectAllStyle, acceptAllAnimationClass, rejectAllAnimationClass } = useAcceptRejectButtonStyles(
+    aiIsGenerating,
+    pendingActionsCount > 0
+  )
   
   if (actions.length === 1) {
     return (
@@ -162,18 +172,62 @@ export const BatchActionPreview: React.FC<BatchActionPreviewProps> = ({
             <button
               onClick={onApproveAll}
               disabled={isProcessing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className={acceptAllAnimationClass}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                ...acceptAllStyle,
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: '500',
+                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                opacity: isProcessing ? 0.5 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!isProcessing && acceptAllStyle[':hover']) {
+                  e.currentTarget.style.backgroundColor = acceptAllStyle[':hover'].backgroundColor
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isProcessing) {
+                  e.currentTarget.style.backgroundColor = acceptAllStyle.backgroundColor
+                }
+              }}
             >
-              <CheckIcon className="w-3.5 h-3.5" />
+              <CheckIcon style={{ width: '14px', height: '14px' }} />
               Approve All
             </button>
             
             <button
               onClick={onRejectAll}
               disabled={isProcessing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className={rejectAllAnimationClass}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                ...rejectAllStyle,
+                borderRadius: '4px',
+                fontSize: '12px',
+                fontWeight: '500',
+                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                opacity: isProcessing ? 0.5 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!isProcessing && rejectAllStyle[':hover']) {
+                  e.currentTarget.style.backgroundColor = rejectAllStyle[':hover'].backgroundColor
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isProcessing) {
+                  e.currentTarget.style.backgroundColor = rejectAllStyle.backgroundColor
+                }
+              }}
             >
-              <XMarkIcon className="w-3.5 h-3.5" />
+              <XMarkIcon style={{ width: '14px', height: '14px' }} />
               Reject All
             </button>
             

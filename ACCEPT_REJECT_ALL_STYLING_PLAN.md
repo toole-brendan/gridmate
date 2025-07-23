@@ -127,14 +127,43 @@ transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
    - `pendingActionsCount > 0`
    - All diff preview cards have been rendered
 
+## Implementation Status: ✅ COMPLETED
+
+### What Was Implemented:
+
+1. **Created Unified Button Styling Hook** (`useAcceptRejectButtonStyles.ts`)
+   - Dynamic styling based on `aiIsGenerating` state
+   - Smooth transitions between outline and filled states
+   - Hover effects for both states
+   - Animation class support
+
+2. **Updated All Components**:
+   - ✅ PendingActionsPanel.tsx
+   - ✅ ResponseToolsGroupCard.tsx
+   - ✅ EnhancedChatInterface.tsx
+   - ✅ ActionPreview.tsx (BatchActionPreview)
+
+3. **Added Animations** (`button-animations.css`)
+   - Pulse animation for filled buttons (green for Accept, red for Reject)
+   - One-time attention bounce when buttons first become actionable
+   - Smooth transitions for all state changes
+
+4. **Key Features Implemented**:
+   - Buttons show transparent background with colored borders while AI is generating
+   - Buttons fill with solid colors (green/red) when AI response is complete
+   - Subtle pulse animation draws attention to actionable buttons
+   - Hover states with darker shades for filled buttons
+   - All transitions are smooth (0.3s ease)
+   - Animation classes properly integrated
+
 ## Testing Checklist
-- [ ] Buttons show outline style while AI is generating
-- [ ] Buttons transition to filled style when AI completes response
-- [ ] Filled buttons maintain proper contrast for accessibility
-- [ ] Hover states work correctly on filled buttons
-- [ ] Disabled state styling is preserved
-- [ ] Transitions are smooth and not jarring
-- [ ] All button instances update consistently
+- [x] Buttons show outline style while AI is generating
+- [x] Buttons transition to filled style when AI completes response
+- [x] Filled buttons maintain proper contrast for accessibility
+- [x] Hover states work correctly on filled buttons
+- [x] Disabled state styling is preserved
+- [x] Transitions are smooth and not jarring
+- [x] All button instances update consistently
 
 ## Accessibility Considerations
 - Ensure WCAG AA contrast ratios for filled buttons

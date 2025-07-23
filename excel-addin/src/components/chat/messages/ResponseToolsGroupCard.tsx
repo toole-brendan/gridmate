@@ -2,12 +2,14 @@ import React, { useState } from 'react'
 import { ResponseToolsGroupMessage } from '../../../types/enhanced-chat'
 import { CheckCircleIcon, XCircleIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 import { CheckCircleIcon as CheckCircleSolidIcon } from '@heroicons/react/24/solid'
+import { useAcceptRejectButtonStyles } from '../../../hooks/useAcceptRejectButtonStyles'
 
 interface ResponseToolsGroupCardProps {
   message: ResponseToolsGroupMessage
+  aiIsGenerating?: boolean
 }
 
-export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ message }) => {
+export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ message, aiIsGenerating = false }) => {
   const [isExpanded, setIsExpanded] = useState(!message.collapsed)
   
   const getStatusColor = () => {
@@ -35,6 +37,12 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
   const pendingCount = message.tools.filter(tool => tool.status === 'pending').length
   const acceptedCount = message.tools.filter(tool => tool.status === 'accepted').length
   const rejectedCount = message.tools.filter(tool => tool.status === 'rejected').length
+
+  // Get dynamic button styles
+  const { acceptAllClasses, rejectAllClasses } = useAcceptRejectButtonStyles(
+    aiIsGenerating,
+    pendingCount > 0
+  )
 
   return (
     <div 
@@ -77,7 +85,7 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
         <div className="flex items-center space-x-1 mb-2">
           <button
             onClick={message.actions.acceptAll}
-            className="flex-1 inline-flex items-center justify-center px-2 py-1 border border-green-500/50 text-green-400 bg-green-500/10 rounded hover:bg-green-500/20 transition-colors duration-150 text-xs font-mono"
+            className={`flex-1 inline-flex items-center justify-center px-2 py-1 border rounded text-xs font-mono ${acceptAllClasses}`}
             style={{fontFamily: 'IBM Plex Mono, monospace'}}
           >
             <CheckCircleIcon className="w-3 h-3 mr-1" />
@@ -86,7 +94,7 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
           
           <button
             onClick={message.actions.rejectAll}
-            className="flex-1 inline-flex items-center justify-center px-2 py-1 border border-red-500/50 text-red-400 bg-red-500/10 rounded hover:bg-red-500/20 transition-colors duration-150 text-xs font-mono"
+            className={`flex-1 inline-flex items-center justify-center px-2 py-1 border rounded text-xs font-mono ${rejectAllClasses}`}
             style={{fontFamily: 'IBM Plex Mono, monospace'}}
           >
             <XCircleIcon className="w-3 h-3 mr-1" />

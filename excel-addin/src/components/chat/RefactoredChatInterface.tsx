@@ -149,62 +149,64 @@ export const RefactoredChatInterface: React.FC = () => {
       }
       
       // Auto-add recent AI edits as context pills
-      if (context.recentEdits && context.recentEdits.length > 0) {
-        // Get the most recent 3 AI edits
-        const recentAIEdits = context.recentEdits
-          .filter(edit => edit.source === 'ai')
-          .slice(-3);
-        
-        for (const edit of recentAIEdits) {
-          const editLabel = `Recent edit: ${edit.range}`;
-          contextItems.push({
-            id: `edit-${edit.timestamp}`,
-            type: 'edit',
-            label: editLabel,
-            value: edit.range,
-            metadata: {
-              timestamp: edit.timestamp,
-              tool: edit.tool
-            }
-          });
-        }
-      }
+      // COMMENTED OUT: Removing auto-populated context pills to reduce UI clutter
+      // if (context.recentEdits && context.recentEdits.length > 0) {
+      //   // Get the most recent 3 AI edits
+      //   const recentAIEdits = context.recentEdits
+      //     .filter(edit => edit.source === 'ai')
+      //     .slice(-3);
+      //   
+      //   for (const edit of recentAIEdits) {
+      //     const editLabel = `Recent edit: ${edit.range}`;
+      //     contextItems.push({
+      //       id: `edit-${edit.timestamp}`,
+      //       type: 'edit',
+      //       label: editLabel,
+      //       value: edit.range,
+      //       metadata: {
+      //         timestamp: edit.timestamp,
+      //         tool: edit.tool
+      //       }
+      //     });
+      //   }
+      // }
       
       // Add cells with significant changes (if we have old/new values)
-      if (context.recentEdits && context.recentEdits.length > 0) {
-        const significantChanges = context.recentEdits
-          .filter(edit => {
-            // Check if value changed significantly
-            if (edit.oldValues && edit.newValues) {
-              const oldVal = edit.oldValues[0]?.[0];
-              const newVal = edit.newValues[0]?.[0];
-              // Consider it significant if type changed or numeric value changed by >10%
-              if (typeof oldVal !== typeof newVal) return true;
-              if (typeof oldVal === 'number' && typeof newVal === 'number') {
-                const percentChange = Math.abs((newVal - oldVal) / oldVal);
-                return percentChange > 0.1;
-              }
-              return oldVal !== newVal;
-            }
-            return false;
-          })
-          .slice(-2); // Take up to 2 significant changes
-        
-        for (const change of significantChanges) {
-          if (!contextItems.find(item => item.value === change.range)) {
-            contextItems.push({
-              id: `change-${change.timestamp}`,
-              type: 'change',
-              label: `Changed: ${change.range}`,
-              value: change.range,
-              metadata: {
-                oldValue: change.oldValues?.[0]?.[0],
-                newValue: change.newValues?.[0]?.[0]
-              }
-            });
-          }
-        }
-      }
+      // COMMENTED OUT: Removing auto-populated context pills to reduce UI clutter
+      // if (context.recentEdits && context.recentEdits.length > 0) {
+      //   const significantChanges = context.recentEdits
+      //     .filter(edit => {
+      //       // Check if value changed significantly
+      //       if (edit.oldValues && edit.newValues) {
+      //         const oldVal = edit.oldValues[0]?.[0];
+      //         const newVal = edit.newValues[0]?.[0];
+      //         // Consider it significant if type changed or numeric value changed by >10%
+      //         if (typeof oldVal !== typeof newVal) return true;
+      //         if (typeof oldVal === 'number' && typeof newVal === 'number') {
+      //           const percentChange = Math.abs((newVal - oldVal) / oldVal);
+      //           return percentChange > 0.1;
+      //         }
+      //         return oldVal !== newVal;
+      //       }
+      //       return false;
+      //     })
+      //     .slice(-2); // Take up to 2 significant changes
+      //   
+      //   for (const change of significantChanges) {
+      //     if (!contextItems.find(item => item.value === change.range)) {
+      //       contextItems.push({
+      //         id: `change-${change.timestamp}`,
+      //         type: 'change',
+      //         label: `Changed: ${change.range}`,
+      //         value: change.range,
+      //         metadata: {
+      //           oldValue: change.oldValues?.[0]?.[0],
+      //           newValue: change.newValues?.[0]?.[0]
+      //         }
+      //       });
+      //     }
+      //   }
+      // }
       
       setActiveContext(contextItems);
     } catch (error) {

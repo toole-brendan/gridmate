@@ -1,4 +1,4 @@
-Last login: Wed Jul 23 14:47:39 on ttys267
+Last login: Wed Jul 23 15:42:00 on ttys269
 cd '/Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR' && echo '--- .NET SignalR Service ---' && /usr/local/share/dotnet/dotnet run --launch-profile https
 brendantoole@Brendans-MacBook-Pro ~ % cd '/Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR' && echo '--- .NET SignalR Service ---' && /usr/local/share/dotnet/dotnet run --launch-profile https
 --- .NET SignalR Service ---
@@ -17,17 +17,17 @@ info: Microsoft.Hosting.Lifetime[0]
 info: Microsoft.Hosting.Lifetime[0]
       Content root path: /Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client connected: CDLVfo_TDyUYzLSusKwkpg
+      Client connected: IeEv2XfUaJS9-9G-n_WU-A
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Authentication attempt for connection: CDLVfo_TDyUYzLSusKwkpg
+      Authentication attempt for connection: IeEv2XfUaJS9-9G-n_WU-A
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      [HUB] SendChatMessage invoked for Session ID: session_638888759669176550
+      [HUB] SendChatMessage invoked for Session ID: session_638888785749667170
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] Session validated successfully.
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] Preparing payload for Go backend...
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      [HUB] Payload prepared successfully. JSON: {"sessionId":"session_638888759669176550","messageId":"9631bbc2-6019-4d9b-a64c-79ed4e3522b3","content":"Please make DCF model in this sheet, use mock data","excelContext":{"workbook":"Excel add-in 12345678-1234-1234-1234-123456789012.xlsx","worksheet":"Sheet1","selectedRange":"Sheet1!A1","selectedData":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"visibleRangeData":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"workbookSummary":{"sheets":[{"name":"Sheet1","usedRange":"Sheet1!A1","data":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"lastRow":1,"lastColumn":1}],"namedRanges":[],"activeSheet":"Sheet1","totalCells":1},"activeContext":[{"type":"selection","value":"Sheet1!A1"}]},"autonomyMode":"agent-default","timestamp":"2025-07-23T14:00:01.113312Z"}
+      [HUB] Payload prepared successfully. JSON: {"sessionId":"session_638888785749667170","messageId":"79ea4afe-e654-4a61-874f-7f0fa49eeea7","content":"Please make DCF model in this sheet, use mock data","excelContext":{"workbook":"Excel add-in 12345678-1234-1234-1234-123456789012.xlsx","worksheet":"Sheet1","selectedRange":"Sheet1!A1","selectedData":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"visibleRangeData":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"workbookSummary":{"sheets":[{"name":"Sheet1","usedRange":"Sheet1!A1","data":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"lastRow":1,"lastColumn":1}],"namedRanges":[],"activeSheet":"Sheet1","totalCells":1},"activeContext":[{"type":"selection","value":"Sheet1!A1"}]},"autonomyMode":"agent-default","timestamp":"2025-07-23T14:43:01.682506Z"}
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] HttpClient created. Attempting to POST to http://localhost:8080//api/chat...
 info: GridmateSignalR.Hubs.GridmateHub[0]
@@ -37,139 +37,199 @@ info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/chat
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 6135e48e-f249-4728-860c-16e765365113
+      Tool response for request 19570435-c410-4741-acb6-7a9aff062e8d
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 3.7674ms - 200
+      Received HTTP response headers after 3.6474ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 11.4146ms - 200
+      End processing HTTP request after 10.6913ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request f0eb1a90-b2a5-4c8a-88ce-17922d8b8920
+      Tool response for request 30a6695e-2ea8-4a1d-961f-d03ea405e315
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.7121ms - 200
+      Received HTTP response headers after 0.5295ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.7513ms - 200
+      End processing HTTP request after 0.564ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request f3debdf1-fa0a-450e-9651-151f858a2d95
+      Tool response for request 89b09bda-c1b8-492c-8021-a3d77a3f3004
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.3231ms - 200
+      Received HTTP response headers after 0.2393ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.3579ms - 200
+      End processing HTTP request after 0.2588ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 6135e48e-f249-4728-860c-16e765365113
+      Tool response for request 19570435-c410-4741-acb6-7a9aff062e8d
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.6044ms - 200
+      Received HTTP response headers after 0.4714ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.646ms - 200
+      End processing HTTP request after 0.5313ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request f0eb1a90-b2a5-4c8a-88ce-17922d8b8920
+      Tool response for request 30a6695e-2ea8-4a1d-961f-d03ea405e315
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.3399ms - 200
+      Received HTTP response headers after 0.2972ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.3722ms - 200
+      End processing HTTP request after 0.3258ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request f3debdf1-fa0a-450e-9651-151f858a2d95
+      Tool response for request 89b09bda-c1b8-492c-8021-a3d77a3f3004
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.2745ms - 200
+      Received HTTP response headers after 0.3066ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.3053ms - 200
+      End processing HTTP request after 0.3433ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 2e7cb58b-5461-43a6-bcb2-7d7740ffc21c
+      Tool response for request c38e9f5a-862c-4646-ae2b-102cfd1b87f6
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 2.9518ms - 200
+      Received HTTP response headers after 2.3737ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 3.1905ms - 200
+      End processing HTTP request after 2.5601ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 43596db4-c508-4c1f-92e5-2537f3128a02
+      Tool response for request 0ead3209-9f81-481b-971a-7210eda3f55c
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.0414ms - 200
+      Received HTTP response headers after 1.7155ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.1606ms - 200
+      End processing HTTP request after 1.8671ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 354fb142-183c-45ab-8fe7-4d91c303c3f4
+      Tool response for request d4116f4d-7db0-4fc2-8a4d-6f9b84f79330
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.2216ms - 200
+      Received HTTP response headers after 1.0542ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.3177ms - 200
+      End processing HTTP request after 1.15ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 9bb8d118-d80d-449e-91a2-5e0ae44d0b35
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 6297.2168ms - 200
+      Received HTTP response headers after 0.991ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 6300.8998ms - 200
+      End processing HTTP request after 1.0712ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request d6739442-d6c1-454b-812e-832ca4295ed5
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.8055ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.91ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 11abc22e-e9f2-44b7-94fe-83075a0b682a
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.8599ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.9445ms - 200
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 9440.3322ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 9443.3488ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] Background POST request completed with status code: OK
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 2e7cb58b-5461-43a6-bcb2-7d7740ffc21c
+      Tool response for request c38e9f5a-862c-4646-ae2b-102cfd1b87f6
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.4212ms - 200
+      Received HTTP response headers after 0.6125ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.6559ms - 200
+      End processing HTTP request after 0.6739ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 43596db4-c508-4c1f-92e5-2537f3128a02
+      Tool response for request 9bb8d118-d80d-449e-91a2-5e0ae44d0b35
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.1945ms - 200
+      Received HTTP response headers after 0.5814ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.3264ms - 200
+      End processing HTTP request after 0.6437ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 354fb142-183c-45ab-8fe7-4d91c303c3f4
+      Tool response for request 0ead3209-9f81-481b-971a-7210eda3f55c
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.1471ms - 200
+      Received HTTP response headers after 1.3594ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.278ms - 200
+      End processing HTTP request after 1.5087ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      [HUB] SendChatMessage invoked for Session ID: session_638888759669176550
+      Tool response for request d4116f4d-7db0-4fc2-8a4d-6f9b84f79330
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 1.1873ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 1.3284ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request d6739442-d6c1-454b-812e-832ca4295ed5
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.9934ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 1.0492ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 11abc22e-e9f2-44b7-94fe-83075a0b682a
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 1.0267ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 1.0806ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      [HUB] SendChatMessage invoked for Session ID: session_638888785749667170
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] Session validated successfully.
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] Preparing payload for Go backend...
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      [HUB] Payload prepared successfully. JSON: {"sessionId":"session_638888759669176550","messageId":"4b8cfc8b-d29a-4f6a-9fce-6693c253faa7","content":"please continue to flesh out the mock model","excelContext":{"workbook":"Excel add-in 12345678-1234-1234-1234-123456789012.xlsx","worksheet":"Sheet1","selectedRange":"Sheet1!A1:H1","selectedData":{"values":[["Discounted Cash Flow Model","","","","","","",""]],"formulas":[["Discounted Cash Flow Model","","","","","","",""]],"address":"Sheet1!A1:H1","rowCount":1,"colCount":8},"visibleRangeData":{"values":[["Discounted Cash Flow Model","","","","","","",""]],"formulas":[["Discounted Cash Flow Model","","","","","","",""]],"address":"Sheet1!A1:H1","rowCount":1,"colCount":8},"workbookSummary":{"sheets":[{"name":"Sheet1","usedRange":"Sheet1!A1","data":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"lastRow":1,"lastColumn":1}],"namedRanges":[],"activeSheet":"Sheet1","totalCells":1},"activeContext":[{"type":"selection","value":"Sheet1!A1:H1"},{"type":"edit","value":"A1"}]},"autonomyMode":"agent-default","timestamp":"2025-07-23T14:00:28.012389Z"}
+      [HUB] Payload prepared successfully. JSON: {"sessionId":"session_638888785749667170","messageId":"c4532e87-cca5-4505-a949-338f3f37bec1","content":"please flesh out mock model some more","excelContext":{"workbook":"Excel add-in 12345678-1234-1234-1234-123456789012.xlsx","worksheet":"Sheet1","selectedRange":"Sheet1!A3:H3","selectedData":{"values":[["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal"]],"formulas":[["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal"]],"address":"Sheet1!A3:H3","rowCount":1,"colCount":8},"visibleRangeData":{"values":[["Discounted Cash Flow Model","","","","","","",""],["","","","","","","",""],["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal"]],"formulas":[["Discounted Cash Flow Model","","","","","","",""],["","","","","","","",""],["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal"]],"address":"Sheet1!A1:H3","rowCount":3,"colCount":8},"workbookSummary":{"sheets":[{"name":"Sheet1","usedRange":"Sheet1!A1","data":{"values":[[""]],"formulas":[[""]],"address":"Sheet1!A1","rowCount":1,"colCount":1},"lastRow":1,"lastColumn":1}],"namedRanges":[],"activeSheet":"Sheet1","totalCells":1},"activeContext":[{"type":"selection","value":"Sheet1!A3:H3"},{"type":"edit","value":"A1"},{"type":"edit","value":"A3:H3"}]},"autonomyMode":"agent-default","timestamp":"2025-07-23T14:43:28.52696Z"}
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] HttpClient created. Attempting to POST to http://localhost:8080//api/chat...
 info: GridmateSignalR.Hubs.GridmateHub[0]
@@ -179,316 +239,231 @@ info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/chat
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 2bbd55a3-78e3-4656-b058-aa3c0c975388
+      Tool response for request 7a3d3ea3-e9fd-4eea-8913-5b293342a36c
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.2434ms - 200
+      Received HTTP response headers after 0.8548ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.3199ms - 200
+      End processing HTTP request after 0.9312ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 76588f36-2279-48fe-81d0-665a0dc46171
+      Tool response for request 526f1eef-3fb6-47ce-8a7b-6a3a72caf8e1
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.447ms - 200
+      Received HTTP response headers after 0.7378ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.495ms - 200
+      End processing HTTP request after 0.8361ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 2bbd55a3-78e3-4656-b058-aa3c0c975388
+      Tool response for request 7a3d3ea3-e9fd-4eea-8913-5b293342a36c
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.7627ms - 200
+      Received HTTP response headers after 1.2448ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.8246ms - 200
+      End processing HTTP request after 1.3649ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 76588f36-2279-48fe-81d0-665a0dc46171
+      Tool response for request 526f1eef-3fb6-47ce-8a7b-6a3a72caf8e1
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.444ms - 200
+      Received HTTP response headers after 0.471ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.4845ms - 200
+      End processing HTTP request after 0.5127ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 90b5ddb3-0e25-453e-b6dd-f4f1b17c29bd
+      Tool response for request 79462be2-fe41-4268-86d7-248a6e470284
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.4641ms - 200
+      Received HTTP response headers after 1.0058ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.7068ms - 200
+      End processing HTTP request after 1.176ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 18795d91-2648-45c9-b67d-514e3e081c0a
+      Tool response for request 95aa3cff-a9b9-4a5c-831c-815a25f05547
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.0097ms - 200
+      Received HTTP response headers after 1.2371ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.0995ms - 200
+      End processing HTTP request after 1.3122ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 5bb6e44a-884c-4af9-a4aa-01d8642e337c
+      Tool response for request 52a69b8d-b8d6-45d2-be0e-e1f445ccd707
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.2044ms - 200
+      Received HTTP response headers after 0.6541ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.2855ms - 200
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 9ae42514-5168-4d04-a9be-58949d0227da
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
+      End processing HTTP request after 0.7205ms - 200
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.5652ms - 200
+      Received HTTP response headers after 5011.9007ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6339ms - 200
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request b1d92e8f-56a2-40df-9688-b87abc152406
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.456ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.4922ms - 200
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 5464e73b-2f05-4e81-b032-fe99d8deb0a2
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.5979ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6312ms - 200
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 0bb5fb7b-4af2-48f7-8194-c459627ebb5b
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.5656ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6139ms - 200
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 544218fb-7876-443f-90ce-b05bff83a0c8
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.444ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.485ms - 200
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 3e1c05b9-8c8d-459b-971e-2e04c52fd253
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.6377ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.7079ms - 200
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 7927.0267ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 7927.0795ms - 200
+      End processing HTTP request after 5011.9447ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
       [HUB] Background POST request completed with status code: OK
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 90b5ddb3-0e25-453e-b6dd-f4f1b17c29bd
+      Tool response for request 79462be2-fe41-4268-86d7-248a6e470284
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.7005ms - 200
+      Received HTTP response headers after 0.5653ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.7675ms - 200
+      End processing HTTP request after 0.6121ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 9ae42514-5168-4d04-a9be-58949d0227da
+      Tool response for request 95aa3cff-a9b9-4a5c-831c-815a25f05547
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.613ms - 200
+      Received HTTP response headers after 1.1063ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6701ms - 200
+      End processing HTTP request after 1.204ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 0bb5fb7b-4af2-48f7-8194-c459627ebb5b
+      Tool response for request 52a69b8d-b8d6-45d2-be0e-e1f445ccd707
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.6516ms - 200
+      Received HTTP response headers after 1.254ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6995ms - 200
+      End processing HTTP request after 1.3437ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 18795d91-2648-45c9-b67d-514e3e081c0a
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 1.0494ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.1912ms - 200
+      [HUB] SendChatMessage invoked for Session ID: session_638888785749667170
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 5bb6e44a-884c-4af9-a4aa-01d8642e337c
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.6263ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6762ms - 200
+      [HUB] Session validated successfully.
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request b1d92e8f-56a2-40df-9688-b87abc152406
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.9667ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 1.0702ms - 200
+      [HUB] Preparing payload for Go backend...
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 5464e73b-2f05-4e81-b032-fe99d8deb0a2
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.5474ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6087ms - 200
+      [HUB] Payload prepared successfully. JSON: {"sessionId":"session_638888785749667170","messageId":"d72f7273-413a-4968-9ca8-eaf958bf31c7","content":"even more please","excelContext":{"workbook":"Excel add-in 12345678-1234-1234-1234-123456789012.xlsx","worksheet":"Sheet1","selectedRange":"Sheet1!A1:K1","selectedData":{"values":[["Discounted Cash Flow Valuation Model","","","","","","","","","",""]],"formulas":[["Discounted Cash Flow Valuation Model","","","","","","","","","",""]],"address":"Sheet1!A1:K1","rowCount":1,"colCount":11},"visibleRangeData":{"values":[["Discounted Cash Flow Valuation Model","","","","","","","","","",""],["","","","","","","","","","",""],["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal","","",""]],"formulas":[["Discounted Cash Flow Valuation Model","","","","","","","","","",""],["","","","","","","","","","",""],["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal","","",""]],"address":"Sheet1!A1:K3","rowCount":3,"colCount":11},"workbookSummary":{"sheets":[{"name":"Sheet1","usedRange":"Sheet1!A1:K3","data":{"values":[["Discounted Cash Flow Valuation Model","","","","","","","","","",""],["","","","","","","","","","",""],["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal","","",""]],"formulas":[["Discounted Cash Flow Valuation Model","","","","","","","","","",""],["","","","","","","","","","",""],["","2023A","2024E","2025E","2026E","2027E","2028E","Terminal","","",""]],"address":"Sheet1!A1:K3","rowCount":3,"colCount":11},"lastRow":3,"lastColumn":11}],"namedRanges":[],"activeSheet":"Sheet1","totalCells":33},"activeContext":[{"type":"selection","value":"Sheet1!A1:K1"},{"type":"edit","value":"A1"},{"type":"edit","value":"A3:H3"},{"type":"edit","value":"A1"}]},"autonomyMode":"agent-default","timestamp":"2025-07-23T14:43:42.051643Z"}
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 544218fb-7876-443f-90ce-b05bff83a0c8
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
-      Start processing HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
-      Sending HTTP request POST http://localhost:8080/api/tool-response
-info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.6357ms - 200
-info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6904ms - 200
+      [HUB] HttpClient created. Attempting to POST to http://localhost:8080//api/chat...
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Tool response for request 3e1c05b9-8c8d-459b-971e-2e04c52fd253
+      [HUB] Chat message sent to Go backend (async). Client will receive responses via aiResponse.
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/chat
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/chat
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 0260a84e-670d-40b9-bc5f-e98505ccc655
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
       Start processing HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
       Sending HTTP request POST http://localhost:8080/api/tool-response
 info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
-      Received HTTP response headers after 0.5787ms - 200
+      Received HTTP response headers after 0.7326ms - 200
 info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
-      End processing HTTP request after 0.6322ms - 200
-fail: Microsoft.AspNetCore.Server.Kestrel[0]
-      Unexpected exception in TimingPipeFlusher.FlushAsync.
-      System.IO.IOException: The encryption operation failed, see inner exception.
-       ---> System.ComponentModel.Win32Exception (14): Bad address
-         --- End of inner exception stack trace ---
-         at System.Net.Security.SslStream.WriteSingleChunk[TIOAdapter](ReadOnlyMemory`1 buffer, CancellationToken cancellationToken)
-         at System.Net.Security.SslStream.WriteAsyncInternal[TIOAdapter](ReadOnlyMemory`1 buffer, CancellationToken cancellationToken)
-         at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
-         at System.IO.Pipelines.StreamPipeWriter.FlushAsyncInternal(Boolean writeToStream, ReadOnlyMemory`1 data, CancellationToken cancellationToken)
-         at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure.PipeWriterHelpers.TimingPipeFlusher.FlushAsync(MinDataRate minRate, Int64 count, IHttpOutputAborter outputAborter, CancellationToken cancellationToken)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2FrameWriter.WriteGoAwayAsync(Int32 lastStreamId, Http2ErrorCode errorCode)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2Connection.UpdateConnectionState()
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2Connection.ProcessRequestsAsync[TContext](IHttpApplication`1 application)
-         at System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(Thread threadPoolThread, ExecutionContext executionContext, ContextCallback callback, Object state)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext(Thread threadPoolThread)
-         at System.Threading.ThreadPoolWorkQueue.Dispatch()
-         at System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()
-         at System.Threading.Thread.StartCallback()
-      --- End of stack trace from previous location ---
-         at System.Net.Security.SslStream.WriteAsyncInternal[TIOAdapter](ReadOnlyMemory`1 buffer, CancellationToken cancellationToken)
-         at System.IO.Pipelines.StreamPipeWriter.FlushAsyncInternal(Boolean writeToStream, ReadOnlyMemory`1 data, CancellationToken cancellationToken)
-         at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure.PipeWriterHelpers.ConcurrentPipeWriter.FlushAsyncAwaited(ValueTask`1 flushTask, CancellationToken cancellationToken)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure.PipeWriterHelpers.TimingPipeFlusher.TimeFlushAsyncAwaited(ValueTask`1 pipeFlushTask, MinDataRate minRate, IHttpOutputAborter outputAborter, CancellationToken cancellationToken)
-fail: Microsoft.AspNetCore.Server.Kestrel[0]
-      Unhandled exception while processing 0HNE9U4HG8A01.
-      System.IO.IOException: The encryption operation failed, see inner exception.
-       ---> System.ComponentModel.Win32Exception (14): Bad address
-         --- End of inner exception stack trace ---
-         at System.Net.Security.SslStream.WriteSingleChunk[TIOAdapter](ReadOnlyMemory`1 buffer, CancellationToken cancellationToken)
-         at System.Net.Security.SslStream.WriteAsyncInternal[TIOAdapter](ReadOnlyMemory`1 buffer, CancellationToken cancellationToken)
-         at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
-         at System.IO.Pipelines.StreamPipeWriter.FlushAsyncInternal(Boolean writeToStream, ReadOnlyMemory`1 data, CancellationToken cancellationToken)
-         at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
-         at System.IO.Pipelines.StreamPipeWriter.FlushAsyncInternal(Boolean writeToStream, ReadOnlyMemory`1 data, CancellationToken cancellationToken)
-         at System.IO.Pipelines.StreamPipeWriter.CompleteAsync(Exception exception)
-         at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
-         at System.IO.Pipelines.StreamPipeWriter.CompleteAsync(Exception exception)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.DuplexPipeStreamAdapter`1.DisposeAsync()
-         at System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start[TStateMachine](TStateMachine& stateMachine)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.DuplexPipeStreamAdapter`1.DisposeAsync()
-         at Microsoft.AspNetCore.Server.Kestrel.Https.Internal.HttpsConnectionMiddleware.OnConnectionAsync(ConnectionContext context)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.ExecutionContextCallback(Object s)
-         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext(Thread threadPoolThread)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext()
-         at System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(IAsyncStateMachineBox box, Boolean allowInlining)
-         at System.Threading.Tasks.Task.RunContinuations(Object continuationObject)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder.SetResult()
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.HttpConnection.ProcessRequestsAsync[TContext](IHttpApplication`1 httpApplication)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.ExecutionContextCallback(Object s)
-         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext(Thread threadPoolThread)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext()
-         at System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(IAsyncStateMachineBox box, Boolean allowInlining)
-         at System.Threading.Tasks.Task.RunContinuations(Object continuationObject)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder.SetResult()
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2Connection.ProcessRequestsAsync[TContext](IHttpApplication`1 application)
-         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext(Thread threadPoolThread)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext()
-         at System.Threading.Tasks.AwaitTaskContinuation.RunOrScheduleAction(IAsyncStateMachineBox box, Boolean allowInlining)
-         at System.Threading.Tasks.Task.RunContinuations(Object continuationObject)
-         at System.Threading.Tasks.Task`1.TrySetResult(TResult result)
-         at System.Threading.Tasks.UnwrapPromise`1.TrySetFromTask(Task task, Boolean lookForOce)
-         at System.Threading.Tasks.UnwrapPromise`1.Invoke(Task completingTask)
-         at System.Threading.Tasks.Task.RunContinuations(Object continuationObject)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder.SetResult()
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.Http2FrameWriter.WriteToOutputPipe()
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.ExecutionContextCallback(Object s)
-         at System.Threading.ExecutionContext.RunInternal(ExecutionContext executionContext, ContextCallback callback, Object state)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext(Thread threadPoolThread)
-         at System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1.AsyncStateMachineBox`1.MoveNext()
-         at System.Threading.ThreadPoolWorkQueue.Dispatch()
-         at System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()
-         at System.Threading.Thread.StartCallback()
-      --- End of stack trace from previous location ---
-         at System.Net.Security.SslStream.WriteAsyncInternal[TIOAdapter](ReadOnlyMemory`1 buffer, CancellationToken cancellationToken)
-         at System.IO.Pipelines.StreamPipeWriter.FlushAsyncInternal(Boolean writeToStream, ReadOnlyMemory`1 data, CancellationToken cancellationToken)
-         at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
-         at System.IO.Pipelines.StreamPipeWriter.CompleteAsync(Exception exception)
-         at System.IO.Pipelines.StreamPipeWriter.CompleteAsync(Exception exception)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.DuplexPipeStreamAdapter`1.DisposeAsync()
-         at Microsoft.AspNetCore.Server.Kestrel.Https.Internal.HttpsConnectionMiddleware.OnConnectionAsync(ConnectionContext context)
-         at Microsoft.AspNetCore.Server.Kestrel.Https.Internal.HttpsConnectionMiddleware.OnConnectionAsync(ConnectionContext context)
-         at Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure.KestrelConnection`1.ExecuteAsync()
+      End processing HTTP request after 0.8132ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request c559e7b7-30f6-42b6-a1cb-4f6164c72f88
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.3131ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.3405ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 0260a84e-670d-40b9-bc5f-e98505ccc655
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.6514ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.7145ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request c559e7b7-30f6-42b6-a1cb-4f6164c72f88
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.3722ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.3965ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 9c3e1460-6621-4bf3-8dd6-b35331f95130
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 2.0534ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 2.3039ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 35c93aac-3947-4f14-a0ab-829d851de17d
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 1.2203ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 1.3838ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request c9abb0dc-6de3-47c5-8976-cd4a76c212c7
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.6678ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.7245ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 9c3e1460-6621-4bf3-8dd6-b35331f95130
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.6887ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.7446ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request 35c93aac-3947-4f14-a0ab-829d851de17d
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.4608ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.497ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      Tool response for request c9abb0dc-6de3-47c5-8976-cd4a76c212c7
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request POST http://localhost:8080/api/tool-response
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 0.4745ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 0.5062ms - 200
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 3130.6919ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 3130.7307ms - 200
+info: GridmateSignalR.Hubs.GridmateHub[0]
+      [HUB] Background POST request completed with status code: OK
 

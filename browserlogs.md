@@ -1,64 +1,11 @@
-[Warning] 1010 console messages are not shown.
-[Log] [ExcelService] Tracked activity: edit on range A7 (ExcelService.ts, line 114)
-[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 86)
+[Warning] 610 console messages are not shown.
+[Log] [info] [Message Handler] Batch request: c559e7b7-30f6-42b6-a1cb-4f6164c72f88 for range: A1:Z50 – undefined (useMessageHandlers.ts, line 13)
+[Log] [ExcelService] Batch reading 2 ranges (logging.ts, line 40)
+[Log] [ExcelService] Processing range Sheet1!A1:AZ1000 for request 0260a84e-670d-40b9-bc5f-e98505ccc655 (logging.ts, line 40)
+[Log] [ExcelService] Processing range Sheet1!A1:Z50 for request c559e7b7-30f6-42b6-a1cb-4f6164c72f88 (logging.ts, line 40)
+[Log] [3:43:42 PM] [INFO] Sending tool_response for 0260a84e-670d-40b9-bc5f-e98505ccc655 - Data size: 384 bytes (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Tool response data size: 384 bytes – Object (useMessageHandlers.ts, line 13)
 Object
-[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 79)
-Object
-[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 43)
-Object
-[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 68)
-Object
-[Log] [ExcelService] Tracked activity: edit on range A8 (ExcelService.ts, line 114)
-[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 86)
-Object
-[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 79)
-Object
-[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 43)
-Object
-[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 68)
-Object
-[Log] [ExcelService] Tracked activity: edit on range A9 (ExcelService.ts, line 114)
-[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 86)
-Object
-[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 79)
-Object
-[Log] [ExcelService] Worksheet changed: – Object (ExcelService.ts, line 43)
-Object
-[Log] [ExcelService] Tracking user edit: – Object (ExcelService.ts, line 68)
-Object
-[Log] [ExcelService] Tracked activity: edit on range A5:A9 (ExcelService.ts, line 114)
-[Log] [ExcelService] Would send user edit to backend: – Object (ExcelService.ts, line 86)
-Object
-[Log] [ExcelService] User edit tracked successfully: – Object (ExcelService.ts, line 79)
-Object
-[Log] [3:00:45 PM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 52)
-[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 428)
-[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 440)
-Object
-[Log] [ExcelService] Loaded full sheet data: – Object (ExcelService.ts, line 470)
-Object
-[Log] [Context] Could not detect merged cells: – TypeError: worksheet.getMergedAreas is not a function. (In 'worksheet.getMergedAreas()', 'worksheet.getMergedAreas' is undefined) (ExcelService.ts, line 417)
-TypeError: worksheet.getMergedAreas is not a function. (In 'worksheet.getMergedAreas()', 'worksheet.getMergedAreas' is undefined)
-[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 639)
-Object
-[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 659)
-[Log] [ExcelService] Tracked activity: select on range Sheet1!A5:A9 (ExcelService.ts, line 114)
-[Log] [3:00:45 PM] [INFO] Tracked user selection: Sheet1!A5:A9 (RefactoredChatInterface.tsx, line 52)
-[Log] [info] [Visualizer] Clearing 0 highlights – undefined (GridVisualizer.ts, line 265)
-[Log] [RefactoredChatInterface] Updated pending tools: – 8 – "items" (RefactoredChatInterface.tsx, line 252)
-[Log] [success] [Visualizer] Highlights cleared successfully – undefined (GridVisualizer.ts, line 404)
-[Log] [✅ Diff Apply Success] ExcelService received tool request to execute. – Object (ExcelService.ts, line 778)
-Object
-[Log] 🎨 toolFormatRange called with: – Object (ExcelService.ts, line 1298)
-Object
-[Log] 📍 Formatting range: Sheet1!A5:A9 (ExcelService.ts, line 1319)
-[Log] 📊 Format operation log: – Object (formatErrorHandler.ts, line 63)
-Object
-[Log] [ExcelService] Tracked activity: edit on range A5:A9 (ExcelService.ts, line 114)
-[Log] [3:00:46 PM] [INFO] Tracked AI edit for range: A5:A9 (RefactoredChatInterface.tsx, line 52)
-[Log] [ExcelService] Selecting range: A5:A9 (ExcelService.ts, line 162)
-[Log] [ExcelService] Successfully selected range: A5:A9 (ExcelService.ts, line 169)
-[Log] [3:00:46 PM] [SUCCESS] Selected AI-edited range: A5:A9 (RefactoredChatInterface.tsx, line 52)
 [Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
 Object
 [Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
@@ -67,97 +14,117 @@ Object
 Object
 [Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
 [Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:00:46 PM] [SUCCESS] Preview accepted and executed for 3e1c05b9-8c8d-459b-971e-2e04c52fd253 (RefactoredChatInterface.tsx, line 52)
-[Log] 📥 Received AI response: – Object (SignalRClient.ts, line 91)
+[Log] [3:43:42 PM] [INFO] Sending tool_response for c559e7b7-30f6-42b6-a1cb-4f6164c72f88 - Data size: 381 bytes (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Tool response data size: 381 bytes – Object (useMessageHandlers.ts, line 13)
 Object
-[Log] [3:00:46 PM] [INFO] SignalR raw message: {"type":"ai_response","data":{"content":"I've completed all the requested operations:\n\n✅ Successfully completed 6 operations\n\nHere's what I did:\n1. Write values to A1:G1\n2. Format A1:G1\n3. Write values to B3:G3\n4. Format B3:G3\n5. Write values to A5:A9\n6. Format A5:A9\n\nThe DCF model structure is now in place. You can start adding your specific data and formulas to complete the model.","isComplete":true,"messageId":"4b8cfc8b-d29a-4f6a-9fce-6693c253faa7","operationsSummary":{"all_completed":true,"cancelled":0,"completed":6,"failed":0,"in_progress":0,"queued":0,"total":6},"type":"completion"}} (RefactoredChatInterface.tsx, line 52)
+[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
+Object
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
+Object
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
+Object
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:42 PM] [SUCCESS] Batch processing complete for 2 requests (RefactoredChatInterface.tsx, line 56)
+[Log] 📥 Received tool request: – Object (SignalRClient.ts, line 86)
+Object
+[Log] [3:43:44 PM] [INFO] SignalR raw message: {"type":"tool_request","data":{"include_formatting":false,"include_formulas":false,"range":"A1:Z50","request_id":"9c3e1460-6621-4bf3-8dd6-b35331f95130","tool":"read_range"}} (RefactoredChatInterface.tsx, line 56)
 [Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
 Object
-[Log] [3:00:46 PM] [INFO] AI response received: I've completed all the requested operations: (RefactoredChatInterface.tsx, line 52)
-
-✅ Su...
-[Log] [3:00:46 PM] [SUCCESS] Received completion message from backend (RefactoredChatInterface.tsx, line 52)
-[Log] [RefactoredChatInterface] Updated pending tools: – 8 – "items" (RefactoredChatInterface.tsx, line 252)
-[Log] [3:00:46 PM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 52)
-[Log] [ExcelService] getSmartContext called (ExcelService.ts, line 428)
-[Log] [ExcelService] Basic context loaded: – Object (ExcelService.ts, line 440)
+[Log] [3:43:44 PM] [INFO] ← Received tool_request: read_range (9c3e1460-6621-4bf3-8dd6-b35331f95130) (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received tool request 9c3e1460-6621-4bf3-8dd6-b35331f95130 (read_range) – Object (useMessageHandlers.ts, line 13)
 Object
-[Log] [ExcelService] Loaded full sheet data: – Object (ExcelService.ts, line 470)
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
 Object
-[Log] [Context] Could not detect merged cells: – TypeError: worksheet.getMergedAreas is not a function. (In 'worksheet.getMergedAreas()', 'worksheet.getMergedAreas' is undefined) (ExcelService.ts, line 417)
-TypeError: worksheet.getMergedAreas is not a function. (In 'worksheet.getMergedAreas()', 'worksheet.getMergedAreas' is undefined)
-[Log] 🎯 [ExcelService] Final Smart Context Result: – Object (ExcelService.ts, line 639)
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
 Object
-[Log] [ExcelService] getSmartContext completed successfully (ExcelService.ts, line 659)
-[Log] [ExcelService] Tracked activity: select on range Sheet1!A5:A9 (ExcelService.ts, line 114)
-[Log] [3:00:46 PM] [INFO] Tracked user selection: Sheet1!A5:A9 (RefactoredChatInterface.tsx, line 52)
-[Log] [EnhancedChatInterface] Accept All clicked – Object (EnhancedChatInterface.tsx, line 759)
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:44 PM] [INFO] Tool read_range is read-only. Adding to batch queue. (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Adding read_range request to batch queue – undefined (useMessageHandlers.ts, line 13)
+[Log] 📥 Received tool request: – Object (SignalRClient.ts, line 86)
 Object
-[Log] [RefactoredChatInterface] handleAcceptAll called (RefactoredChatInterface.tsx, line 428)
-[Log] [RefactoredChatInterface] pendingActions: – Array (8) (RefactoredChatInterface.tsx, line 431)
-Array (8)
-[Log] [RefactoredChatInterface] pendingCount: – 8 (RefactoredChatInterface.tsx, line 432)
-[Log] [3:00:54 PM] [INFO] Starting bulk acceptance of 8 operations (RefactoredChatInterface.tsx, line 52)
-[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 1136)
+[Log] [3:43:45 PM] [INFO] SignalR raw message: {"type":"tool_request","data":{"include_formatting":false,"include_formulas":false,"range":"A1:AZ1000","request_id":"35c93aac-3947-4f14-a0ab-829d851de17d","tool":"read_range"}} (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
 Object
-[Error] [❌ Diff Error] Failed inside toolWriteRange. – Object
+[Log] [3:43:45 PM] [INFO] ← Received tool_request: read_range (35c93aac-3947-4f14-a0ab-829d851de17d) (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received tool request 35c93aac-3947-4f14-a0ab-829d851de17d (read_range) – Object (useMessageHandlers.ts, line 13)
 Object
-	(anonymous function) (ExcelService.ts:1186)
-[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 1136)
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
 Object
-[Error] [❌ Diff Error] Failed inside toolWriteRange. – Object
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
 Object
-	(anonymous function) (ExcelService.ts:1186)
-[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 1136)
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:45 PM] [INFO] Tool read_range is read-only. Adding to batch queue. (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Adding read_range request to batch queue – undefined (useMessageHandlers.ts, line 13)
+[Log] 📥 Received tool request: – Object (SignalRClient.ts, line 86)
 Object
-[Error] [❌ Diff Error] Failed inside toolWriteRange. – Object
+[Log] [3:43:45 PM] [INFO] SignalR raw message: {"type":"tool_request","data":{"include_formatting":false,"include_formulas":false,"range":"A1:Z50","request_id":"c9abb0dc-6de3-47c5-8976-cd4a76c212c7","tool":"read_range"}} (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
 Object
-	(anonymous function) (ExcelService.ts:1186)
-[Log] [✅ Diff Apply Success] Executing toolWriteRange. – Object (ExcelService.ts, line 1136)
+[Log] [3:43:45 PM] [INFO] ← Received tool_request: read_range (c9abb0dc-6de3-47c5-8976-cd4a76c212c7) (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received tool request c9abb0dc-6de3-47c5-8976-cd4a76c212c7 (read_range) – Object (useMessageHandlers.ts, line 13)
 Object
-[Error] [❌ Diff Error] Failed inside toolWriteRange. – Object
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
 Object
-	(anonymous function) (ExcelService.ts:1186)
-[Log] 🎨 toolFormatRange called with: – Object (ExcelService.ts, line 1298)
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
 Object
-[Error] ❌ toolFormatRange general error: – TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-	(anonymous function) (ExcelService.ts:1506)
-[Log] 📊 Format operation log: – Object (formatErrorHandler.ts, line 63)
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:45 PM] [INFO] Tool read_range is read-only. Adding to batch queue. (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Adding read_range request to batch queue – undefined (useMessageHandlers.ts, line 13)
+[Log] [3:43:45 PM] [INFO] Processing batch of 3 read requests (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Processing batch of 3 read requests – undefined (useMessageHandlers.ts, line 13)
+[Log] [info] [Message Handler] Batch request: 9c3e1460-6621-4bf3-8dd6-b35331f95130 for range: A1:Z50 – undefined (useMessageHandlers.ts, line 13)
+[Log] [info] [Message Handler] Batch request: 35c93aac-3947-4f14-a0ab-829d851de17d for range: A1:AZ1000 – undefined (useMessageHandlers.ts, line 13)
+[Log] [info] [Message Handler] Batch request: c9abb0dc-6de3-47c5-8976-cd4a76c212c7 for range: A1:Z50 – undefined (useMessageHandlers.ts, line 13)
+[Log] [ExcelService] Batch reading 3 ranges (logging.ts, line 40)
+[Log] [ExcelService] Processing range Sheet1!A1:Z50 for request 9c3e1460-6621-4bf3-8dd6-b35331f95130 (logging.ts, line 40)
+[Log] [ExcelService] Processing range Sheet1!A1:AZ1000 for request 35c93aac-3947-4f14-a0ab-829d851de17d (logging.ts, line 40)
+[Log] [ExcelService] Processing range Sheet1!A1:Z50 for request c9abb0dc-6de3-47c5-8976-cd4a76c212c7 (logging.ts, line 40)
+[Log] [3:43:45 PM] [INFO] Sending tool_response for 9c3e1460-6621-4bf3-8dd6-b35331f95130 - Data size: 381 bytes (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Tool response data size: 381 bytes – Object (useMessageHandlers.ts, line 13)
 Object
-[Error]    Full error details: – Object
+[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
 Object
-	(anonymous function) (ExcelService.ts:1509)
-[Log] 🎨 toolFormatRange called with: – Object (ExcelService.ts, line 1298)
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
 Object
-[Error] ❌ toolFormatRange general error: – TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-	(anonymous function) (ExcelService.ts:1506)
-[Log] 📊 Format operation log: – Object (formatErrorHandler.ts, line 63)
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
 Object
-[Error]    Full error details: – Object
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:45 PM] [INFO] Sending tool_response for 35c93aac-3947-4f14-a0ab-829d851de17d - Data size: 384 bytes (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Tool response data size: 384 bytes – Object (useMessageHandlers.ts, line 13)
 Object
-	(anonymous function) (ExcelService.ts:1509)
-[Log] 🎨 toolFormatRange called with: – Object (ExcelService.ts, line 1298)
+[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
 Object
-[Error] ❌ toolFormatRange general error: – TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-	(anonymous function) (ExcelService.ts:1506)
-[Log] 📊 Format operation log: – Object (formatErrorHandler.ts, line 63)
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
 Object
-[Error]    Full error details: – Object
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
 Object
-	(anonymous function) (ExcelService.ts:1509)
-[Log] 🎨 toolFormatRange called with: – Object (ExcelService.ts, line 1298)
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:45 PM] [INFO] Sending tool_response for c9abb0dc-6de3-47c5-8976-cd4a76c212c7 - Data size: 381 bytes (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Tool response data size: 381 bytes – Object (useMessageHandlers.ts, line 13)
 Object
-[Error] ❌ toolFormatRange general error: – TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-TypeError: undefined is not an object (evaluating 'rangeStr.includes')
-	(anonymous function) (ExcelService.ts:1506)
-[Log] 📊 Format operation log: – Object (formatErrorHandler.ts, line 63)
+[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
 Object
-[Error]    Full error details: – Object
+[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
 Object
-	(anonymous function) (ExcelService.ts:1509)
-[Log] [3:00:55 PM] [SUCCESS] Bulk operation completed: 8 successful, 0 failed out of 8 total. (RefactoredChatInterface.tsx, line 52)
-[Log] [RefactoredChatInterface] Updated pending tools: – 8 – "items" (RefactoredChatInterface.tsx, line 252)
-[Log] 💓 Heartbeat sent (SignalRClient.ts, line 260, x2)
+[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
+Object
+[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
+[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
+[Log] [3:43:45 PM] [SUCCESS] Batch processing complete for 3 requests (RefactoredChatInterface.tsx, line 56)
+[Log] 📥 Received AI response: – Object (SignalRClient.ts, line 91)
+Object
+[Log] [3:43:45 PM] [INFO] SignalR raw message: {"type":"ai_response","data":{"actions":null,"content":"I encountered an error processing your request. Please try again.","isComplete":false,"messageId":"d72f7273-413a-4968-9ca8-eaf958bf31c7","tokenUsage":null}} (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
+Object
+[Log] [3:43:45 PM] [INFO] AI response received: I encountered an error processing your request. Pl... (RefactoredChatInterface.tsx, line 56)
+[Log] [3:43:45 PM] [ERROR] AI response error (RefactoredChatInterface.tsx, line 56)
+[Log] [3:43:45 PM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 56)
+[Log] [Context] Merge detection currently disabled - using placeholder implementation (ExcelService.ts, line 383)
+[Log] [3:43:45 PM] [INFO] Tracked user selection: Sheet1!A1:K1 (RefactoredChatInterface.tsx, line 56)
+[Log] 💓 Heartbeat sent (SignalRClient.ts, line 260)

@@ -542,6 +542,66 @@ func GetExcelTools() []ExcelTool {
 				"required": []string{"query"},
 			},
 		},
+		{
+			Name:        "trace_precedents",
+			Description: "Trace the precedent cells (cells that feed into) a given formula cell. Returns all cells that the target cell depends on, helping understand calculation flow.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"cell": map[string]interface{}{
+						"type":        "string",
+						"description": "The cell address to trace precedents for (e.g., 'B5', 'Sheet1!C10')",
+					},
+					"include_values": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to include current values of precedent cells",
+						"default":     true,
+					},
+					"include_formulas": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to include formulas of precedent cells",
+						"default":     true,
+					},
+					"max_depth": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum depth to trace (1 = direct precedents only)",
+						"default":     2,
+						"minimum":     1,
+						"maximum":     5,
+					},
+				},
+				"required": []string{"cell"},
+			},
+		},
+		{
+			Name:        "trace_dependents",
+			Description: "Trace the dependent cells (cells that use) a given cell. Returns all cells that depend on the target cell, helping understand impact of changes.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"cell": map[string]interface{}{
+						"type":        "string",
+						"description": "The cell address to trace dependents for (e.g., 'B5', 'Sheet1!C10')",
+					},
+					"include_values": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to include current values of dependent cells",
+						"default":     true,
+					},
+					"include_formulas": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to include formulas of dependent cells",
+						"default":     true,
+					},
+					"search_all_sheets": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to search for dependents across all sheets",
+						"default":     false,
+					},
+				},
+				"required": []string{"cell"},
+			},
+		},
 	}
 }
 

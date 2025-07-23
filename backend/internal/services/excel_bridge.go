@@ -321,9 +321,12 @@ func hasRecentUserSelection(session *ExcelSession) bool {
 
 // ProcessChatMessage processes a chat message from a client
 func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) (*ChatResponse, error) {
+	// Track message
+	eb.trackMessage(message)
+
 	// Get or create session
 	session := eb.getOrCreateSession(clientID, message.SessionID)
-
+	
 	// Build comprehensive context BEFORE adding message to history
 	var financialContext *ai.FinancialContext
 	if eb.contextBuilder != nil {
@@ -331,22 +334,25 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
 		if err != nil {
 			eb.logger.WithError(err).Warn("Failed to build comprehensive context")
-			financialContext = eb.buildFinancialContext(session, message.Context)
+			// Fallback to basic context
+			msgContext := eb.buildContext(session, message.Context)
+			financialContext = eb.buildFinancialContext(session, msgContext)
 		} else {
 			financialContext = builtContext
 			// Merge any additional context from the message
 			eb.mergeMessageContext(financialContext, message.Context)
 		}
 	} else {
-		financialContext = eb.buildFinancialContext(session, message.Context)
+		// Fallback to basic context building
+		msgContext := eb.buildContext(session, message.Context)
+		financialContext = eb.buildFinancialContext(session, msgContext)
 	}
 
-	// Add pending operations to the financial context
-	if eb.queuedOpsRegistry != nil {
-		ctx := context.Background()
-		financialContext.PendingOperations = eb.queuedOpsRegistry.GetOperationSummary(ctx, session.ID)
-
+	// Add any pending operations to the context
+	if pendingOps := eb.queuedOpsRegistry.GetPendingOperations(session.ID); len(pendingOps) > 0 {
+		financialContext.PendingOperations = pendingOps
 		eb.logger.WithFields(logrus.Fields{
+			"count":           len(pendingOps),
 			"session_id":      session.ID,
 			"has_pending_ops": financialContext.PendingOperations != nil,
 		}).Debug("Added pending operations to initial context")
@@ -363,9 +369,6 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			Content: msg.Content,
 		})
 	}
-
-	// Build context for AI
-	msgContext := eb.buildContext(session, message.Context)
 
 	// Process with AI if available
 	var content string
@@ -630,22 +633,52 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 	eb.sessionMutex.Lock()
 	defer eb.sessionMutex.Unlock()
 
-	if session, ok := eb.sessions[sessionID]; ok {
-		// Update client ID in case of reconnection
-		session.ClientID = clientID
-		session.LastActivity = time.Now()
-		return session
+	// If sessionID is provided, try to find it
+	if sessionID != "" {
+		if session, exists := eb.sessions[sessionID]; exists {
+			// Update client ID if it changed (reconnection)
+			session.ClientID = clientID
+			session.LastActivity = time.Now()
+			return session
+		}
+	}
+
+	// Create new session
+	newSessionID := sessionID
+	if newSessionID == "" {
+		newSessionID = fmt.Sprintf("session_%d", time.Now().UnixNano())
 	}
 
 	session := &ExcelSession{
-		ID:           sessionID,
-		UserID:       clientID, // TODO: This should be actual user ID when auth is implemented
-		ClientID:     clientID, // Store the client ID to enable direct messaging
-		Context:      make(map[string]interface{}),
+		ID:           newSessionID,
+		ClientID:     clientID,
 		LastActivity: time.Now(),
+		CreatedAt:    time.Now(),
+		Context:      make(map[string]interface{}),
+		MemoryStats: &MemoryStats{
+			LastIndexed:  time.Now(),
+			IndexVersion: "1.0",
+		},
+	}
+	
+	// Initialize in-memory vector store for the session
+	inMemStore := memory.NewInMemoryStore()
+	session.MemoryStore = &inMemStore
+
+	eb.sessions[newSessionID] = session
+	
+	// Log session creation with memory store info
+	eb.logger.WithFields(logrus.Fields{
+		"session_id": newSessionID,
+		"client_id":  clientID,
+		"has_memory": session.MemoryStore != nil,
+	}).Info("Created new session with memory store")
+
+	// If we have a session manager, register it there too
+	if eb.sessionManager != nil {
+		eb.sessionManager.CreateSession(newSessionID, clientID)
 	}
 
-	eb.sessions[sessionID] = session
 	return session
 }
 
@@ -1606,11 +1639,25 @@ func (eb *ExcelBridge) GetRequestIDMapper() *RequestIDMapper {
 	return eb.requestIDMapper
 }
 
-// mergeMessageContext merges additional context from the message
+// GetSession returns a session by ID
+func (eb *ExcelBridge) GetSession(sessionID string) *ExcelSession {
+	eb.sessionMutex.RLock()
+	defer eb.sessionMutex.RUnlock()
+	
+	if session, exists := eb.sessions[sessionID]; exists {
+		return session
+	}
+	return nil
+}
+
+// mergeMessageContext merges additional context from the message into the financial context
 func (eb *ExcelBridge) mergeMessageContext(fc *ai.FinancialContext, msgContext map[string]interface{}) {
 	// Add any document context from the message
 	for k, v := range msgContext {
 		if str, ok := v.(string); ok && k != "selectedData" && k != "nearbyData" {
+			if fc.DocumentContext == nil {
+				fc.DocumentContext = []string{}
+			}
 			fc.DocumentContext = append(fc.DocumentContext, fmt.Sprintf("%s: %s", k, str))
 		}
 	}
@@ -1709,3 +1756,89 @@ func (eb *ExcelBridge) indexChatExchange(sessionID, userMessage, assistantRespon
 		eb.logger.Warn("Indexing service does not support chat message indexing")
 	}
 }
+
+// IndexWorkbookForSession indexes the current workbook for a session
+func (eb *ExcelBridge) IndexWorkbookForSession(sessionID string) error {
+	session := eb.GetSession(sessionID)
+	if session == nil {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	
+	if session.MemoryStore == nil {
+		return fmt.Errorf("no memory store for session: %s", sessionID)
+	}
+	
+	// Check if indexing service is available
+	if eb.indexingService == nil {
+		eb.logger.Warn("Indexing service not available, skipping workbook indexing")
+		return nil
+	}
+	
+	// Get workbook data from context
+	if session.Context == nil {
+		return fmt.Errorf("no context available for session")
+	}
+	
+	// Convert session context to workbook model
+	workbook := &models.Workbook{
+		Name:      fmt.Sprintf("Workbook_%s", sessionID),
+		SessionID: sessionID,
+		Sheets:    []models.Sheet{},
+	}
+	
+	// Extract sheet data from context if available
+	if sheets, ok := session.Context["sheets"].([]interface{}); ok {
+		for _, sheetData := range sheets {
+			if sheetMap, ok := sheetData.(map[string]interface{}); ok {
+				sheet := models.Sheet{
+					Name: fmt.Sprintf("%v", sheetMap["name"]),
+				}
+				
+				// Add cells if available
+				if cells, ok := sheetMap["cells"].([]interface{}); ok {
+					for _, cellData := range cells {
+						if cellMap, ok := cellData.(map[string]interface{}); ok {
+							sheet.Cells = append(sheet.Cells, models.Cell{
+								Address: fmt.Sprintf("%v", cellMap["address"]),
+								Value:   fmt.Sprintf("%v", cellMap["value"]),
+								Formula: fmt.Sprintf("%v", cellMap["formula"]),
+							})
+						}
+					}
+				}
+				
+				workbook.Sheets = append(workbook.Sheets, sheet)
+			}
+		}
+	}
+	
+	// Perform indexing
+	ctx := context.Background()
+	indexer := eb.indexingService.(interface {
+		IndexWorkbook(ctx context.Context, sessionID string, workbook *models.Workbook, store memory.VectorStore) error
+	})
+	
+	err := indexer.IndexWorkbook(ctx, sessionID, workbook, *session.MemoryStore)
+	if err != nil {
+		return fmt.Errorf("failed to index workbook: %w", err)
+	}
+	
+	// Update memory stats
+	if session.MemoryStats != nil {
+		stats := (*session.MemoryStore).GetStats()
+		session.MemoryStats.TotalChunks = stats.TotalChunks
+		session.MemoryStats.SpreadsheetChunks = stats.SpreadsheetChunks
+		session.MemoryStats.DocumentChunks = stats.DocumentChunks
+		session.MemoryStats.ChatChunks = stats.ChatChunks
+		session.MemoryStats.LastIndexed = time.Now()
+	}
+	
+	eb.logger.WithFields(logrus.Fields{
+		"session_id":   sessionID,
+		"total_chunks": session.MemoryStats.TotalChunks,
+	}).Info("Workbook indexed successfully")
+	
+	return nil
+}
+
+// SetIndexingService sets the indexing service for the Excel bridge

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"strconv"
 
 	"github.com/gridmate/backend/internal/services/ai"
 )
@@ -192,7 +193,44 @@ func (cb *ContextBuilder) addSelectedRangeData(ctx context.Context, sessionID st
 		return err
 	}
 
-	// Add values and formulas to context
+	// Check if this is a large range that needs summarization
+	totalCells := data.RowCount * data.ColCount
+	if totalCells > cb.maxCells {
+		// Generate summary instead of including all data
+		context.DataSummary = cb.generateDataSummary(data.Values)
+		
+		// Add a note about the summary
+		summaryNote := fmt.Sprintf("Large data range (%dx%d = %d cells) summarized.", 
+			data.RowCount, data.ColCount, totalCells)
+		
+		// Add statistics if available
+		if stats, ok := context.DataSummary["statistics"].(map[string]interface{}); ok {
+			if count, ok := stats["count"].(int); ok && count > 0 {
+				summaryNote += fmt.Sprintf(" Statistics: %d numeric cells", count)
+				if mean, ok := stats["mean"].(float64); ok {
+					summaryNote += fmt.Sprintf(", mean=%.2f", mean)
+				}
+				if min, ok := stats["min"].(float64); ok {
+					summaryNote += fmt.Sprintf(", min=%.2f", min)
+				}
+				if max, ok := stats["max"].(float64); ok {
+					summaryNote += fmt.Sprintf(", max=%.2f", max)
+				}
+			}
+		}
+		
+		context.DocumentContext = append(context.DocumentContext, summaryNote)
+		
+		// Include a sample of cells from corners and center
+		sampleCells := cb.getSampleCells(data, rangeInfo)
+		for addr, value := range sampleCells {
+			context.CellValues[addr] = value
+		}
+		
+		return nil
+	}
+
+	// Add values and formulas to context (existing logic)
 	cellCount := 0
 	for row := 0; row < data.RowCount && cellCount < cb.maxCells; row++ {
 		for col := 0; col < data.ColCount && cellCount < cb.maxCells; col++ {
@@ -213,6 +251,39 @@ func (cb *ContextBuilder) addSelectedRangeData(ctx context.Context, sessionID st
 	}
 
 	return nil
+}
+
+// getSampleCells returns a representative sample of cells from a large range
+func (cb *ContextBuilder) getSampleCells(data *ai.RangeData, rangeInfo *RangeInfo) map[string]interface{} {
+	samples := make(map[string]interface{})
+	
+	// Sample corners and center
+	positions := []struct{ row, col int }{
+		{0, 0},                                    // Top-left
+		{0, data.ColCount - 1},                   // Top-right
+		{data.RowCount - 1, 0},                   // Bottom-left
+		{data.RowCount - 1, data.ColCount - 1},  // Bottom-right
+		{data.RowCount / 2, data.ColCount / 2},  // Center
+	}
+	
+	// Also sample first row (likely headers) and first column (likely labels)
+	for col := 0; col < data.ColCount && col < 10; col++ {
+		positions = append(positions, struct{ row, col int }{0, col})
+	}
+	for row := 1; row < data.RowCount && row < 10; row++ {
+		positions = append(positions, struct{ row, col int }{row, 0})
+	}
+	
+	for _, pos := range positions {
+		if pos.row < len(data.Values) && pos.col < len(data.Values[pos.row]) {
+			cellAddr := getCellAddress(rangeInfo.StartRow+pos.row, rangeInfo.StartCol+pos.col)
+			if data.Values[pos.row][pos.col] != nil {
+				samples[cellAddr] = data.Values[pos.row][pos.col]
+			}
+		}
+	}
+	
+	return samples
 }
 
 // addSurroundingContext adds context from cells around the selection
@@ -334,33 +405,72 @@ func (cb *ContextBuilder) detectStructure(ctx context.Context, sessionID string,
 
 // addNamedRanges adds relevant named ranges to context
 func (cb *ContextBuilder) addNamedRanges(ctx context.Context, sessionID string, context *ai.FinancialContext) error {
+	// Get all named ranges
 	namedRanges, err := cb.bridge.GetNamedRanges(ctx, sessionID, "workbook")
 	if err != nil {
 		return err
 	}
 
-	// Add named range information to document context
-	if len(namedRanges) > 0 {
-		rangeInfo := []string{}
-		for _, nr := range namedRanges {
-			rangeInfo = append(rangeInfo, fmt.Sprintf("%s (%s)", nr.Name, nr.Range))
+	if len(namedRanges) == 0 {
+		return nil
+	}
 
-			// If the named range is small, include its value
-			if isSingleCell(nr.Range) {
-				data, err := cb.bridge.ReadRange(ctx, sessionID, nr.Range, true, false)
-				if err == nil && len(data.Values) > 0 && len(data.Values[0]) > 0 {
-					context.CellValues[nr.Name] = data.Values[0][0]
-					if len(data.Formulas) > 0 && len(data.Formulas[0]) > 0 {
-						if formulaStr, ok := data.Formulas[0][0].(string); ok && formulaStr != "" {
-							context.Formulas[nr.Name] = formulaStr
+	// Initialize named ranges in context
+	if context.NamedRanges == nil {
+		context.NamedRanges = make(map[string]ai.NamedRangeInfo)
+	}
+
+	// Process each named range
+	for _, nr := range namedRanges {
+		rangeInfo := ai.NamedRangeInfo{
+			Name:    nr.Name,
+			Address: nr.Address,
+			Scope:   nr.Scope,
+		}
+
+		// Try to get the value of the named range
+		if nr.Address != "" {
+			data, err := cb.bridge.ReadRange(ctx, sessionID, nr.Address, true, false)
+			if err == nil && data != nil && len(data.Values) > 0 {
+				// For single cell named ranges, store the value directly
+				if len(data.Values) == 1 && len(data.Values[0]) == 1 {
+					rangeInfo.Value = data.Values[0][0]
+					
+					// Also store formula if available
+					if data.Formulas != nil && len(data.Formulas) > 0 && len(data.Formulas[0]) > 0 {
+						if formula, ok := data.Formulas[0][0].(string); ok && formula != "" {
+							rangeInfo.Formula = formula
 						}
 					}
+				} else {
+					// For multi-cell ranges, store dimensions
+					rangeInfo.Value = fmt.Sprintf("[%dx%d range]", data.RowCount, data.ColCount)
 				}
 			}
 		}
 
+		context.NamedRanges[nr.Name] = rangeInfo
+	}
+
+	// Add summary to document context
+	if len(context.NamedRanges) > 0 {
+		summary := []string{}
+		for name, info := range context.NamedRanges {
+			if info.Value != nil {
+				summary = append(summary, fmt.Sprintf("%s=%v", name, info.Value))
+			} else {
+				summary = append(summary, fmt.Sprintf("%s (%s)", name, info.Address))
+			}
+		}
+		
+		// Limit to first 10 for brevity
+		if len(summary) > 10 {
+			summary = summary[:10]
+			summary = append(summary, fmt.Sprintf("... and %d more", len(context.NamedRanges)-10))
+		}
+		
 		context.DocumentContext = append(context.DocumentContext,
-			fmt.Sprintf("Named ranges: %s", strings.Join(rangeInfo, ", ")))
+			fmt.Sprintf("Named ranges: %s", strings.Join(summary, ", ")))
 	}
 
 	return nil
@@ -402,6 +512,35 @@ func (cb *ContextBuilder) analyzeFormulas(context *ai.FinancialContext) error {
 				// Could fetch this cell if needed
 				_ = cell // Placeholder for future enhancement
 			}
+		}
+	}
+
+	// Extract and fetch cross-sheet references
+	crossSheetRefs := cb.extractCrossSheetReferences(context.Formulas)
+	if len(crossSheetRefs) > 0 {
+		// Get session ID from context (we need to pass it through)
+		// For now, we'll need to modify the method signature later
+		// Just document the cross-sheet references for now
+		refCount := 0
+		sheets := make(map[string]bool)
+		for _, refs := range crossSheetRefs {
+			refCount += len(refs)
+			for _, ref := range refs {
+				parts := strings.Split(ref, "!")
+				if len(parts) > 0 {
+					sheets[parts[0]] = true
+				}
+			}
+		}
+		
+		if refCount > 0 {
+			sheetList := make([]string, 0, len(sheets))
+			for sheet := range sheets {
+				sheetList = append(sheetList, sheet)
+			}
+			context.DocumentContext = append(context.DocumentContext,
+				fmt.Sprintf("Cross-sheet references: %d references to sheets: %s", 
+					refCount, strings.Join(sheetList, ", ")))
 		}
 	}
 
@@ -598,6 +737,88 @@ func extractCellReferences(formula string) []string {
 	}
 
 	return refs
+}
+
+// extractCrossSheetReferences extracts references to other sheets from formulas
+func (cb *ContextBuilder) extractCrossSheetReferences(formulas map[string]string) map[string][]string {
+	references := make(map[string][]string)
+	
+	// Regex to match sheet references like Sheet1!A1 or 'Sheet Name'!B2:C3
+	sheetRefRegex := regexp.MustCompile(`(?:'([^']+)'|(\w+))!([A-Z]+\d+(?::[A-Z]+\d+)?)`)
+	
+	for cell, formula := range formulas {
+		matches := sheetRefRegex.FindAllStringSubmatch(formula, -1)
+		for _, match := range matches {
+			sheetName := match[1]
+			if sheetName == "" {
+				sheetName = match[2]
+			}
+			cellRef := match[3]
+			
+			fullRef := fmt.Sprintf("%s!%s", sheetName, cellRef)
+			references[cell] = append(references[cell], fullRef)
+		}
+	}
+	
+	return references
+}
+
+// fetchCrossSheetValues fetches values from referenced cells in other sheets
+func (cb *ContextBuilder) fetchCrossSheetValues(ctx context.Context, sessionID string, references map[string][]string) map[string]interface{} {
+	values := make(map[string]interface{})
+	
+	// Group references by sheet to minimize API calls
+	sheetRefs := make(map[string][]string)
+	for _, refs := range references {
+		for _, ref := range refs {
+			parts := strings.Split(ref, "!")
+			if len(parts) == 2 {
+				sheet := parts[0]
+				cellRange := parts[1]
+				sheetRefs[sheet] = append(sheetRefs[sheet], cellRange)
+			}
+		}
+	}
+	
+	// Fetch values for each sheet
+	for sheet, ranges := range sheetRefs {
+		for _, cellRange := range ranges {
+			fullRef := fmt.Sprintf("%s!%s", sheet, cellRange)
+			
+			// Use Excel bridge to read the range
+			if cb.bridge != nil { // Changed from cb.excelBridge to cb.bridge
+				rangeData, err := cb.bridge.ReadRange(ctx, sessionID, fullRef, true, false)
+				if err != nil {
+					// Assuming a logger is available or this can be removed if not needed
+					// fmt.Printf("Warning: failed to fetch cross-sheet reference %s: %v\n", fullRef, err)
+					continue
+				}
+				
+				// Store the value(s)
+				if rangeData != nil && len(rangeData.Values) > 0 && len(rangeData.Values[0]) > 0 {
+					if len(rangeData.Values) == 1 && len(rangeData.Values[0]) == 1 {
+						// Single cell
+						values[fullRef] = rangeData.Values[0][0]
+					} else {
+						// Range of cells
+						values[fullRef] = rangeData.Values
+					}
+					
+					// Also store formula if available
+					if rangeData.Formulas != nil && len(rangeData.Formulas) > 0 && len(rangeData.Formulas[0]) > 0 {
+						formulaKey := fullRef + "_formula"
+						if len(rangeData.Formulas) == 1 && len(rangeData.Formulas[0]) == 1 {
+							values[formulaKey] = rangeData.Formulas[0][0]
+						} else {
+							values[formulaKey] = rangeData.Formulas
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return values
 }
 
 // ExpandRange expands a range to include more context
@@ -1250,3 +1471,126 @@ func valuesEqual(a, b interface{}) bool {
 
 	return aStr == bStr
 }
+
+// generateDataSummary creates a statistical summary for large data ranges
+func (cb *ContextBuilder) generateDataSummary(values [][]interface{}) map[string]interface{} {
+	summary := map[string]interface{}{
+		"rows": len(values),
+		"cols": 0,
+	}
+	
+	if len(values) == 0 {
+		return summary
+	}
+	
+	summary["cols"] = len(values[0])
+	
+	// Collect all numeric values
+	numericValues := []float64{}
+	textCount := 0
+	emptyCount := 0
+	
+	for _, row := range values {
+		for _, val := range row {
+			if val == nil || val == "" {
+				emptyCount++
+				continue
+			}
+			
+			// Try to convert to number
+			switch v := val.(type) {
+			case float64:
+				numericValues = append(numericValues, v)
+			case int:
+				numericValues = append(numericValues, float64(v))
+			case string:
+				if f, err := strconv.ParseFloat(v, 64); err == nil {
+					numericValues = append(numericValues, f)
+				} else {
+					textCount++
+				}
+			default:
+				textCount++
+			}
+		}
+	}
+	
+	summary["numeric_cells"] = len(numericValues)
+	summary["text_cells"] = textCount
+	summary["empty_cells"] = emptyCount
+	
+	// Calculate statistics for numeric values
+	if len(numericValues) > 0 {
+		stats := map[string]interface{}{}
+		
+		// Sum, mean, min, max
+		sum := 0.0
+		min := numericValues[0]
+		max := numericValues[0]
+		
+		for _, v := range numericValues {
+			sum += v
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+		}
+		
+		mean := sum / float64(len(numericValues))
+		
+		stats["count"] = len(numericValues)
+		stats["sum"] = sum
+		stats["mean"] = mean
+		stats["min"] = min
+		stats["max"] = max
+		
+		// Calculate standard deviation
+		if len(numericValues) > 1 {
+			variance := 0.0
+			for _, v := range numericValues {
+				variance += (v - mean) * (v - mean)
+			}
+			variance /= float64(len(numericValues) - 1)
+			stats["std_dev"] = math.Sqrt(variance)
+		}
+		
+		// Find common patterns (for financial data)
+		zeroCount := 0
+		negativeCount := 0
+		for _, v := range numericValues {
+			if v == 0 {
+				zeroCount++
+			} else if v < 0 {
+				negativeCount++
+			}
+		}
+		
+		stats["zero_count"] = zeroCount
+		stats["negative_count"] = negativeCount
+		stats["positive_count"] = len(numericValues) - zeroCount - negativeCount
+		
+		summary["statistics"] = stats
+	}
+	
+	// Sample first few non-empty cells for context
+	samples := []interface{}{}
+	sampleCount := 0
+	for _, row := range values {
+		for _, val := range row {
+			if val != nil && val != "" && sampleCount < 5 {
+				samples = append(samples, val)
+				sampleCount++
+			}
+		}
+		if sampleCount >= 5 {
+			break
+		}
+	}
+	summary["sample_values"] = samples
+	
+	return summary
+}
+
+// BuildContext builds comprehensive financial context for a session

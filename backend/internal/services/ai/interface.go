@@ -93,6 +93,18 @@ type FinancialContext struct {
 	DocumentContext   []string              `json:"document_context"` // Relevant document snippets
 	ModelStructure    *ModelStructure       `json:"model_structure,omitempty"` // Enhanced structure understanding
 	PendingOperations interface{}           `json:"pending_operations,omitempty"` // Summary of queued operations
+	NamedRanges       map[string]NamedRangeInfo `json:"named_ranges,omitempty"` // Named ranges in the workbook
+	CrossSheetRefs    map[string]interface{} `json:"cross_sheet_refs,omitempty"` // Cross-sheet references and their values
+	DataSummary       map[string]interface{} `json:"data_summary,omitempty"` // Statistical summary for large datasets
+}
+
+// NamedRangeInfo represents information about a named range
+type NamedRangeInfo struct {
+	Name    string      `json:"name"`
+	Address string      `json:"address"`
+	Value   interface{} `json:"value,omitempty"`
+	Formula string      `json:"formula,omitempty"`
+	Scope   string      `json:"scope"` // "workbook" or sheet name
 }
 
 // ModelStructure represents the structural understanding of a financial model

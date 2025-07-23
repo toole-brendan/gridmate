@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,7 @@ type ExcelBridge interface {
 	GetNamedRanges(ctx context.Context, sessionID string, scope string) ([]NamedRange, error)
 	CreateNamedRange(ctx context.Context, sessionID string, name, rangeAddr string) error
 	InsertRowsColumns(ctx context.Context, sessionID string, position string, count int, insertType string) error
+	GetSession(sessionID string) *Session
 }
 
 // RangeData represents data read from Excel
@@ -758,6 +760,24 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 
 	case "search_memory":
 		content, err := te.executeMemorySearch(ctx, sessionID, toolCall.Input)
+		if err != nil {
+			result.IsError = true
+			result.Content = formatToolError(err)
+			return result, nil
+		}
+		result.Content = content
+
+	case "trace_precedents":
+		content, err := te.executeTracePrecedents(ctx, sessionID, toolCall.Input)
+		if err != nil {
+			result.IsError = true
+			result.Content = formatToolError(err)
+			return result, nil
+		}
+		result.Content = content
+
+	case "trace_dependents":
+		content, err := te.executeTraceDependents(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
 			result.Content = formatToolError(err)
@@ -3139,127 +3159,389 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 		}
 	}
 
-	// includeContext := true
-	// if ic, ok := input["include_context"].(bool); ok {
-	// 	includeContext = ic
-	// }
+	includeContext := true
+	if ic, ok := input["include_context"].(bool); ok {
+		includeContext = ic
+	}
 
-	// For now, return empty results since we need to refactor the memory search
-	// to work without circular dependencies
-	return map[string]interface{}{
-		"results": []interface{}{},
-		"message": "Memory search temporarily disabled during refactoring",
-	}, nil
+	// Get session memory store through the Excel bridge
+	if te.excelBridge == nil {
+		return nil, fmt.Errorf("excel bridge not available for memory search")
+	}
 	
-	// TODO: Add GetMemoryStore(sessionID) method to ExcelBridge interface
-	// to avoid circular dependency with services package
-
-	/* Commented out until refactoring is complete
-	// Check if embedding provider is available
-	if te.embeddingProvider == nil {
-		log.Warn().Msg("Memory search called without embedding provider, using keyword fallback")
-		// Fallback to keyword search
-		memStore := (*session.MemoryStore).(*memory.InMemoryStore)
-		keywords := strings.Fields(query)
-		searchResults := memStore.KeywordSearch(keywords, limit, nil)
-		
-		results := make([]map[string]interface{}, len(searchResults))
-		for i, result := range searchResults {
-			results[i] = map[string]interface{}{
-				"source":     result.Chunk.Metadata.Source,
-				"content":    result.Chunk.Content,
-				"similarity": result.Similarity,
-				"reference":  formatChunkReference(result.Chunk),
-			}
-		}
-		
+	// Get the session from Excel bridge
+	session := te.excelBridge.GetSession(sessionID)
+	if session == nil {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	
+	// Check if memory store exists
+	if session.MemoryStore == nil {
+		log.Warn().
+			Str("session", sessionID).
+			Msg("Memory search called but no memory store available for session")
 		return map[string]interface{}{
-			"results":       results,
-			"query":         query,
-			"source_filter": sourceFilter,
-			"total_results": len(results),
-			"search_type":   "keyword",
+			"results": []interface{}{},
+			"message": "No indexed content available for this session",
 		}, nil
 	}
-
-	// Get query embedding
-	queryVector, err := te.embeddingProvider.GetEmbedding(ctx, query)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get query embedding")
-		return nil, fmt.Errorf("failed to get query embedding: %w", err)
-	}
-
-	// Create filter based on source
+	
+	memStore := *session.MemoryStore
+	
+	// Create filter based on source type
 	var filter memory.FilterFunc
 	if sourceFilter != "all" {
 		filter = func(chunk memory.Chunk) bool {
 			return chunk.Metadata.Source == sourceFilter
 		}
 	}
-
-	// Search memory
-	searchResults, err := (*session.MemoryStore).Search(queryVector, limit, filter)
-	if err != nil {
-		return nil, fmt.Errorf("memory search failed: %w", err)
+	
+	// Perform search
+	var searchResults []memory.SearchResult
+	var err error
+	
+	if te.embeddingProvider != nil {
+		// Use vector search with embeddings
+		log.Info().
+			Str("session", sessionID).
+			Str("query", query).
+			Str("source_filter", sourceFilter).
+			Int("limit", limit).
+			Msg("Performing vector search with embeddings")
+			
+		queryVector, err := te.embeddingProvider.GetEmbedding(ctx, query)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get query embedding, falling back to keyword search")
+			// Fall back to keyword search
+			if inMemStore, ok := memStore.(*memory.InMemoryStore); ok {
+				keywords := strings.Fields(query)
+				searchResults = inMemStore.KeywordSearch(keywords, limit, filter)
+			}
+		} else {
+			searchResults, err = memStore.Search(queryVector, limit, filter)
+			if err != nil {
+				return nil, fmt.Errorf("vector search failed: %w", err)
+			}
+		}
+	} else {
+		// Fallback to keyword search
+		log.Info().
+			Str("session", sessionID).
+			Str("query", query).
+			Msg("Performing keyword search (no embedding provider)")
+			
+		if inMemStore, ok := memStore.(*memory.InMemoryStore); ok {
+			keywords := strings.Fields(query)
+			searchResults = inMemStore.KeywordSearch(keywords, limit, filter)
+		} else {
+			return nil, fmt.Errorf("keyword search not supported for this memory store type")
+		}
 	}
-
+	
 	// Format results
-	results := make([]map[string]interface{}, len(searchResults))
-	for i, result := range searchResults {
+	results := make([]map[string]interface{}, 0, len(searchResults))
+	for _, result := range searchResults {
 		resultMap := map[string]interface{}{
 			"source":     result.Chunk.Metadata.Source,
-			"similarity": fmt.Sprintf("%.0f%%", result.Similarity*100),
+			"content":    result.Chunk.Content,
+			"similarity": result.Similarity,
 			"reference":  formatChunkReference(result.Chunk),
 		}
 		
-		if includeContext {
-			resultMap["content"] = result.Chunk.Content
-		} else {
-			// Truncate content
-			content := result.Chunk.Content
-			if len(content) > 200 {
-				content = content[:197] + "..."
-			}
-			resultMap["content"] = content
+		// Add source-specific metadata
+		switch result.Chunk.Metadata.Source {
+		case "spreadsheet":
+			resultMap["sheet_name"] = result.Chunk.Metadata.SheetName
+			resultMap["cell_range"] = result.Chunk.Metadata.CellRange
+			resultMap["is_formula"] = result.Chunk.Metadata.IsFormula
+		case "document":
+			resultMap["document_name"] = result.Chunk.Metadata.DocumentName
+			resultMap["page_number"] = result.Chunk.Metadata.PageNumber
+			resultMap["section"] = result.Chunk.Metadata.Section
+		case "chat":
+			resultMap["message_id"] = result.Chunk.Metadata.MessageID
+			resultMap["role"] = result.Chunk.Metadata.Role
+			resultMap["turn"] = result.Chunk.Metadata.Turn
 		}
 		
-		results[i] = resultMap
+		// Include surrounding context if requested
+		if includeContext && result.Chunk.Metadata.SourceMeta != nil {
+			if context, ok := result.Chunk.Metadata.SourceMeta["context"]; ok {
+				resultMap["context"] = context
+			}
+		}
+		
+		results = append(results, resultMap)
 	}
-
-	response := map[string]interface{}{
+	
+	log.Info().
+		Str("session", sessionID).
+		Int("results_count", len(results)).
+		Msg("Memory search completed")
+	
+	return map[string]interface{}{
 		"results":       results,
 		"query":         query,
 		"source_filter": sourceFilter,
 		"total_results": len(results),
-		"search_type":   "semantic",
-	}
-
-	log.Info().
-		Str("session", sessionID).
-		Str("query", query).
-		Int("results", len(results)).
-		Msg("Memory search completed")
-
-	return response, nil
-	*/
+	}, nil
 }
 
 // formatChunkReference formats a chunk's metadata into a readable reference
 func formatChunkReference(chunk memory.Chunk) string {
 	switch chunk.Metadata.Source {
 	case "spreadsheet":
-		if chunk.Metadata.CellRange != "" {
+		if chunk.Metadata.SheetName != "" && chunk.Metadata.CellRange != "" {
 			return fmt.Sprintf("%s!%s", chunk.Metadata.SheetName, chunk.Metadata.CellRange)
 		}
 		return chunk.Metadata.SheetName
 	case "document":
+		ref := chunk.Metadata.DocumentName
 		if chunk.Metadata.PageNumber > 0 {
-			return fmt.Sprintf("%s (page %d)", chunk.Metadata.DocumentName, chunk.Metadata.PageNumber)
+			ref += fmt.Sprintf(" (page %d)", chunk.Metadata.PageNumber)
 		}
-		return chunk.Metadata.DocumentName
+		if chunk.Metadata.Section != "" {
+			ref += fmt.Sprintf(" - %s", chunk.Metadata.Section)
+		}
+		return ref
 	case "chat":
-		return fmt.Sprintf("Chat turn %d", chunk.Metadata.Turn)
+		return fmt.Sprintf("Chat turn %d (%s)", chunk.Metadata.Turn, chunk.Metadata.Role)
 	default:
-		return chunk.Metadata.SourceID
+		return chunk.Metadata.Source
 	}
+}
+
+// executeTracePrecedents traces cells that feed into a given formula
+func (te *ToolExecutor) executeTracePrecedents(ctx context.Context, sessionID string, input map[string]interface{}) (interface{}, error) {
+	// Extract parameters
+	cell, ok := input["cell"].(string)
+	if !ok || cell == "" {
+		return nil, fmt.Errorf("cell parameter is required")
+	}
+
+	includeValues := true
+	if iv, ok := input["include_values"].(bool); ok {
+		includeValues = iv
+	}
+
+	includeFormulas := true
+	if inf, ok := input["include_formulas"].(bool); ok {
+		includeFormulas = inf
+	}
+
+	maxDepth := 2
+	if md, ok := input["max_depth"].(float64); ok {
+		maxDepth = int(md)
+		if maxDepth < 1 {
+			maxDepth = 1
+		} else if maxDepth > 5 {
+			maxDepth = 5
+		}
+	}
+
+	// Read the target cell to get its formula
+	rangeData, err := te.excelBridge.ReadRange(ctx, sessionID, cell, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cell %s: %w", cell, err)
+	}
+
+	if rangeData == nil || len(rangeData.Values) == 0 || len(rangeData.Values[0]) == 0 {
+		return nil, fmt.Errorf("cell %s not found or empty", cell)
+	}
+
+	// Get the formula
+	var formula string
+	if rangeData.Formulas != nil && len(rangeData.Formulas) > 0 && len(rangeData.Formulas[0]) > 0 {
+		if f, ok := rangeData.Formulas[0][0].(string); ok {
+			formula = f
+		}
+	}
+
+	if formula == "" {
+		return map[string]interface{}{
+			"cell":        cell,
+			"value":       rangeData.Values[0][0],
+			"has_formula": false,
+			"precedents":  []interface{}{},
+			"message":     "Cell has no formula, therefore no precedents",
+		}, nil
+	}
+
+	// Extract cell references from the formula
+	precedents := te.extractPrecedentsFromFormula(formula, cell, maxDepth, sessionID, ctx, includeValues, includeFormulas)
+
+	return map[string]interface{}{
+		"cell":        cell,
+		"formula":     formula,
+		"value":       rangeData.Values[0][0],
+		"precedents":  precedents,
+		"depth_limit": maxDepth,
+	}, nil
+}
+
+// executeTraceDependents traces cells that use a given cell
+func (te *ToolExecutor) executeTraceDependents(ctx context.Context, sessionID string, input map[string]interface{}) (interface{}, error) {
+	// Extract parameters
+	cell, ok := input["cell"].(string)
+	if !ok || cell == "" {
+		return nil, fmt.Errorf("cell parameter is required")
+	}
+
+	includeValues := true
+	if iv, ok := input["include_values"].(bool); ok {
+		includeValues = iv
+	}
+
+	includeFormulas := true
+	if inf, ok := input["include_formulas"].(bool); ok {
+		includeFormulas = inf
+	}
+
+	searchAllSheets := false
+	if sas, ok := input["search_all_sheets"].(bool); ok {
+		searchAllSheets = sas
+	}
+
+	// For now, we'll do a simple implementation that searches the current sheet
+	// In a full implementation, this would use Excel's dependency tracking
+	
+	// Get the current sheet's used range
+	// This is a simplified approach - in practice, Excel APIs provide better dependency tracking
+	searchRange := "A1:Z1000" // Default search range
+	
+	dependents := []map[string]interface{}{}
+	
+	// Read the search range
+	rangeData, err := te.excelBridge.ReadRange(ctx, sessionID, searchRange, true, false)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to read range for dependent search")
+		// Return empty result instead of error
+		return map[string]interface{}{
+			"cell":       cell,
+			"dependents": dependents,
+			"message":    "Could not search full range, results may be incomplete",
+		}, nil
+	}
+
+	// Search for formulas that reference the target cell
+	cellPattern := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(cell)))
+	
+	if rangeData != nil && rangeData.Formulas != nil {
+		for row := 0; row < len(rangeData.Formulas); row++ {
+			for col := 0; col < len(rangeData.Formulas[row]); col++ {
+				if formula, ok := rangeData.Formulas[row][col].(string); ok && formula != "" {
+					if cellPattern.MatchString(formula) {
+						// Found a dependent
+						depCell := getCellAddress(row+1, col+1) // Assuming A1 start
+						
+						dep := map[string]interface{}{
+							"cell":    depCell,
+							"formula": formula,
+						}
+						
+						if includeValues && row < len(rangeData.Values) && col < len(rangeData.Values[row]) {
+							dep["value"] = rangeData.Values[row][col]
+						}
+						
+						dependents = append(dependents, dep)
+					}
+				}
+			}
+		}
+	}
+
+	result := map[string]interface{}{
+		"cell":             cell,
+		"dependents":       dependents,
+		"dependents_count": len(dependents),
+		"search_scope":     searchRange,
+	}
+
+	if searchAllSheets {
+		result["message"] = "Note: Cross-sheet dependent search not yet implemented"
+	}
+
+	return result, nil
+}
+
+// extractPrecedentsFromFormula extracts and traces precedent cells from a formula
+func (te *ToolExecutor) extractPrecedentsFromFormula(formula string, currentCell string, depth int, sessionID string, ctx context.Context, includeValues, includeFormulas bool) []map[string]interface{} {
+	if depth <= 0 {
+		return []map[string]interface{}{}
+	}
+
+	precedents := []map[string]interface{}{}
+	
+	// Extract cell references using regex
+	// Matches: A1, $A$1, Sheet1!A1, 'Sheet Name'!A1
+	cellRefRegex := regexp.MustCompile(`(?:'([^']+)'|(\w+))?!?(\$?[A-Z]+\$?\d+)`)
+	matches := cellRefRegex.FindAllStringSubmatch(formula, -1)
+	
+	seenCells := make(map[string]bool)
+	
+	for _, match := range matches {
+		var cellRef string
+		if match[1] != "" || match[2] != "" {
+			// Has sheet reference
+			sheet := match[1]
+			if sheet == "" {
+				sheet = match[2]
+			}
+			cellRef = fmt.Sprintf("%s!%s", sheet, match[3])
+		} else {
+			// Same sheet reference
+			cellRef = match[3]
+		}
+		
+		// Avoid duplicates
+		if seenCells[cellRef] {
+			continue
+		}
+		seenCells[cellRef] = true
+		
+		precedent := map[string]interface{}{
+			"cell":  cellRef,
+			"depth": 3 - depth, // Convert remaining depth to current depth
+		}
+		
+		// Get value and formula if requested
+		if includeValues || includeFormulas {
+			rangeData, err := te.excelBridge.ReadRange(ctx, sessionID, cellRef, includeFormulas, false)
+			if err == nil && rangeData != nil && len(rangeData.Values) > 0 && len(rangeData.Values[0]) > 0 {
+				if includeValues {
+					precedent["value"] = rangeData.Values[0][0]
+				}
+				
+				if includeFormulas && rangeData.Formulas != nil && len(rangeData.Formulas) > 0 && len(rangeData.Formulas[0]) > 0 {
+					if f, ok := rangeData.Formulas[0][0].(string); ok && f != "" {
+						precedent["formula"] = f
+						
+						// Recursively trace precedents
+						if depth > 1 {
+							subPrecedents := te.extractPrecedentsFromFormula(f, cellRef, depth-1, sessionID, ctx, includeValues, includeFormulas)
+							if len(subPrecedents) > 0 {
+								precedent["precedents"] = subPrecedents
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		precedents = append(precedents, precedent)
+	}
+	
+	return precedents
+}
+
+// getCellAddress converts row and column numbers to Excel cell address
+func getCellAddress(row, col int) string {
+	// Convert column number to Excel column letters (A, B, ..., Z, AA, AB, ...)
+	columnName := ""
+	for col > 0 {
+		col-- // Adjust to 0-based
+		columnName = string(rune('A'+(col%26))) + columnName
+		col = col / 26
+	}
+	return fmt.Sprintf("%s%d", columnName, row)
 }

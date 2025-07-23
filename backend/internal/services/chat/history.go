@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 )
@@ -121,4 +122,42 @@ func (h *History) GetSessionCount() int {
 	defer h.mu.RUnlock()
 	
 	return len(h.sessions)
+}
+
+// SerializeHistory serializes a session's history to JSON
+func (h *History) SerializeHistory(sessionID string) ([]byte, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	
+	if history, exists := h.sessions[sessionID]; exists {
+		return json.Marshal(history)
+	}
+	
+	return json.Marshal([]Message{})
+}
+
+// DeserializeHistory loads history from JSON data
+func (h *History) DeserializeHistory(sessionID string, data []byte) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	
+	var messages []Message
+	if err := json.Unmarshal(data, &messages); err != nil {
+		return err
+	}
+	
+	h.sessions[sessionID] = messages
+	return nil
+}
+
+// GetAllSessions returns all session IDs
+func (h *History) GetAllSessions() []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	
+	sessions := make([]string, 0, len(h.sessions))
+	for sessionID := range h.sessions {
+		sessions = append(sessions, sessionID)
+	}
+	return sessions
 }

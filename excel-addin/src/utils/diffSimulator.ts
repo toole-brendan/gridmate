@@ -117,8 +117,8 @@ async function simulateWriteOperation(
     // Parse range to get dimensions
     const rangeMatch = range.match(/([A-Z]+)(\d+):([A-Z]+)(\d+)/);
     if (rangeMatch) {
-      const startCol = parseCell(rangeMatch[1] + rangeMatch[2]).col;
-      const startRow = parseInt(rangeMatch[2], 10) - 1;
+      // const startCol = parseCell(rangeMatch[1] + rangeMatch[2]).col;
+      // const startRow = parseInt(rangeMatch[2], 10) - 1;
       
       for (let row = 0; row < numRows; row++) {
         for (let col = 0; col < numCols; col++) {

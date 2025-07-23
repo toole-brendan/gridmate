@@ -8,6 +8,9 @@ export interface CellSnapshot {
   v?: string | number | boolean | null  // value
   f?: string  // formula
   s?: string  // style (JSON string)
+  isMerged?: boolean  // whether cell is part of a merged range
+  mergeAnchor?: string  // top-left cell of merge area
+  mergeArea?: string  // full merge range (e.g., "A1:E1")
 }
 
 export interface WorkbookSnapshot {

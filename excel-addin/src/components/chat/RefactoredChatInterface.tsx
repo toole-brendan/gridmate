@@ -16,6 +16,7 @@ import { EnhancedAutonomySelector } from './EnhancedAutonomySelector';
 // --- Services and Utils ---
 import { ExcelService } from '../../services/excel/ExcelService';
 import { AuditLogger } from '../../utils/safetyChecks';
+import { conditionalLog } from '../../config/logging';
 
 // --- Types ---
 import { AutonomyMode } from './AutonomyModeSelector';
@@ -26,6 +27,11 @@ import { StatusMessage } from '../../types/enhanced-chat';
 // --- Zustand Store ---
 import { useDiffSessionStore } from '../../store/useDiffSessionStore';
 import { usePersistedTokenUsage } from '../../hooks/usePersistedTokenUsage';
+
+// Helper function for component-specific logging
+const chatLog = (category: string, ...args: any[]) => {
+  conditionalLog('CHAT_INTERFACE', category, ...args);
+};
 
 // Interface for tracking pending tool suggestions
 interface PendingToolState {
@@ -324,7 +330,7 @@ export const RefactoredChatInterface: React.FC = () => {
         pending.set(msg.requestId, toolSuggestion);
       }
     });
-    console.log('[RefactoredChatInterface] Updated pending tools:', pending.size, 'items');
+    chatLog('STATE_UPDATES', '[RefactoredChatInterface] Updated pending tools:', pending.size, 'items');
     setPendingTools(prev => ({ ...prev, suggestions: pending }));
   }, [chatManager.messages]);
 
@@ -385,12 +391,12 @@ export const RefactoredChatInterface: React.FC = () => {
       }
       
       // Debug logging for context
-      console.log('🔍 [CONTEXT DEBUG] Context Enabled:', isContextEnabled);
-      console.log('🔍 [CONTEXT DEBUG] Raw Excel Context from getComprehensiveContext():', excelContext);
+      chatLog('DEBUG_INFO', '🔍 [CONTEXT DEBUG] Context Enabled:', isContextEnabled);
+      chatLog('DEBUG_INFO', '🔍 [CONTEXT DEBUG] Raw Excel Context from getComprehensiveContext():', excelContext);
       
       if (excelContext) {
-        console.log('🔍 [CONTEXT DEBUG] Breakdown:');
-        console.log('  - Worksheet:', excelContext.worksheet);
+        chatLog('DEBUG_INFO', '🔍 [CONTEXT DEBUG] Breakdown:');
+        chatLog('DEBUG_INFO', '  - Worksheet:', excelContext.worksheet);
         console.log('  - Workbook:', excelContext.workbook);
         console.log('  - Selected Range:', excelContext.selectedRange);
         console.log('  - Selected Data:', excelContext.selectedData);
@@ -400,13 +406,13 @@ export const RefactoredChatInterface: React.FC = () => {
         
         // Log cell values if present
         if (excelContext.selectedData?.values) {
-          console.log('📊 [CONTEXT DEBUG] Selected Cell Values:', 
+          chatLog('DEBUG_INFO', '📊 [CONTEXT DEBUG] Selected Cell Values:', 
             excelContext.selectedData.values.slice(0, 5).map(row => row.slice(0, 5))
           );
         }
         
         if (excelContext.nearbyData?.values) {
-          console.log('📊 [CONTEXT DEBUG] Nearby Cell Values (first 5x5):', 
+          chatLog('DEBUG_INFO', '📊 [CONTEXT DEBUG] Nearby Cell Values (first 5x5):', 
             excelContext.nearbyData.values.slice(0, 5).map(row => row.slice(0, 5))
           );
         }
@@ -434,8 +440,8 @@ export const RefactoredChatInterface: React.FC = () => {
         },
       };
       
-      console.log('📤 [CONTEXT DEBUG] Full Message Payload to SignalR:', JSON.stringify(messagePayload, null, 2));
-      console.log('📤 [CONTEXT DEBUG] What AI will receive - Excel Context:', messagePayload.data.excelContext);
+      chatLog('SIGNALR_MESSAGES', '📤 [CONTEXT DEBUG] Full Message Payload to SignalR:', JSON.stringify(messagePayload, null, 2));
+      chatLog('SIGNALR_MESSAGES', '📤 [CONTEXT DEBUG] What AI will receive - Excel Context:', messagePayload.data.excelContext);
       
       await signalRClient.send(messagePayload);
     } catch (error) {
@@ -544,16 +550,16 @@ export const RefactoredChatInterface: React.FC = () => {
 
   // Handle Accept All action
   const handleAcceptAll = useCallback(async () => {
-    console.log('[RefactoredChatInterface] handleAcceptAll called');
+    chatLog('MESSAGE_FLOW', '[RefactoredChatInterface] handleAcceptAll called');
     const pendingActions = Array.from(pendingTools.suggestions.values());
     const pendingCount = pendingActions.length;
     
-    console.log('[RefactoredChatInterface] pendingActions:', pendingActions);
-    console.log('[RefactoredChatInterface] pendingCount:', pendingCount);
+    chatLog('DEBUG_INFO', '[RefactoredChatInterface] pendingActions:', pendingActions);
+    chatLog('DEBUG_INFO', '[RefactoredChatInterface] pendingCount:', pendingCount);
     
     // Don't proceed if no pending actions
     if (pendingCount === 0) {
-      console.log('[RefactoredChatInterface] No pending actions, returning');
+      chatLog('MESSAGE_FLOW', '[RefactoredChatInterface] No pending actions, returning');
       return;
     }
     
@@ -588,10 +594,17 @@ export const RefactoredChatInterface: React.FC = () => {
         if (isBatchableToolType(toolType) && operations.length > 1) {
           try {
             // Use batch execution for multiple operations of same type
-            const batchRequests = operations.map(op => ({
-              tool: op.tool.name,
-              input: op.tool.parameters // parameters already contains the full input object
-            }));
+            const batchRequests = operations.map(op => {
+              // For diff-preview operations, parameters contains the full tool request
+              // Extract the actual parameters (excluding tool name and request_id)
+              const { tool, request_id, ...actualParameters } = op.tool.parameters;
+              chatLog('DEBUG_INFO', '[AcceptAll Debug] Tool:', op.tool.name);
+              chatLog('DEBUG_INFO', '[AcceptAll Debug] Extracted parameters:', actualParameters);
+              return {
+                tool: op.tool.name,
+                input: actualParameters
+              };
+            });
             
             await ExcelService.getInstance().batchExecuteToolRequests(batchRequests);
             

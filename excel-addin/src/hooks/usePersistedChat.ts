@@ -44,7 +44,7 @@ export function usePersistedChat(sessionId: string) {
     } catch (error) {
       console.error('Failed to persist chat to localStorage:', error)
       // Handle quota exceeded - remove old chats
-      if (error.name === 'QuotaExceededError') {
+      if (error instanceof Error && error.name === 'QuotaExceededError') {
         clearOldChats()
         try {
           localStorage.setItem(storageKey, JSON.stringify(state))

@@ -544,10 +544,11 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		}
 		
 		// Log token usage for debugging
-		eb.logger.Info("Sending token usage", 
-			zap.Int("input", response.TokenUsage.Input),
-			zap.Int("output", response.TokenUsage.Output),
-			zap.Int("total", response.TokenUsage.Total))
+		eb.logger.WithFields(logrus.Fields{
+			"input":  response.TokenUsage.Input,
+			"output": response.TokenUsage.Output,
+			"total":  response.TokenUsage.Total,
+		}).Info("Sending token usage")
 	}
 
 	// Update session activity

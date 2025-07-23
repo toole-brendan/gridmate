@@ -694,7 +694,7 @@ export class GridVisualizer {
             // The value should be a single cell value, not an array
             // If it's somehow an array, skip it as it's likely a bug
             if (Array.isArray(hunk.after.v)) {
-              log('warn', `[Visualizer] Skipping array value for single cell ${cellKey}: ${JSON.stringify(hunk.after.v)}`)
+              log('warning', `[Visualizer] Skipping array value for single cell ${cellKey}: ${JSON.stringify(hunk.after.v)}`)
               continue
             }
             range.values = [[hunk.after.v]]

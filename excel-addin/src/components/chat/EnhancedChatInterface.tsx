@@ -525,7 +525,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="text-center text-text-secondary mt-8">
-            <p className="mb-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontWeight: 300, fontSize: '1.25rem', letterSpacing: '0.2em' }}>GRIDMATE</p>
+            <p className="mb-2" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontWeight: 300, fontSize: '1rem', letterSpacing: '0.2em' }}>GRIDMATE</p>
             
             
             <div className="mt-6 space-y-2">

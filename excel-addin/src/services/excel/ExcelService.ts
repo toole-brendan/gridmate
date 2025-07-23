@@ -1413,12 +1413,13 @@ export class ExcelService {
     isFullyMerged: boolean;
     mergeAreas: string[];
   }> {
-    const mergedAreas = range.getMergedAreasOrNullObject();
-    mergedAreas.load(['areaCount', 'areas']);
-    await context.sync();
-    
-    if (mergedAreas.isNullObject) {
-      return { hasMergedCells: false, isFullyMerged: false, mergeAreas: [] };
+    try {
+      const mergedAreas = range.getMergedAreas();
+      mergedAreas.load(['areaCount', 'areas']);
+      await context.sync();
+      
+      if (!mergedAreas || mergedAreas.areaCount === 0) {
+        return { hasMergedCells: false, isFullyMerged: false, mergeAreas: [] };
     }
     
     const areas: string[] = [];
@@ -1440,6 +1441,10 @@ export class ExcelService {
       isFullyMerged,
       mergeAreas: areas
     };
+    } catch (error) {
+      console.log('[ExcelService] Could not detect merge state:', error);
+      return { hasMergedCells: false, isFullyMerged: false, mergeAreas: [] };
+    }
   }
 
   private async toolApplyLayout(input: any, excelContext?: any): Promise<any> {

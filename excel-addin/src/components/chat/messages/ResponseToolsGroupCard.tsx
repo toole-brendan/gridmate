@@ -33,7 +33,7 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
   }
 
   const pendingCount = message.tools.filter(tool => tool.status === 'pending').length
-  const approvedCount = message.tools.filter(tool => tool.status === 'approved').length
+  const acceptedCount = message.tools.filter(tool => tool.status === 'accepted').length
   const rejectedCount = message.tools.filter(tool => tool.status === 'rejected').length
 
   return (
@@ -63,8 +63,8 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
           {pendingCount > 0 && (
             <span className="text-yellow-400">{pendingCount} pending</span>
           )}
-          {approvedCount > 0 && (
-            <span className="text-green-400">{approvedCount} approved</span>
+          {acceptedCount > 0 && (
+            <span className="text-green-400">{acceptedCount} accepted</span>
           )}
           {rejectedCount > 0 && (
             <span className="text-red-400">{rejectedCount} rejected</span>
@@ -76,12 +76,12 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
       {message.status === 'pending' && pendingCount > 0 && (
         <div className="flex items-center space-x-1 mb-2">
           <button
-            onClick={message.actions.approveAll}
+            onClick={message.actions.acceptAll}
             className="flex-1 inline-flex items-center justify-center px-2 py-1 border border-green-500/50 text-green-400 bg-green-500/10 rounded hover:bg-green-500/20 transition-colors duration-150 text-xs font-mono"
             style={{fontFamily: 'IBM Plex Mono, monospace'}}
           >
             <CheckCircleIcon className="w-3 h-3 mr-1" />
-            Approve All ({pendingCount})
+            Accept All ({pendingCount})
           </button>
           
           <button
@@ -115,7 +115,7 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
                 <span className="text-gray-500 ml-2 truncate">{tool.tool.description}</span>
               </div>
               <div className="flex-shrink-0">
-                {tool.status === 'approved' && <CheckCircleSolidIcon className="w-4 h-4 text-green-400" />}
+                {tool.status === 'accepted' && <CheckCircleSolidIcon className="w-4 h-4 text-green-400" />}
                 {tool.status === 'rejected' && <XCircleIcon className="w-4 h-4 text-red-400" />}
                 {tool.status === 'pending' && <div className="w-4 h-4 rounded-full bg-yellow-400/20 border border-yellow-400/50" />}
               </div>
@@ -133,7 +133,7 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
           <div className="w-full bg-gray-700 rounded-full h-1">
             <div 
               className="bg-blue-500 h-1 rounded-full transition-all duration-300"
-              style={{ width: `${((approvedCount + rejectedCount) / message.tools.length) * 100}%` }}
+              style={{ width: `${((acceptedCount + rejectedCount) / message.tools.length) * 100}%` }}
             />
           </div>
         </div>
@@ -142,7 +142,7 @@ export const ResponseToolsGroupCard: React.FC<ResponseToolsGroupCardProps> = ({ 
       {/* Completion message */}
       {message.status === 'completed' && (
         <div className="mt-2 text-xs text-green-400 font-mono" style={{fontFamily: 'IBM Plex Mono, monospace'}}>
-          ✓ All tools processed ({approvedCount} approved, {rejectedCount} rejected)
+          ✓ All tools processed ({acceptedCount} accepted, {rejectedCount} rejected)
         </div>
       )}
     </div>

@@ -48,8 +48,8 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({ message 
     message.actions.collapse()
   }
 
-  const handleApproveAll = () => {
-    message.actions.approveAll()
+  const handleAcceptAll = () => {
+    message.actions.acceptAll()
   }
 
   const handleRejectAll = () => {
@@ -156,7 +156,7 @@ export const BatchOperationCard: React.FC<BatchOperationCardProps> = ({ message 
         {message.status === 'pending' && (
           <div className="flex items-center space-x-2 mt-3 pt-3 border-t border-gray-700/50">
             <button
-              onClick={handleApproveAll}
+              onClick={handleAcceptAll}
               className="flex-1 inline-flex items-center justify-center px-3 py-1.5 border border-green-500/50 text-green-400 bg-green-500/10 rounded-md hover:bg-green-500/20 transition-colors duration-150 text-sm"
             >
               <CheckCircleIcon className="w-4 h-4 mr-1.5" />

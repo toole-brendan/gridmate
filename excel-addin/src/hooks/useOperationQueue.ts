@@ -48,7 +48,7 @@ export const useOperationQueue = (_sessionId: string) => {
   // Get execution order based on dependencies and can_approve flags
   const getExecutionOrder = useCallback((actions: PendingAction[]): string[] => {
     // Simply filter and sort by those that can be approved
-    const approvable = actions.filter(a => a.canApprove);
+    const approvable = actions.filter(a => a.canAccept);
     
     // Sort by priority (higher first) and batch grouping
     approvable.sort((a, b) => {

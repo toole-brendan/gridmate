@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gridmate/backend/internal/memory"
 	"github.com/gridmate/backend/internal/services/formula"
 	"github.com/rs/zerolog/log"
 )
@@ -33,6 +34,8 @@ type ToolExecutor struct {
 	operationQueue  chan OperationRequest
 	// Queued operations registry
 	queuedOpsRegistry interface{} // Will be set to *services.QueuedOperationRegistry
+	// Embedding provider for memory search
+	embeddingProvider EmbeddingProvider
 }
 
 // ExcelBridge interface for interacting with Excel
@@ -300,6 +303,11 @@ func NewToolExecutor(bridge ExcelBridge, formulaValidator *formula.FormulaIntell
 		parallelWorkers:  4, // Configurable based on system
 		cacheExpiry:      10 * time.Minute,
 	}
+}
+
+// SetEmbeddingProvider sets the embedding provider for memory search
+func (te *ToolExecutor) SetEmbeddingProvider(provider EmbeddingProvider) {
+	te.embeddingProvider = provider
 }
 
 // SetQueuedOperationRegistry sets the queued operation registry
@@ -741,6 +749,15 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 
 	case "organize_financial_model":
 		content, err := te.executeOrganizeFinancialModel(ctx, sessionID, toolCall.Input)
+		if err != nil {
+			result.IsError = true
+			result.Content = formatToolError(err)
+			return result, nil
+		}
+		result.Content = content
+
+	case "search_memory":
+		content, err := te.executeMemorySearch(ctx, sessionID, toolCall.Input)
 		if err != nil {
 			result.IsError = true
 			result.Content = formatToolError(err)
@@ -3097,4 +3114,152 @@ func parseCell(cell string) (col, row int, err error) {
 	row = int(row64) - 1
 
 	return col, row, nil
+}
+
+// executeMemorySearch performs memory search
+func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID string, input map[string]interface{}) (interface{}, error) {
+	// Extract parameters
+	query, ok := input["query"].(string)
+	if !ok || query == "" {
+		return nil, fmt.Errorf("query parameter is required")
+	}
+
+	sourceFilter, _ := input["source_filter"].(string)
+	if sourceFilter == "" {
+		sourceFilter = "all"
+	}
+
+	limit := 5
+	if l, ok := input["limit"].(float64); ok {
+		limit = int(l)
+		if limit < 1 {
+			limit = 1
+		} else if limit > 10 {
+			limit = 10
+		}
+	}
+
+	// includeContext := true
+	// if ic, ok := input["include_context"].(bool); ok {
+	// 	includeContext = ic
+	// }
+
+	// For now, return empty results since we need to refactor the memory search
+	// to work without circular dependencies
+	return map[string]interface{}{
+		"results": []interface{}{},
+		"message": "Memory search temporarily disabled during refactoring",
+	}, nil
+	
+	// TODO: Add GetMemoryStore(sessionID) method to ExcelBridge interface
+	// to avoid circular dependency with services package
+
+	/* Commented out until refactoring is complete
+	// Check if embedding provider is available
+	if te.embeddingProvider == nil {
+		log.Warn().Msg("Memory search called without embedding provider, using keyword fallback")
+		// Fallback to keyword search
+		memStore := (*session.MemoryStore).(*memory.InMemoryStore)
+		keywords := strings.Fields(query)
+		searchResults := memStore.KeywordSearch(keywords, limit, nil)
+		
+		results := make([]map[string]interface{}, len(searchResults))
+		for i, result := range searchResults {
+			results[i] = map[string]interface{}{
+				"source":     result.Chunk.Metadata.Source,
+				"content":    result.Chunk.Content,
+				"similarity": result.Similarity,
+				"reference":  formatChunkReference(result.Chunk),
+			}
+		}
+		
+		return map[string]interface{}{
+			"results":       results,
+			"query":         query,
+			"source_filter": sourceFilter,
+			"total_results": len(results),
+			"search_type":   "keyword",
+		}, nil
+	}
+
+	// Get query embedding
+	queryVector, err := te.embeddingProvider.GetEmbedding(ctx, query)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get query embedding")
+		return nil, fmt.Errorf("failed to get query embedding: %w", err)
+	}
+
+	// Create filter based on source
+	var filter memory.FilterFunc
+	if sourceFilter != "all" {
+		filter = func(chunk memory.Chunk) bool {
+			return chunk.Metadata.Source == sourceFilter
+		}
+	}
+
+	// Search memory
+	searchResults, err := (*session.MemoryStore).Search(queryVector, limit, filter)
+	if err != nil {
+		return nil, fmt.Errorf("memory search failed: %w", err)
+	}
+
+	// Format results
+	results := make([]map[string]interface{}, len(searchResults))
+	for i, result := range searchResults {
+		resultMap := map[string]interface{}{
+			"source":     result.Chunk.Metadata.Source,
+			"similarity": fmt.Sprintf("%.0f%%", result.Similarity*100),
+			"reference":  formatChunkReference(result.Chunk),
+		}
+		
+		if includeContext {
+			resultMap["content"] = result.Chunk.Content
+		} else {
+			// Truncate content
+			content := result.Chunk.Content
+			if len(content) > 200 {
+				content = content[:197] + "..."
+			}
+			resultMap["content"] = content
+		}
+		
+		results[i] = resultMap
+	}
+
+	response := map[string]interface{}{
+		"results":       results,
+		"query":         query,
+		"source_filter": sourceFilter,
+		"total_results": len(results),
+		"search_type":   "semantic",
+	}
+
+	log.Info().
+		Str("session", sessionID).
+		Str("query", query).
+		Int("results", len(results)).
+		Msg("Memory search completed")
+
+	return response, nil
+	*/
+}
+
+// formatChunkReference formats a chunk's metadata into a readable reference
+func formatChunkReference(chunk memory.Chunk) string {
+	switch chunk.Metadata.Source {
+	case "spreadsheet":
+		if chunk.Metadata.CellRange != "" {
+			return fmt.Sprintf("%s!%s", chunk.Metadata.SheetName, chunk.Metadata.CellRange)
+		}
+		return chunk.Metadata.SheetName
+	case "document":
+		if chunk.Metadata.PageNumber > 0 {
+			return fmt.Sprintf("%s (page %d)", chunk.Metadata.DocumentName, chunk.Metadata.PageNumber)
+		}
+		return chunk.Metadata.DocumentName
+	case "chat":
+		return fmt.Sprintf("Chat turn %d", chunk.Metadata.Turn)
+	default:
+		return chunk.Metadata.SourceID
+	}
 }

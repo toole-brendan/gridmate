@@ -40,7 +40,10 @@
       "Bash(az postgres flexible-server list:*)",
       "Bash(az postgres server firewall-rule create:*)",
       "Bash(az:*)",
-      "Bash(PGPASSWORD='Dunlainge1' psql -h gridmate-db-server.postgres.database.azure.com -U gridmateadmin -d gridmate_db -p 5432 -c \"SELECT version();\")"
+      "Bash(PGPASSWORD='Dunlainge1' psql -h gridmate-db-server.postgres.database.azure.com -U gridmateadmin -d gridmate_db -p 5432 -c \"SELECT version();\")",
+      "Bash(PGPASSWORD='Dunlainge1' psql -h gridmate-db-server.postgres.database.azure.com -U gridmateadmin -d gridmate_db -p 5432 -c \"SELECT version();\" --set=sslmode=require)",
+      "Bash(go get:*)",
+      "Bash(go doc:*)"
     ],
     "deny": []
   }

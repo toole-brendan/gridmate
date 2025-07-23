@@ -3,9 +3,23 @@ Perfect. I’ll now create a unified implementation plan for Gridmate that merge
 
 # Unified Plan: Persistent Context & Vectorized Long-Term Memory for Gridmate
 
+## Implementation Status
+
+### ✅ Already Implemented
+- **Context Merging (Section 1.2)**: `prompt_builder.go` already merges context into single system message
+- **Context Refresh (Section 1.4)**: `service.go` refreshes context after tool execution  
+- **Correct Message Order (Section 1.3)**: `excel_bridge.go` builds context before adding to history
+- **Frontend Infrastructure**: Chat manager and persisted token usage system ready
+
+### 🔧 Needs Implementation
+- **Vector Memory System**: Entire Section 2 to be built
+- **Memory Search Tool**: New tool for Claude to query vector store
+- **Document Ingestion**: PDF parsing and indexing
+- **Memory UI**: Document management and source visibility
+
 ## Goals and Overview
 
-We propose a comprehensive enhancement to Gridmate’s AI memory system that combines **immediate conversation context persistence** with **vectorized long-term knowledge integration**. In essence, the AI (Claude) will:
+We propose a comprehensive enhancement to Gridmate's AI memory system that combines **immediate conversation context persistence** with **vectorized long-term knowledge integration**. In essence, the AI (Claude) will:
 
 * **Never “Forget”** – Maintain full conversation history and the evolving spreadsheet state across turns, just as tools like Cline and RooCode ensure an AI always rebuilds its context from a memory source each session.
 * **Embed External Knowledge** – Automatically ingest large documents (e.g. PDF financial reports) and background data into a semantic vector store, enabling retrieval of relevant facts on demand (RAG-style). This mirrors the approach of VSCode agents like RooCode, which use local vector databases to give AI “instant recall” of project files.
@@ -63,11 +77,28 @@ By these steps, we achieve **robust short-term memory**: Claude is always given 
 
 With the conversation and immediate context solidified, we extend Gridmate’s capability by adding a **semantic long-term memory**. This system will ingest knowledge beyond the current prompt (large text from spreadsheets, lengthy chat history beyond 100 messages, user-provided PDFs or docs, etc.) and allow Claude to recall it via semantic search. The design follows a retrieval-augmented generation (RAG) approach, similar to what RooCode’s development and other IDE assistants are adopting: index everything in a vector store and query it for relevant pieces when needed.
 
-**2.1 Session-Scoped Vector Store:** On opening a workbook (starting a Gridmate session), we initialize a **vector database** dedicated to that session. This could be an in-memory index or a lightweight on-disk database. In Zed’s code editor (which integrates a semantic code search), they create a local LMDB-backed store for each project’s index. We can emulate this using a Go-friendly solution. Options include:
+**2.1 Session-Scoped Vector Store:** On opening a workbook (starting a Gridmate session), we initialize a **vector database** dedicated to that session. We'll start with a simple in-memory implementation and evolve as needed:
 
-* An in-memory **HNSW (Hierarchical Navigable Small World) index** or brute-force list for smaller data (up to a few thousand vectors, brute-force cosine similarity is fine; for larger, HNSW provides near O(log n) search).
-* Using an embedded database like **SQLite** with the `pg_vector` extension or an **LMDB** wrapper in Go, to store vectors persistently. Given each session is ephemeral, pure memory is acceptable; but we might want to persist the index to disk if the user saves the workbook and returns later, so the AI doesn’t have to re-ingest everything each time. We will likely start with in-memory for simplicity, then move to an on-disk persistent index per workbook for efficiency (just as Zed’s `SemanticDb` writes an index file to `/tmp/semantic-index-db.mdb` in their example).
-* We will define a data structure for our vector entries, e.g.:
+**Initial Implementation (Recommended):**
+```go
+// backend/internal/memory/vector_store.go
+type InMemoryVectorStore struct {
+    chunks []MemoryChunk
+    mu     sync.RWMutex
+}
+
+func (s *InMemoryVectorStore) Search(query []float32, topK int) []MemoryChunk {
+    // Simple brute-force cosine similarity
+    // Sufficient for <10k chunks, which covers most Excel use cases
+}
+```
+
+**Future Optimizations:**
+* For larger datasets (>10k chunks), implement HNSW (Hierarchical Navigable Small World) index
+* For persistence across sessions, consider LMDB or SQLite with vector extension
+* Key insight: Most financial models have <1000 meaningful chunks, so start simple
+
+**Data Structure:**
 
   ```go
   type MemoryChunk struct {
@@ -79,59 +110,330 @@ With the conversation and immediate context solidified, we extend Gridmate’s c
 
   The `MemorySourceMeta` can include info like source type (e.g. `"sheet"` or `"pdf"` or `"chat"`), identifiers (sheet name & cell range, document name & page, chat message timestamp or ID), etc. This metadata is crucial for helping the AI and user understand where a retrieved snippet came from.
 
-The vector store will be created when a session starts and disposed when it ends. If the same user re-opens the same workbook in a new session, we could either re-ingest from scratch or, if we saved an index, reload it. A future optimization is to cache indexes keyed by workbook file hash or user+file, so reopening a known file quickly reloads its memory without reprocessing (similar to how an IDE might cache an index of a project). For now, we focus on the single-session lifespan: the memory resets when the workbook is closed (which parallels Cline’s behavior of starting fresh each time, except that we can rebuild memory from persistent sources if needed).
+**Session Lifecycle:**
+```go
+// Extend ExcelSession to include memory
+type ExcelSession struct {
+    // ... existing fields ...
+    MemoryStore *InMemoryVectorStore // Add this
+}
 
-**2.2 Embedding Model and API:** To convert text into vectors, we’ll use a high-dimensional embedding model:
+// Initialize on session creation
+func (eb *ExcelBridge) CreateSession(sessionID string) {
+    session := &ExcelSession{
+        // ... existing initialization ...
+        MemoryStore: memory.NewInMemoryVectorStore(),
+    }
+    // Initial indexing of workbook
+    go eb.indexWorkbookContent(session)
+}
+```
 
-* **OpenAI’s text-embedding-ada-002** is a strong candidate, offering 1536-dimensional embeddings that capture semantic similarity well. Zed uses OpenAI embeddings in its index (with batch size up to 2048 texts), and RooCode also supports OpenAI for code. We can call OpenAI’s API from our backend (the Go code can use an HTTP client to hit the embedding endpoint). The cost is low (fractions of a cent per chunk) and latency is okay for moderate data sizes.
+For MVP, memory resets when workbook closes. Future optimization: persist index to disk keyed by workbook hash for instant reload.
 
-We will abstract the embedding provider behind an interface (much like Zed’s `EmbeddingProvider` trait), so we can plug in different backends. By default, `OpenAIEmbeddingProvider` will call the API and return normalized vectors (we will normalize embeddings to unit length for cosine similarity, as Zed does). This interface can later accommodate local models.
+**2.2 Embedding Model and API:** 
 
-**2.3 Automated Ingestion Pipeline:** Once the session starts and the vector store is ready, we populate it with various content:
+**Implementation:**
+```go
+// backend/internal/services/ai/embeddings.go
+type EmbeddingProvider interface {
+    GetEmbedding(ctx context.Context, text string) ([]float32, error)
+    GetEmbeddings(ctx context.Context, texts []string) ([][]float32, error) // Batch API
+}
 
-* **Spreadsheet Data:** We will embed the **full content of the Excel workbook** (or at least the portions not already in immediate context). This includes values and possibly formulas of all sheets, especially large tables or text that might not fit in the prompt. We’ll chunk the sheet data logically:
+type OpenAIEmbeddingProvider struct {
+    apiKey     string
+    httpClient *http.Client
+}
 
-  * Each worksheet can be processed by reading it into a data structure (range of used cells). For large continuous tables, we can chunk by rows or blocks (e.g. 20 rows per chunk or based on logical sections like a financial statement section). Each chunk’s text might look like “Sheet: Income Statement\nA1: Revenue | A2: 2022 = 5,000 | B2: 2023 = 6,000\n… (next rows)”. We preserve structure in the text form to give context.
-  * Another approach is to focus on parts of the sheet that are *not* currently selected or in the prompt (since the user’s selection and nearby cells are already in prompt). But to keep it simple, we can index everything and rely on similarity search to surface what’s needed.
-  * We’ll exclude very trivial cells (empty or single-number cells without headers) unless they are part of a larger table context, to reduce noise. The metadata for each chunk will record the sheet name and coordinate range.
+func (p *OpenAIEmbeddingProvider) GetEmbeddings(ctx context.Context, texts []string) ([][]float32, error) {
+    // Batch up to 2048 texts per request (OpenAI limit)
+    // Normalize vectors to unit length for cosine similarity
+    // Cache results to avoid re-embedding unchanged content
+}
+```
+
+**Why OpenAI text-embedding-ada-002:**
+- Proven performance for semantic search
+- 1536 dimensions capture nuanced financial concepts
+- Low cost (~$0.0001 per 1k tokens)
+- Fast response (~100ms for queries)
+
+**2.3 Automated Ingestion Pipeline:** 
+
+**Chunking Strategy for Spreadsheets:**
+```go
+func (eb *ExcelBridge) chunkSpreadsheet(data RangeData) []ChunkData {
+    chunks := []ChunkData{}
+    
+    // Strategy 1: Headers + Related Data (Keep context together)
+    if headers := detectHeaders(data); len(headers) > 0 {
+        for _, header := range headers {
+            chunk := ChunkData{
+                Text: formatHeaderWithData(header, data),
+                Meta: ChunkMeta{
+                    Type: "table_section",
+                    Sheet: data.Sheet,
+                    Range: header.DataRange,
+                },
+            }
+            chunks = append(chunks, chunk)
+        }
+    }
+    
+    // Strategy 2: Logical Financial Sections
+    sections := detectFinancialSections(data) // Income Statement, Balance Sheet, etc.
+    for _, section := range sections {
+        chunk := formatSection(section)
+        chunks = append(chunks, chunk)
+    }
+    
+    // Strategy 3: Individual Formulas with Context
+    for addr, formula := range data.Formulas {
+        if isComplexFormula(formula) {
+            chunk := ChunkData{
+                Text: fmt.Sprintf("Cell %s formula: %s\nReferences: %s", 
+                    addr, formula, extractReferences(formula)),
+                Meta: ChunkMeta{Type: "formula", Cell: addr},
+            }
+            chunks = append(chunks, chunk)
+        }
+    }
+    
+    return chunks
+}
+```
+
+**Key Principles:**
+- Keep headers with their data for context
+- Chunk by logical units (financial statements, tables)
+- Skip empty cells but preserve structure
+- Include formula dependencies
 
 * **Long Text in Cells:** If any cell contains a long text (e.g. a comment or a description paragraph), that single cell text can be a chunk on its own (with metadata pointing to that cell). This way, if the user asks about something mentioned in a note cell, Claude can find it.
 
 * **Conversation History:** We will also embed the conversation messages as they accumulate. Each user or assistant message (especially longer ones) can be a chunk. This provides a fallback if the conversation gets too long to include fully in the prompt: Claude can query the vector memory for older exchanges. For example, if the user references “the assumption we discussed earlier”, and that part of the conversation is no longer in the last 100 messages included, Claude could do a memory search for “assumption discussed” and find it. Initially, since we plan to include full history in prompt, this is more of a future-proofing step. But it has use in summarization: we might choose to only include last N turns in the prompt and rely on vector recall for anything older (much like the dev community’s experiments where they dropped huge conversation contexts in favor of RAG).
 
-* **External Documents:** A major benefit of the vector memory is to ingest **user-provided files** such as annual reports, SEC filings, or any textual reference. We’ll implement the ability for the user to upload or link a document in the UI (e.g. drag-and-drop a PDF into the add-in, or provide a URL). When this happens, the backend (or perhaps a background service) will:
+**Document Ingestion:**
+```go
+// backend/internal/services/document/parser.go
+type DocumentParser interface {
+    Parse(ctx context.Context, file io.Reader, filename string) ([]DocumentChunk, error)
+}
 
-  1. Extract the text from the document (using a PDF parser library).
-  2. Split it into chunks, e.g. by page or section headings. We aim for \~200-300 token chunks, overlapping slightly if needed to not break context mid-paragraph.
-  3. Embed each chunk and store it with metadata (doc name and page number).
+type PDFParser struct {
+    chunkSize    int // Target ~300 tokens per chunk
+    chunkOverlap int // 50 token overlap
+}
 
-  This will allow queries like “What does the 2022 10-K say about revenue growth?” to be answerable: Claude can search the memory and find the snippet from the 10-K that mentions revenue growth, instead of saying “I don’t have that document.” This mimics how one might use a vector DB to query documentation. RooCode’s RAG extension works just this way for Markdown notes, and our system will do it for financial docs.
+func (p *PDFParser) Parse(ctx context.Context, file io.Reader, filename string) ([]DocumentChunk, error) {
+    // Use pdfcpu or similar Go library
+    text := extractTextFromPDF(file)
+    
+    // Smart chunking by sections
+    chunks := []DocumentChunk{}
+    sections := detectSections(text) // Look for headers, page breaks
+    
+    for _, section := range sections {
+        if len(section.Text) > p.chunkSize {
+            // Split large sections with overlap
+            subChunks := splitWithOverlap(section.Text, p.chunkSize, p.chunkOverlap)
+            for i, chunk := range subChunks {
+                chunks = append(chunks, DocumentChunk{
+                    Text: chunk,
+                    Meta: DocumentMeta{
+                        Filename: filename,
+                        Section:  section.Title,
+                        Page:     section.StartPage,
+                        Part:     i + 1,
+                    },
+                })
+            }
+        } else {
+            chunks = append(chunks, DocumentChunk{
+                Text: section.Text,
+                Meta: DocumentMeta{
+                    Filename: filename,
+                    Section:  section.Title,
+                    Page:     section.StartPage,
+                },
+            })
+        }
+    }
+    
+    return chunks, nil
+}
+```
+
+This enables queries like "What does the 2022 10-K say about revenue growth?" by searching relevant snippets.
 
 * **Index Refreshing:** The ingestion isn’t one-time. If the spreadsheet changes significantly (like the user adds a new sheet or a huge amount of data), we should update the index. We can either automatically detect large changes or provide a manual “Re-index” trigger (see UI section). For external docs, if the user replaces a document or adds a new version, we can index the new one similarly. The system should avoid duplicating old and new – perhaps by segregating by document version or allowing the user to remove an old doc from memory.
 
 All these chunks (sheet data, chats, docs) get embedded and stored in the vector store. This might happen at session start (e.g. index the whole workbook and any already attached docs up front), and then incrementally during the session (embedding new messages or newly added content on the fly). We’ll handle embedding in batches for efficiency: e.g. if a PDF has 50 chunks, batch them into a single API call if using OpenAI (the API supports up to 2048 inputs in one request).
 
-**2.4 Memory Retrieval (Similarity Search):** To actually use this stored knowledge, we implement a **semantic search function** that given a query (in natural language), returns the most relevant stored chunks. We measure relevance via cosine similarity between the query embedding and the stored vectors.
+**2.4 Memory Retrieval (Similarity Search):**
 
-* We will add a method in our memory manager like `SearchMemory(query string, topK int) []MemoryChunk`. Internally, this computes the query’s embedding and does a nearest-neighbor search in the vector space. If using a simple approach, it can compute cosine similarity with every vector (since our session data might be on the order of hundreds or a few thousand chunks at most, this is fine). If performance becomes an issue with very large indexes, we’d integrate an ANN library or index structure (like HNSW or use the vector DB’s built-in search if we chose one). For example, if we used an embedding database like Chroma or an engine like Weaviate, we’d just call its query API. In a pure Go implementation, we may use a library or implement a basic HNSW index. Given the scope, a brute-force scan with optimized BLAS for dot products might even suffice for now.
+**Implementation:**
+```go
+func (s *InMemoryVectorStore) Search(queryVector []float32, topK int) []SearchResult {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    
+    // Calculate cosine similarity for all chunks
+    results := make([]SearchResult, 0, len(s.chunks))
+    for _, chunk := range s.chunks {
+        similarity := cosineSimilarity(queryVector, chunk.Vector)
+        if similarity > 0.7 { // Threshold to filter noise
+            results = append(results, SearchResult{
+                Chunk:      chunk,
+                Similarity: similarity,
+            })
+        }
+    }
+    
+    // Sort by similarity descending
+    sort.Slice(results, func(i, j int) bool {
+        return results[i].Similarity > results[j].Similarity
+    })
+    
+    // Return top K
+    if len(results) > topK {
+        results = results[:topK]
+    }
+    
+    return results
+}
 
-* The result should be a list of chunks, each with its content and metadata, plus a similarity score if desired. We will likely set a similarity threshold to ignore very irrelevant results, or always take the top 3-5 results.
+// Optimized cosine similarity using SIMD when available
+func cosineSimilarity(a, b []float32) float32 {
+    // Use gonum.org/v1/gonum/blas for optimized dot product
+    // Falls back to simple loop on unsupported platforms
+}
+```
 
-* *Tool for Claude:* We will expose this search capability to Claude via a tool (function call). For example, a tool named `"MemorySearch"` that Claude can invoke with a query string. When Claude calls `MemorySearch("revenue growth 2022")`, the backend will run `SearchMemory("revenue growth 2022", topK=5)` and then return a formatted answer containing the results. The format might be a list of snippets with source annotations, e.g.:
+**Performance Notes:**
+- Brute-force search is fine for <10k chunks (~10ms on modern CPU)
+- Cosine similarity threshold (0.7) filters irrelevant results
+- Top 3-5 results usually sufficient for context
 
-  * Result 1 (Sheet *Financials*, cells A10\:B12): *"2022 Revenue = 5,000 (↑20% YoY)"*
-  * Result 2 (Document *Acme\_Co\_10K.pdf*, p. 47): *"... the revenue growth for 2022 was 20%, primarily due to expansion in EU markets..."*
-  * Result 3 (Chat on Aug 1): *"User: What was our revenue growth last year? – Assistant: It was about 20%."*
+**Memory Search Tool for Claude:**
+```go
+// backend/internal/services/ai/tools.go
+var memorySearchTool = ExcelTool{
+    Name:        "memory_search",
+    Description: "Search long-term memory for relevant information from spreadsheets, documents, or past conversations",
+    InputSchema: json.RawMessage(`{
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Natural language search query"
+            },
+            "source_filter": {
+                "type": "string",
+                "enum": ["all", "sheets", "documents", "chat"],
+                "description": "Optional: filter by source type"
+            }
+        },
+        "required": ["query"]
+    }`),
+}
 
-  Claude will receive that text and can use it to compose its answer. By providing sources in the tool response, we not only help Claude keep track, but we could even return these to the user in a “sources” section if desired (though initial focus is the AI’s use).
+// Tool execution
+func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID string, input map[string]interface{}) (*ToolResult, error) {
+    query := input["query"].(string)
+    filter := "all"
+    if f, ok := input["source_filter"].(string); ok {
+        filter = f
+    }
+    
+    // Get session and search memory
+    session := te.bridge.GetSession(sessionID)
+    if session.MemoryStore == nil {
+        return &ToolResult{Content: "No memory available for this session"}, nil
+    }
+    
+    // Get query embedding
+    queryVector, err := te.embeddingProvider.GetEmbedding(ctx, query)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Search
+    results := session.MemoryStore.Search(queryVector, 5)
+    
+    // Format results
+    var formatted strings.Builder
+    formatted.WriteString("Found relevant information:\n\n")
+    
+    for i, result := range results {
+        source := formatSource(result.Chunk.Source)
+        formatted.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, source, result.Chunk.Content))
+        formatted.WriteString(fmt.Sprintf("   Relevance: %.0f%%\n\n", result.Similarity*100))
+    }
+    
+    return &ToolResult{
+        Content: formatted.String(),
+        Metadata: map[string]interface{}{
+            "result_count": len(results),
+            "sources": extractSources(results),
+        },
+    }, nil
+}
+```
 
 * *Automatic Retrieval:* In addition to explicit tool use, we implement **backend auto-retrieval** for user questions. That is, when a new user query comes in, the backend can preemptively search the memory and attach the top relevant snippets to the prompt (similar to how the “related information” was discussed in Plan 2). This would be done if we detect the query likely needs external info. For instance, if the user question mentions a term that appears in an indexed PDF, we fetch that snippet and include it in Claude’s system message (perhaps in a section like `<retrieved_info>...</retrieved_info>`). This automatic injection should be used judiciously – only when the confidence is high – to avoid cluttering the prompt with unrelated info. We will fine-tune a similarity threshold or use keywords to trigger it (e.g. if user explicitly asks “According to \[DocumentName]…” we certainly inject from that doc).
 
 Combining these, Claude has two pathways to access the long-term memory: passively via backend-injected context and actively via the `MemorySearch` tool. This two-pronged approach is exactly how many RAG systems are built (the agent can ask if needed, but often the system provides obvious context proactively). We saw RooCode’s agent uses a tool call (via MCP) to query its journal index when it recognizes a question about past info. We’ll encode similar instructions to Claude that if a question refers to something not in current prompt, it should use the MemorySearch tool.
 
-**2.5 Prompt and Tool Integration:** We will update the system prompt/instructions given to Claude to introduce the new memory capabilities. For example: *“You have access to a long-term memory of this session’s data and documents. You can use the `MemorySearch(query)` tool to look up any information from the spreadsheet (beyond the visible selection), previous conversation, or uploaded documents. The tool will return relevant snippets from memory.”* This nudges the AI to leverage the feature. We’ll also list the tool in the function list if using OpenAI function calling or ensure our ReAct tool parser knows about it.
+**2.5 Prompt and Tool Integration:**
 
-When Claude uses the tool, the conversation loop will capture the results and present them to Claude as a system or assistant message (depending on how our tool invocation is modeled). Claude can then incorporate that info into its answer. It should also ideally cite or refer to the source (e.g. “According to the Q4 report…”). At the very least, because we include source metadata in the snippet, the model’s answer is likely to mention it. This was seen in practice with other systems – e.g., an AI given a snippet “(Doc X, p.5): ...” might say “In Doc X (page 5), it states that…”.
+**Update System Prompt:**
+```go
+// Addition to getFinancialModelingSystemPrompt()
+const memoryInstructions = `
+<memory_capabilities>
+You have access to a long-term memory system containing:
+- Full spreadsheet data from all sheets
+- Previously uploaded documents (PDFs, reports, etc.)
+- Earlier conversation history
+- Complex formulas and their dependencies
+
+When information is not in the immediate context, use the memory_search tool:
+- For questions about specific values not visible
+- When users reference "the document" or "the report"
+- To find earlier discussions or decisions
+- To locate complex formulas or calculations
+
+Always cite sources when using retrieved information (e.g., "According to the Q4 report...")
+</memory_capabilities>
+`
+```
+
+**Context Injection for Retrieved Info:**
+```go
+func (pb *PromptBuilder) BuildPromptWithMemory(userMessage string, context *FinancialContext, history []Message, retrievedChunks []MemoryChunk) []Message {
+    // Build base prompt
+    messages := pb.BuildPromptWithHistory(userMessage, context, history)
+    
+    // If we have retrieved chunks, add them to system message
+    if len(retrievedChunks) > 0 && len(messages) > 0 {
+        systemMsg := &messages[0]
+        
+        var retrieved strings.Builder
+        retrieved.WriteString("\n\n<retrieved_context>\n")
+        for _, chunk := range retrievedChunks {
+            source := formatSource(chunk.Source)
+            retrieved.WriteString(fmt.Sprintf("[%s]: %s\n\n", source, chunk.Content))
+        }
+        retrieved.WriteString("</retrieved_context>")
+        
+        systemMsg.Content += retrieved.String()
+    }
+    
+    return messages
+}
+```
 
 **2.6 User Interface for Memory:** We will add UI elements to make the vector memory feature transparent and user-friendly:
 
@@ -173,17 +475,81 @@ From a user’s perspective, the AI will feel **much more intelligent and attent
 
 Technically, our approach ensures we maximize the use of Anthropic’s 200k token window in an efficient way: fill it with current relevant info and just-in-time retrieved facts, rather than always stuffing it with everything. This is in line with modern best practices in AI system design. As one developer noted, *“In an ideal world, the AI would always have the full history… but current tech has limits… RAG offers a pragmatic compromise”*. We embrace that compromise: using retrieval augmented generation to appear as if the AI has an expansive memory, while actually only providing it what it needs when it needs it.
 
-## 4. Implementation Plan Summary (File-by-File)
+## 4. Phased Implementation Strategy
 
-To ground this in concrete steps, here’s a summary of changes across the codebase:
+### Phase 1: Foundation (Week 1)
+**Goal:** Basic vector memory infrastructure
 
-* **`backend/internal/services/ai/prompt_builder.go`:** Merge context into the single system prompt (as per 1.2). Ensure `BuildChatPrompt` and any similar methods produce one system message with all necessary instructions + context. The `buildContextPrompt` function might be tweaked to include recent changes and any other metadata in a consistent format (XML tags or markdown sections).
+1. **Create Memory Package**
+   - `backend/internal/memory/vector_store.go` - In-memory vector store
+   - `backend/internal/memory/chunk.go` - Data structures
+   - `backend/internal/memory/manager.go` - Session memory management
 
-* **`backend/internal/services/ai/service.go`:** Update `ProcessChatWithToolsAndHistory` to *always* inject the system/context message (remove `len(history)==0` check) and to handle tool outputs appropriately. Register a new tool (if using function calling) for MemorySearch – define its name and signature so Claude knows how to call it. Ensure that when MemorySearch is invoked, the service calls the vector store’s search and returns the result text properly.
+2. **Add Embedding Service**
+   - `backend/internal/services/ai/embeddings.go` - OpenAI embedding provider
+   - Add caching layer for embeddings
 
-* **`backend/internal/services/excel_bridge.go`:** Refactor `ProcessChatMessage` logic (1.3) to build prompts before adding to history, handle first-turn vs subsequent turns accordingly. After getting `aiResponse`, add messages to history. Also integrate building the FinancialContext each time (using `ContextBuilder.BuildContext(session)` to get the latest sheet info).
+3. **Integrate with Sessions**
+   - Extend `ExcelSession` to include `MemoryStore`
+   - Initialize memory on session creation
 
-* **`backend/internal/services/ai/context_builder.go` (or where FinancialContext is built):** No major changes, just ensure it can be called every turn and perhaps is optimized if needed. It already merges recent edits; we might extend it to capture a broader snapshot if no selection (e.g., gather key cells from entire sheet if nothing selected, so context is never empty).
+### Phase 2: Memory Search Tool (Week 2)
+**Goal:** Enable Claude to search memory
+
+1. **Add Memory Search Tool**
+   - Add to `tools.go` with proper schema
+   - Implement in `tool_executor.go`
+   - Update tool selection logic
+
+2. **Test Tool Usage**
+   - Verify Claude uses the tool appropriately
+   - Fine-tune prompts if needed
+
+### Phase 3: Spreadsheet Indexing (Week 3)
+**Goal:** Index Excel data automatically
+
+1. **Implement Chunking**
+   - Smart chunking for spreadsheet data
+   - Formula dependency tracking
+   - Named range handling
+
+2. **Background Indexing**
+   - Index on session start
+   - Incremental updates on changes
+
+### Phase 4: Document Support (Week 4)
+**Goal:** Enable PDF/document upload and indexing
+
+1. **Document Parser**
+   - `backend/internal/services/document/parser.go`
+   - PDF text extraction
+   - Smart section-based chunking
+
+2. **Upload Endpoint**
+   - Add document upload API
+   - Store and index documents
+
+### Phase 5: Frontend Integration (Week 5)
+**Goal:** User-friendly memory management
+
+1. **Memory Panel Component**
+   - Document list with status
+   - Upload interface
+   - Memory usage stats
+
+2. **Source Attribution**
+   - Show sources in chat responses
+   - Clickable references
+
+## 5. Implementation Details (File-by-File)
+
+* **`backend/internal/services/ai/prompt_builder.go`:** ✅ Already implemented - merges context into single system message
+
+* **`backend/internal/services/ai/service.go`:** ✅ Mostly complete - just need to add MemorySearch tool registration
+
+* **`backend/internal/services/excel_bridge.go`:** ✅ Already implemented - builds context before adding to history
+
+* **`backend/internal/services/ai/context_builder.go`:** ✅ Already handles full context building
 
 * **`backend/internal/memory/`** (new package or part of `ai/`): Implement the **MemoryIndex manager**. This includes:
 
@@ -209,9 +575,35 @@ To ground this in concrete steps, here’s a summary of changes across the codeb
 
 * **Telemetry/Logging:** It’s wise to log memory usage and searches on the backend for monitoring. For instance, log when a PDF is indexed (how many chunks, how long it took), and log each MemorySearch query and whether results were found. This can help debug and also measure usefulness (if we see many memory searches returning nothing, maybe we need to ingest more data, etc.).
 
-## 5. Conclusion
+## 6. Key Implementation Insights
 
-By merging immediate context persistence with a vectorized long-term memory, Gridmate’s AI will achieve a new level of competency and user-friendliness. It will combine the **reliable context recall of Cline** (which never forgets what’s in its Memory Bank) with the **vast knowledge reach of RooCode’s RAG system** (which can draw on an entire codebase or knowledge base on the fly). In practical terms for our users, this means:
+### Why This Approach Works
+
+1. **Start Simple**: In-memory vector store is sufficient for MVP
+   - Most financial models have <1000 meaningful chunks
+   - Brute-force search is fast enough (<10ms)
+   - Complexity can be added later if needed
+
+2. **Leverage Existing Infrastructure**: 
+   - Context system already handles immediate memory well
+   - Session management provides natural scoping
+   - Tool system makes memory search integration clean
+
+3. **Focus on User Value**:
+   - Automatic spreadsheet indexing (no manual setup)
+   - Natural language search ("find revenue assumptions")
+   - Source attribution builds trust
+
+### Critical Success Factors
+
+1. **Smart Chunking**: Keep related data together (headers + values)
+2. **Efficient Embeddings**: Batch API calls, cache aggressively  
+3. **Relevant Retrieval**: Use similarity threshold to filter noise
+4. **Clear Attribution**: Always show where information came from
+
+## 7. Conclusion
+
+By merging immediate context persistence with a vectorized long-term memory, Gridmate's AI will achieve a new level of competency and user-friendliness. It will combine the **reliable context recall of Cline** (which never forgets what's in its Memory Bank) with the **vast knowledge reach of RooCode's RAG system** (which can draw on an entire codebase or knowledge base on the fly). In practical terms for our users, this means:
 
 * **Fluid Multi-Turn Dialogue:** The AI will remember your earlier questions, answers, and instructions without needing repetition. You can have a conversation that builds step by step, just like working with a human analyst who takes notes.
 * **Always Context-Aware:** No matter where you navigate in your Excel model, the AI is aware of the numbers, formulas, and changes. If you switch sheets or update values, the AI’s answers adjust accordingly on the next turn. This eliminates the “please select the range” friction – the assistant feels omniscient within the workbook.

@@ -20,7 +20,7 @@ import { AuditLogger } from '../../utils/safetyChecks';
 // --- Types ---
 import { AutonomyMode } from './AutonomyModeSelector';
 import { MentionItem, ContextItem } from '../chat/mentions';
-import { isToolSuggestion, isBatchOperation, ToolSuggestionMessage } from '../../types/enhanced-chat';
+import { isToolSuggestion, isBatchOperation, ToolSuggestionMessage, isDiffPreview } from '../../types/enhanced-chat';
 import { StatusMessage } from '../../types/enhanced-chat';
 
 // --- Zustand Store ---
@@ -302,14 +302,29 @@ export const RefactoredChatInterface: React.FC = () => {
     }
   };
 
-  // Track pending tool suggestions
+  // Track pending tool suggestions and diff previews
   useEffect(() => {
-    const pending = new Map<string, ToolSuggestionMessage>();
+    const pending = new Map<string, any>();
     chatManager.messages.forEach(msg => {
+      // Include both tool-suggestion messages and diff-preview messages
       if (isToolSuggestion(msg) && msg.status === 'pending') {
         pending.set(msg.tool.id, msg);
+      } else if (isDiffPreview(msg) && msg.status === 'pending') {
+        // For diff-preview messages, create a compatible structure
+        const toolSuggestion = {
+          ...msg,
+          tool: {
+            id: msg.requestId,
+            name: msg.operation.tool,
+            description: msg.operation.description,
+            parameters: msg.operation.input
+          },
+          actions: msg.actions
+        };
+        pending.set(msg.requestId, toolSuggestion);
       }
     });
+    console.log('[RefactoredChatInterface] Updated pending tools:', pending.size, 'items');
     setPendingTools(prev => ({ ...prev, suggestions: pending }));
   }, [chatManager.messages]);
 
@@ -529,11 +544,18 @@ export const RefactoredChatInterface: React.FC = () => {
 
   // Handle Accept All action
   const handleAcceptAll = useCallback(async () => {
+    console.log('[RefactoredChatInterface] handleAcceptAll called');
     const pendingActions = Array.from(pendingTools.suggestions.values());
     const pendingCount = pendingActions.length;
     
+    console.log('[RefactoredChatInterface] pendingActions:', pendingActions);
+    console.log('[RefactoredChatInterface] pendingCount:', pendingCount);
+    
     // Don't proceed if no pending actions
-    if (pendingCount === 0) return;
+    if (pendingCount === 0) {
+      console.log('[RefactoredChatInterface] No pending actions, returning');
+      return;
+    }
     
     // Confirmation for large batches
     if (pendingCount > 10) {
@@ -568,7 +590,7 @@ export const RefactoredChatInterface: React.FC = () => {
             // Use batch execution for multiple operations of same type
             const batchRequests = operations.map(op => ({
               tool: op.tool.name,
-              input: op.tool.parameters
+              input: op.tool.parameters // parameters already contains the full input object
             }));
             
             await ExcelService.getInstance().batchExecuteToolRequests(batchRequests);

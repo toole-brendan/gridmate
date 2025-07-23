@@ -488,11 +488,28 @@ You have FULL READ AND WRITE ACCESS to Excel through these tools:
 - create_chart: Create charts
 - build_financial_formula: Build financial formulas
 - smart_format_cells: Apply intelligent formatting
+- search_memory: Search your long-term memory for relevant information
 - organize_financial_model: Create model structure
 - And many more Excel manipulation tools
 
 CRITICAL: You CAN and SHOULD use these tools to directly create, modify, and analyze Excel content. Do NOT say you cannot modify Excel - you have full capabilities through these tools.
 </excel_capabilities>
+
+<memory_capabilities>
+You have access to a long-term memory system containing:
+- Full spreadsheet data from all sheets
+- Previously uploaded documents (PDFs, reports, etc.)
+- Earlier conversation history beyond what's in the current context
+- Complex formulas and their dependencies
+
+When information is not in the immediate context, use the search_memory tool to:
+- Find specific values or formulas not currently visible
+- Look up information from uploaded documents
+- Recall earlier discussions or decisions
+- Locate complex calculations or model sections
+
+Always cite sources when using retrieved information (e.g., "According to the Q4 report..." or "As we discussed earlier...")
+</memory_capabilities>
 
 <communication_standards>
 - Use financial terminology precisely (IRR, NPV, DCF, LBO, WACC, etc.)
@@ -1030,4 +1047,88 @@ func (pb *PromptBuilder) DetectModelType(context *FinancialContext) string {
 	}
 
 	return "General"
+}
+
+// BuildPromptWithMemory builds a prompt with relevant memory chunks included
+func (pb *PromptBuilder) BuildPromptWithMemory(userMessage string, context *FinancialContext, history []Message, retrievedChunks []interface{}) []Message {
+	// Build base prompt with history
+	messages := pb.BuildPromptWithHistory(userMessage, context, history)
+	
+	// If we have retrieved chunks, add them to the system message
+	if len(retrievedChunks) > 0 && len(messages) > 0 {
+		// Find the system message (should be first)
+		systemMsg := &messages[0]
+		
+		var retrieved strings.Builder
+		retrieved.WriteString("\n\n<retrieved_knowledge>\n")
+		retrieved.WriteString("The following relevant information was found in your memory:\n\n")
+		
+		for i, chunkInterface := range retrievedChunks {
+			// Type assert to get the chunk
+			if chunkMap, ok := chunkInterface.(map[string]interface{}); ok {
+				source := ""
+				if s, ok := chunkMap["source"].(string); ok {
+					source = s
+				}
+				content := ""
+				if c, ok := chunkMap["content"].(string); ok {
+					content = c
+				}
+				reference := ""
+				if r, ok := chunkMap["reference"].(string); ok {
+					reference = r
+				}
+				
+				retrieved.WriteString(fmt.Sprintf("%d. [%s - %s]: %s\n\n", i+1, source, reference, content))
+			}
+		}
+		
+		retrieved.WriteString("</retrieved_knowledge>\n")
+		retrieved.WriteString("\nPlease use this information to inform your response when relevant. Always cite the source when using retrieved information.")
+		
+		systemMsg.Content += retrieved.String()
+	}
+	
+	return messages
+}
+
+// shouldSearchMemory determines if memory search would be helpful for the query
+func shouldSearchMemory(userMessage string) bool {
+	// Convert to lowercase for checking
+	lower := strings.ToLower(userMessage)
+	
+	// Check for document references
+	documentKeywords := []string{
+		"according to", "in the report", "the document", "from the pdf",
+		"as mentioned", "as stated", "the file", "uploaded document",
+	}
+	for _, keyword := range documentKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	
+	// Check for historical references
+	historicalKeywords := []string{
+		"earlier", "previously", "before", "last time", "you said",
+		"we discussed", "remember when", "recall",
+	}
+	for _, keyword := range historicalKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	
+	// Check for specific data requests that might not be in current view
+	dataKeywords := []string{
+		"find", "search for", "look up", "what is the", "show me",
+		"where is", "locate", "get the value",
+	}
+	for _, keyword := range dataKeywords {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	
+	return false
 }

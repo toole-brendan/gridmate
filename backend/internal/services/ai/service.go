@@ -588,7 +588,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 		// For empty spreadsheet, include only essential tools for creation
 		for _, tool := range allTools {
 			switch tool.Name {
-			case "write_range", "apply_formula", "format_range":
+			case "write_range", "apply_formula", "format_range", "apply_layout":
 				selectedTools = append(selectedTools, tool)
 			}
 		}
@@ -611,7 +611,7 @@ func (s *Service) selectRelevantTools(userMessage string, context *FinancialCont
 		// General request - include basic read/write tools
 		for _, tool := range allTools {
 			switch tool.Name {
-			case "read_range", "write_range", "apply_formula", "analyze_data":
+			case "read_range", "write_range", "apply_formula", "analyze_data", "format_range", "apply_layout":
 				selectedTools = append(selectedTools, tool)
 			}
 		}

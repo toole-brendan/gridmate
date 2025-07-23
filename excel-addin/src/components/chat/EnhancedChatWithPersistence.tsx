@@ -2,7 +2,8 @@ import React from 'react'
 import { EnhancedChatInterface } from './EnhancedChatInterface'
 import { usePersistedChat } from '../../hooks/usePersistedChat'
 import { ExcelChangeTracker } from '../../services/excel/ExcelChangeTracker'
-import { EnhancedChatMessage, ContextItem } from '../../types/enhanced-chat'
+import { EnhancedChatMessage } from '../../types/enhanced-chat'
+import { ContextItem } from '../chat/mentions'
 
 interface EnhancedChatWithPersistenceProps {
   sessionId: string
@@ -23,7 +24,7 @@ interface EnhancedChatWithPersistenceProps {
   hasUndo?: boolean
   hasRedo?: boolean
   pendingToolsCount?: number
-  onApproveAll?: () => void
+  onAcceptAll?: () => void
   onRejectAll?: () => void
   isProcessingBulkAction?: boolean
   aiIsGenerating?: boolean
@@ -31,6 +32,7 @@ interface EnhancedChatWithPersistenceProps {
   onContextToggle?: () => void
   onAcceptDiff?: () => Promise<void>
   onRejectDiff?: () => Promise<void>
+  tokenUsage?: any
 }
 
 export const EnhancedChatWithPersistence: React.FC<EnhancedChatWithPersistenceProps> = (props) => {
@@ -85,6 +87,7 @@ export const EnhancedChatWithPersistence: React.FC<EnhancedChatWithPersistencePr
       messages={messages}
       activeContext={enhancedContext}
       onClearChat={handleClearChat}
+      tokenUsage={props.tokenUsage}
     />
   )
 }

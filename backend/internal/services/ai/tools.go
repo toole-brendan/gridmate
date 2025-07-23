@@ -160,6 +160,30 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
+			Name:        "apply_layout",
+			Description: "Apply visual layout changes to cells, including merging, unmerging, and future layout features.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"range": map[string]interface{}{
+						"type":        "string",
+						"description": "The Excel range to apply layout changes to (e.g., 'A1:E1', 'Sheet1!A1:G1'). Must be a rectangular range.",
+					},
+					"merge": map[string]interface{}{
+						"type":        "string",
+						"description": "Merge operation type",
+						"enum":        []string{"all", "across", "unmerge"},
+					},
+					"preserve_content": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Whether to preserve content in top-left cell when merging",
+						"default":     true,
+					},
+				},
+				"required": []string{"range"},
+			},
+		},
+		{
 			Name:        "create_chart",
 			Description: "Create a chart based on data in the spreadsheet. Supports various chart types commonly used in financial modeling.",
 			InputSchema: map[string]interface{}{
@@ -484,6 +508,38 @@ func GetExcelTools() []ExcelTool {
 					},
 				},
 				"required": []string{},
+			},
+		},
+		{
+			Name:        "search_memory",
+			Description: "Search long-term memory for relevant information from spreadsheets, documents, or past conversations. Use this when you need to recall information that's not in the current context.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "Natural language search query",
+					},
+					"source_filter": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"all", "spreadsheet", "document", "chat"},
+						"description": "Filter results by source type",
+						"default":     "all",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum number of results to return",
+						"default":     5,
+						"minimum":     1,
+						"maximum":     10,
+					},
+					"include_context": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Include surrounding context for each result",
+						"default":     true,
+					},
+				},
+				"required": []string{"query"},
 			},
 		},
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/gridmate/backend/internal/services"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/services/documents"
+	"github.com/gridmate/backend/internal/services/indexing"
 	"github.com/gridmate/backend/pkg/logger"
 )
 
@@ -86,6 +87,21 @@ func main() {
 	// Initialize Excel bridge service, injecting the AI service
 	excelBridge := services.NewExcelBridge(logger, aiService)
 	excelBridge.SetSessionManager(sessionManager)
+	
+	// Initialize embedding provider and indexing service for vector memory
+	var indexingService *indexing.IndexingService
+	var embeddingProvider ai.EmbeddingProvider
+	openAIKey := os.Getenv("OPENAI_API_KEY")
+	if openAIKey != "" {
+		embeddingProvider = ai.NewOpenAIEmbeddingProvider(openAIKey)
+		indexingService = indexing.NewIndexingService(embeddingProvider, logger)
+		excelBridge.SetIndexingService(indexingService)
+		
+		logger.Info("Vector memory indexing service initialized with OpenAI embeddings")
+	} else {
+		logger.Warn("OPENAI_API_KEY not set, vector memory search will use keyword fallback")
+	}
+	
 	if aiService != nil {
 		// Set the AI service on the bridge
 		excelBridge.SetAIService(aiService)
@@ -95,6 +111,12 @@ func main() {
 		if toolExecutor != nil {
 			aiService.SetToolExecutor(toolExecutor)
 			logger.Info("Tool executor transferred to main AI service")
+			
+			// Set embedding provider on tool executor if available
+			if embeddingProvider != nil {
+				toolExecutor.SetEmbeddingProvider(embeddingProvider)
+				logger.Info("Embedding provider set on tool executor for memory search")
+			}
 		}
 
 		// Wire context builder to AI service

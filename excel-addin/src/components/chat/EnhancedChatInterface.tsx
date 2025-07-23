@@ -606,7 +606,18 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
             {/* Bulk action buttons */}
             <div className="flex items-center gap-2">
               <button
-                onClick={onAcceptAll}
+                onClick={() => {
+                  console.log('[EnhancedChatInterface] Accept All clicked', {
+                    onAcceptAll: !!onAcceptAll,
+                    pendingToolsCount,
+                    isProcessingBulkAction
+                  });
+                  if (onAcceptAll) {
+                    onAcceptAll();
+                  } else {
+                    console.error('[EnhancedChatInterface] onAcceptAll prop is not provided!');
+                  }
+                }}
                 disabled={isProcessingBulkAction || pendingToolsCount === 0}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-caption border transition-all duration-150 ${
                   pendingToolsCount > 0

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gridmate/backend/internal/memory"
+	"github.com/gridmate/backend/internal/models"
 	"github.com/gridmate/backend/internal/services/ai"
 	"github.com/gridmate/backend/internal/services/chat"
 	"github.com/gridmate/backend/internal/services/excel"
@@ -48,6 +50,9 @@ type ExcelBridge struct {
 
 	// Request ID mapper for tool execution
 	requestIDMapper *RequestIDMapper
+
+	// Indexing service for vector memory
+	indexingService interface{} // Will be set by main.go
 }
 
 // ExcelSession represents an active Excel session
@@ -59,6 +64,22 @@ type ExcelSession struct {
 	Selection    SelectionChanged
 	Context      map[string]interface{}
 	LastActivity time.Time
+	CreatedAt    time.Time
+	LastRefresh  time.Time
+	
+	// Memory support
+	MemoryStore  *memory.VectorStore `json:"-"` // Don't serialize
+	MemoryStats  *MemoryStats        // Statistics for UI
+}
+
+// MemoryStats contains memory statistics for the session
+type MemoryStats struct {
+	TotalChunks       int
+	SpreadsheetChunks int
+	DocumentChunks    int
+	ChatChunks        int
+	LastIndexed       time.Time
+	IndexVersion      string
 }
 
 // NewExcelBridge creates a new Excel bridge service
@@ -168,6 +189,14 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 
 	if _, exists := eb.sessions[sessionID]; !exists {
 		now := time.Now()
+		
+		// Initialize with memory store
+		var memStore memory.VectorStore = memory.NewHybridVectorStore(
+			memory.WithInMemoryCache(10000), // 10k chunks max
+			memory.WithDiskPersistence(fmt.Sprintf("./data/sessions/%s.db", sessionID)),
+			memory.WithAutoSave(5 * time.Minute),
+		)
+		
 		eb.sessions[sessionID] = &ExcelSession{
 			ID:           sessionID,
 			UserID:       "signalr-user",
@@ -175,7 +204,13 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 			ActiveSheet:  "Sheet1",
 			Context:      make(map[string]interface{}),
 			LastActivity: now,
+			CreatedAt:    now,
+			MemoryStore:  &memStore,
+			MemoryStats:  &MemoryStats{IndexVersion: "1.0"},
 		}
+		
+		// Start background indexing of initial workbook state
+		go eb.indexInitialWorkbook(sessionID)
 
 		// Register with centralized session manager
 		if eb.sessionManager != nil {
@@ -236,6 +271,11 @@ func (eb *ExcelBridge) SetSignalRBridge(bridge interface{}) {
 	if eb.excelBridgeImpl != nil {
 		eb.excelBridgeImpl.SetSignalRBridge(bridge)
 	}
+}
+
+// SetIndexingService sets the indexing service instance
+func (eb *ExcelBridge) SetIndexingService(service interface{}) {
+	eb.indexingService = service
 }
 
 // GetBridgeImpl returns the Excel bridge implementation
@@ -499,13 +539,24 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		response.TokenUsage = &TokenUsage{
 			Input:  aiResponse.Usage.PromptTokens,
 			Output: aiResponse.Usage.CompletionTokens,
-			Total:  aiResponse.Usage.PromptTokens, // This represents current context size
+			Total:  aiResponse.Usage.TotalTokens, // Fixed: use TotalTokens for cumulative usage
 			Max:    200000, // Claude 3.5's context window
 		}
+		
+		// Log token usage for debugging
+		eb.logger.Info("Sending token usage", 
+			zap.Int("input", response.TokenUsage.Input),
+			zap.Int("output", response.TokenUsage.Output),
+			zap.Int("total", response.TokenUsage.Total))
 	}
 
 	// Update session activity
 	session.LastActivity = time.Now()
+
+	// Index chat messages to vector memory if available
+	if session.MemoryStore != nil && eb.indexingService != nil && response.Content != "" {
+		go eb.indexChatExchange(session.ID, message.Content, response.Content, len(aiHistory)/2)
+	}
 
 	return response, nil
 }
@@ -606,6 +657,73 @@ func (eb *ExcelBridge) GetSession(sessionID string) *ExcelSession {
 		return session
 	}
 	return nil
+}
+
+// GetWorkbookData retrieves all workbook data for indexing
+func (eb *ExcelBridge) GetWorkbookData(sessionID string) *models.Workbook {
+	session := eb.GetSession(sessionID)
+	if session == nil {
+		return nil
+	}
+
+	workbook := &models.Workbook{
+		Name:   "Current Workbook", // Could be enhanced to get actual workbook name
+		Sheets: make([]*models.Sheet, 0),
+	}
+
+	// For now, we'll focus on the active sheet
+	// In the future, this could be enhanced to get all sheets
+	activeSheet := session.ActiveSheet
+	if activeSheet == "" {
+		activeSheet = "Sheet1" // Default sheet name
+	}
+
+	// Get the used range for the active sheet
+	// For now, use a default range since getWorksheetUsedRange is unexported
+	// TODO: Export the method or implement a different approach
+	usedRange := "A1:Z100"
+
+	// Read the range data
+	ctx := context.Background()
+	rangeData, err := eb.excelBridgeImpl.ReadRange(ctx, sessionID, usedRange, true, true)
+	if err != nil {
+		eb.logger.WithError(err).Error("Failed to read range data for indexing")
+		return workbook
+	}
+
+	// Create sheet model
+	sheet := &models.Sheet{
+		Name:      activeSheet,
+		UsedRange: usedRange,
+		IsActive:  true,
+		Data: &models.RangeData{
+			Sheet:  activeSheet,
+			Range:  usedRange,
+			Values: rangeData.Values,
+		},
+	}
+
+	// Extract formulas if available from rangeData.Formulas
+	if rangeData.Formulas != nil {
+		sheet.Data.Formulas = make([][]string, len(rangeData.Formulas))
+		for i, row := range rangeData.Formulas {
+			sheet.Data.Formulas[i] = make([]string, len(row))
+			for j, formula := range row {
+				if f, ok := formula.(string); ok {
+					sheet.Data.Formulas[i][j] = f
+				}
+			}
+		}
+	}
+
+	workbook.Sheets = append(workbook.Sheets, sheet)
+
+	// Cache the range data for future use
+	eb.cacheMutex.Lock()
+	eb.rangeCache[fmt.Sprintf("%s!%s", activeSheet, usedRange)] = rangeData.Values
+	eb.cacheMutex.Unlock()
+
+	return workbook
 }
 
 func (eb *ExcelBridge) buildContext(session *ExcelSession, additionalContext map[string]interface{}) map[string]interface{} {
@@ -1494,5 +1612,99 @@ func (eb *ExcelBridge) mergeMessageContext(fc *ai.FinancialContext, msgContext m
 		if str, ok := v.(string); ok && k != "selectedData" && k != "nearbyData" {
 			fc.DocumentContext = append(fc.DocumentContext, fmt.Sprintf("%s: %s", k, str))
 		}
+	}
+}
+
+// indexInitialWorkbook starts background indexing of the workbook
+func (eb *ExcelBridge) indexInitialWorkbook(sessionID string) {
+	eb.logger.WithField("session_id", sessionID).Info("Starting initial workbook indexing")
+	
+	// Get session and check if memory store exists
+	session := eb.GetSession(sessionID)
+	if session == nil || session.MemoryStore == nil {
+		eb.logger.WithField("session_id", sessionID).Error("Session or memory store not found for indexing")
+		return
+	}
+
+	// Check if indexing service is available
+	if eb.indexingService == nil {
+		eb.logger.Warn("Indexing service not configured, skipping workbook indexing")
+		return
+	}
+
+	// Get workbook data
+	workbook := eb.GetWorkbookData(sessionID)
+	if workbook == nil || len(workbook.Sheets) == 0 {
+		eb.logger.WithField("session_id", sessionID).Warn("No workbook data available for indexing")
+		return
+	}
+
+	// Use type assertion to call the indexing service
+	type indexingServiceInterface interface {
+		IndexWorkbook(ctx context.Context, sessionID string, workbook *models.Workbook, store memory.VectorStore) error
+	}
+
+	if indexer, ok := eb.indexingService.(indexingServiceInterface); ok {
+		ctx := context.Background()
+		err := indexer.IndexWorkbook(ctx, sessionID, workbook, *session.MemoryStore)
+		
+		if err != nil {
+			eb.logger.WithError(err).WithField("session_id", sessionID).Error("Failed to index workbook")
+		} else {
+			// Update session stats on successful indexing
+			eb.sessionMutex.Lock()
+			if session.MemoryStats != nil {
+				session.MemoryStats.LastIndexed = time.Now()
+				if store := *session.MemoryStore; store != nil {
+					if statsGetter, ok := store.(interface{ GetStats() memory.Stats }); ok {
+						stats := statsGetter.GetStats()
+						session.MemoryStats.TotalChunks = stats.TotalChunks
+						session.MemoryStats.SpreadsheetChunks = stats.SpreadsheetChunks
+					}
+				}
+			}
+			eb.sessionMutex.Unlock()
+			
+			eb.logger.WithField("session_id", sessionID).Info("Workbook indexing completed successfully")
+		}
+	} else {
+		eb.logger.Error("Indexing service does not implement required interface")
+	}
+}
+
+// indexChatExchange indexes a chat exchange (user message + assistant response) to memory
+func (eb *ExcelBridge) indexChatExchange(sessionID, userMessage, assistantResponse string, turn int) {
+	session := eb.GetSession(sessionID)
+	if session == nil || session.MemoryStore == nil {
+		return
+	}
+
+	// Use type assertion to call the indexing service
+	type chatIndexerInterface interface {
+		IndexChatMessages(ctx context.Context, sessionID string, userMessage, assistantResponse string, turn int, store memory.VectorStore) error
+	}
+
+	if indexer, ok := eb.indexingService.(chatIndexerInterface); ok {
+		ctx := context.Background()
+		err := indexer.IndexChatMessages(ctx, sessionID, userMessage, assistantResponse, turn, *session.MemoryStore)
+		
+		if err != nil {
+			eb.logger.WithError(err).Error("Failed to index chat messages")
+		} else {
+			// Update session stats
+			eb.sessionMutex.Lock()
+			if session.MemoryStats != nil {
+				session.MemoryStats.ChatChunks += 2
+				session.MemoryStats.TotalChunks += 2
+			}
+			eb.sessionMutex.Unlock()
+			
+			eb.logger.WithFields(logrus.Fields{
+				"session_id": sessionID,
+				"turn":       turn,
+			}).Debug("Successfully indexed chat exchange to memory")
+		}
+	} else {
+		eb.logger.Warn("Indexing service does not support chat message indexing")
 	}
 }

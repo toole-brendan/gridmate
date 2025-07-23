@@ -1,99 +1,111 @@
-# Context Pill Stacking Issue Fix
+# Remove Recently Edited Context Pills
 
 ## Issue Summary
 
-The context pill UI in Gridmate's Excel add-in has a layout issue where the selected-range context pill appears to be "stacking" on top of the recently edited containers instead of appearing inline as a simple selectable option. This creates an awkward visual appearance where pills are misaligned.
+The Excel add-in currently auto-populates "recently edited" context pills (edit and change pills) that appear alongside the user's selected range context pill. These auto-populated pills are causing UI clutter and should be completely removed, leaving only the user's manually selected range as context.
 
-## Root Cause Analysis
+## Current Implementation
 
-### Current Implementation
+The auto-population of context pills happens in `RefactoredChatInterface.tsx` (lines 150-205) where the system automatically adds:
+- Up to 3 recent AI edit pills (type: 'edit')
+- Up to 2 significant change pills (type: 'change')
 
-The context pills are rendered in `EnhancedChatInterface.tsx` (lines 593-650) with the following structure:
-
-```tsx
-<div className="px-4 pt-3 pb-2 flex items-center justify-between">
-  <div className="flex items-center gap-2">
-    <ContextPillsContainer
-      items={activeContext}
-      onRemove={onContextRemove}
-      onContextToggle={onContextToggle}
-      isContextEnabled={isContextEnabled}
-      isToggleDisabled={true}
-      className="flex flex-wrap gap-2"
-    />
-  </div>
-  
-  {/* Bulk action buttons */}
-  <div className="flex items-center gap-2">
-    {/* Accept All / Reject All buttons */}
-  </div>
-</div>
-```
-
-### The Problem
-
-1. **Flex Wrap Behavior**: The `ContextPillsContainer` uses `flex flex-wrap gap-2`, which allows pills to wrap to multiple lines when they don't fit horizontally.
-
-2. **Vertical Centering**: The parent container uses `flex items-center justify-between`, which vertically centers both the pills container and the bulk action buttons. When pills wrap to multiple lines, this creates misalignment.
-
-3. **Multiple Pills**: With the Phase 5 auto-populate feature (`RefactoredChatInterface.tsx` lines 150-205), the system now adds:
-   - 1 selected range pill
-   - Up to 3 recent AI edit pills
-   - Up to 2 significant change pills
-   
-   This means up to 6 pills can appear simultaneously, making wrapping more common.
+These are added to the `activeContext` array alongside the user's selected range.
 
 ## The Fix
 
-Change the vertical alignment from `items-center` to `items-start` in the parent container to top-align both sections:
+Remove the code that auto-populates edit and change context pills in the `updateAvailableMentions` function.
 
-### File: `/workspace/excel-addin/src/components/chat/EnhancedChatInterface.tsx`
+### File: `/workspace/excel-addin/src/components/chat/RefactoredChatInterface.tsx`
 
-**Line 593** - Change the parent container alignment:
+**Lines 151-205** - Remove or comment out the auto-population logic:
 
 ```tsx
-// Before:
-<div className="px-4 pt-3 pb-2 flex items-center justify-between">
+// Remove this entire block:
+// Auto-add recent AI edits as context pills
+if (context.recentEdits && context.recentEdits.length > 0) {
+  // Get the most recent 3 AI edits
+  const recentAIEdits = context.recentEdits
+    .filter(edit => edit.source === 'ai')
+    .slice(-3);
+  
+  for (const edit of recentAIEdits) {
+    const editLabel = `Recent edit: ${edit.range}`;
+    contextItems.push({
+      id: `edit-${edit.timestamp}`,
+      type: 'edit',
+      label: editLabel,
+      value: edit.range,
+      metadata: {
+        timestamp: edit.timestamp,
+        tool: edit.tool
+      }
+    });
+  }
+}
 
-// After:
-<div className="px-4 pt-3 pb-2 flex items-start justify-between">
+// Add cells with significant changes (if we have old/new values)
+if (context.recentEdits && context.recentEdits.length > 0) {
+  const significantChanges = context.recentEdits
+    .filter(edit => {
+      // Check if value changed significantly
+      if (edit.oldValues && edit.newValues) {
+        const oldVal = edit.oldValues[0]?.[0];
+        const newVal = edit.newValues[0]?.[0];
+        // Consider it significant if type changed or numeric value changed by >10%
+        if (typeof oldVal !== typeof newVal) return true;
+        if (typeof oldVal === 'number' && typeof newVal === 'number') {
+          const percentChange = Math.abs((newVal - oldVal) / oldVal);
+          return percentChange > 0.1;
+        }
+        return oldVal !== newVal;
+      }
+      return false;
+    })
+    .slice(-2); // Take up to 2 significant changes
+  
+  for (const change of significantChanges) {
+    if (!contextItems.find(item => item.value === change.range)) {
+      contextItems.push({
+        id: `change-${change.timestamp}`,
+        type: 'change',
+        label: `Changed: ${change.range}`,
+        value: change.range,
+        metadata: {
+          oldValue: change.oldValues?.[0]?.[0],
+          newValue: change.newValues?.[0]?.[0]
+        }
+      });
+    }
+  }
+}
 ```
-
-This simple change will:
-- Keep pills and buttons top-aligned when pills wrap to multiple lines
-- Prevent the awkward vertical centering that makes pills appear to "stack"
-- Maintain the horizontal spacing and justify-between layout
-
-## Additional Recommendations (Optional)
-
-If further improvements are desired:
-
-1. **Limit pill wrapping** - Add a max-height with overflow scrolling:
-   ```tsx
-   <ContextPillsContainer
-     className="flex flex-wrap gap-2 max-h-16 overflow-y-auto"
-   />
-   ```
-
-2. **Visual separation** - Add a subtle background or border to the pills container:
-   ```tsx
-   <div className="flex items-center gap-2 p-2 bg-secondary-background rounded-md">
-     <ContextPillsContainer ... />
-   </div>
-   ```
-
-3. **Responsive behavior** - Consider showing fewer auto-populated pills on smaller screens or providing a "show more" option.
 
 ## Implementation Steps
 
-1. Open `/workspace/excel-addin/src/components/chat/EnhancedChatInterface.tsx`
-2. Navigate to line 593
-3. Change `items-center` to `items-start` in the className
-4. Test the UI with multiple context pills to ensure proper alignment
+1. Open `/workspace/excel-addin/src/components/chat/RefactoredChatInterface.tsx`
+2. Navigate to line 151 (start of the "Auto-add recent AI edits" section)
+3. Delete or comment out lines 151-205 (both the recent AI edits block and the significant changes block)
+4. Ensure the `contextItems` array only contains the user's selected range
 
 ## Expected Result
 
 After this fix:
-- Context pills will align neatly at the top of their container
-- When pills wrap to multiple lines, they won't create vertical misalignment with the bulk action buttons
-- The visual hierarchy will be clearer, with pills appearing as a cohesive group rather than stacked elements
+- Only the user's manually selected range will appear as a context pill
+- No automatic "Recent edit:" or "Changed:" pills will be added
+- The UI will be cleaner with just one context pill showing the selected Excel range
+- Users maintain full control over what context is provided to the AI
+
+## Alternative: Keep the Logic But Disable It
+
+If you want to preserve the code for potential future use, you can wrap it in a feature flag:
+
+```tsx
+const ENABLE_AUTO_CONTEXT_PILLS = false; // Feature flag
+
+if (ENABLE_AUTO_CONTEXT_PILLS && context.recentEdits && context.recentEdits.length > 0) {
+  // ... existing auto-population code ...
+}
+```
+
+This way, the feature can be easily re-enabled later if needed.

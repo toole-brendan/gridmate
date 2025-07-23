@@ -4,6 +4,7 @@
 
 @layer base {
   html {
+    font-size: 12px; /* Set global base to 12px for smaller rem-based text */
     background-color: #FAFAFA !important;
   }
   
@@ -11,7 +12,7 @@
     background-color: #FAFAFA !important;
     color: #000000 !important;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Helvetica", "Arial", sans-serif !important;
-    font-size: 14px; /* Set a smaller base font size */
+    font-size: 12px; /* Reduced from 14px */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-user-select: none;
@@ -23,14 +24,14 @@
     min-height: 100vh;
   }
 
-  /* iOS-based Typography Scale */
-  .font-title-1 { font-size: 28px; font-weight: 700; line-height: 34px; letter-spacing: 0.36px; }
-  .font-title-2 { font-size: 22px; font-weight: 700; line-height: 28px; letter-spacing: 0.35px; }
-  .font-body { font-size: 15px; font-weight: 400; line-height: 20px; letter-spacing: -0.24px; }
-  .font-callout { font-size: 14px; font-weight: 400; line-height: 19px; letter-spacing: -0.20px; }
-  .font-subhead { font-size: 13px; font-weight: 600; line-height: 18px; letter-spacing: -0.08px; }
-  .font-footnote { font-size: 12px; font-weight: 400; line-height: 16px; letter-spacing: 0px; }
-  .font-caption { font-size: 11px; font-weight: 500; line-height: 13px; letter-spacing: 0.06px; text-transform: uppercase; }
+  /* iOS-based Typography Scale - Uniformly Reduced */
+  .font-title-1 { font-size: 24px; font-weight: 700; line-height: 30px; letter-spacing: 0.36px; }
+  .font-title-2 { font-size: 18px; font-weight: 700; line-height: 24px; letter-spacing: 0.35px; }
+  .font-body { font-size: 13px; font-weight: 400; line-height: 18px; letter-spacing: -0.24px; }
+  .font-callout { font-size: 12px; font-weight: 400; line-height: 17px; letter-spacing: -0.20px; }
+  .font-subhead { font-size: 11px; font-weight: 600; line-height: 16px; letter-spacing: -0.08px; }
+  .font-footnote { font-size: 10px; font-weight: 400; line-height: 14px; letter-spacing: 0px; }
+  .font-caption { font-size: 9px; font-weight: 500; line-height: 11px; letter-spacing: 0.06px; text-transform: uppercase; }
 }
 
 @layer components {

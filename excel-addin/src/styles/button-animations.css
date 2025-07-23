@@ -1,0 +1,46 @@
+/* Pulse animation for Accept All and Reject All buttons */
+@keyframes pulse-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes pulse-red {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.accept-all-filled {
+  animation: pulse-green 2s infinite;
+}
+
+.reject-all-filled {
+  animation: pulse-red 2s infinite;
+}
+
+/* Optional: Add a one-time attention animation when buttons first become filled */
+@keyframes attention-bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.button-attention {
+  animation: attention-bounce 0.5s ease-in-out;
+}

@@ -40,6 +40,8 @@ import {
 import { TokenCounter } from './TokenCounter'
 import { TokenUsage } from '../../types/signalr'
 import { useAcceptRejectButtonStyles } from '../../hooks/useAcceptRejectButtonStyles'
+import { StreamingMessage } from './messages/StreamingMessage'
+import { isStreamingMessage } from '../../types/streaming'
 
 interface EnhancedChatInterfaceProps {
   messages: EnhancedChatMessage[]
@@ -72,6 +74,8 @@ interface EnhancedChatInterfaceProps {
   onRejectDiff?: () => Promise<void>
   // Token tracking
   tokenUsage?: TokenUsage | null
+  // Streaming control
+  onCancelStream?: () => void
 }
 
 export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
@@ -100,7 +104,8 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   onContextToggle,
   onAcceptDiff,
   onRejectDiff,
-  tokenUsage = null
+  tokenUsage = null,
+  onCancelStream
 }) => {
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const [focusedMessageId, setFocusedMessageId] = React.useState<string | null>(null)
@@ -176,6 +181,15 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   }
 
   const renderMessage = (message: EnhancedChatMessage) => {
+    // Handle streaming messages
+    if (isStreamingMessage(message)) {
+      return (
+        <div key={message.id} className="w-full animate-fadeIn">
+          <StreamingMessage message={message} />
+        </div>
+      )
+    }
+
     if (isToolSuggestion(message)) {
       return (
         <div
@@ -718,6 +732,19 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
                     title="Send message"
                   >
                     <Send className="w-4 h-4" />
+                  </button>
+                )}
+                
+                {/* Cancel button during streaming */}
+                {aiIsGenerating && onCancelStream && (
+                  <button
+                    onClick={onCancelStream}
+                    className="p-2 bg-red-500 text-white hover:bg-red-600 rounded-lg transition-all"
+                    title="Stop generating"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
                   </button>
                 )}
               </div>

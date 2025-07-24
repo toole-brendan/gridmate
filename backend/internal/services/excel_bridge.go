@@ -580,6 +580,101 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 	return response, nil
 }
 
+// ProcessChatMessageStreaming processes a chat message with streaming response
+func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID string, message ChatMessage) (<-chan ai.CompletionChunk, error) {
+	session, err := eb.getOrCreateSession(clientID, message.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+	
+	// Build financial context from Excel state
+	financialContext := &ai.FinancialContext{
+		CellValues:        make(map[string]interface{}),
+		NamedRanges:       make(map[string]string),
+		CurrentWorksheet:  "",
+		WorkbookName:      "",
+		AvailableSheets:   []string{},
+		RecentEdits:       []ai.EditInfo{},
+		ActiveFormulas:    make(map[string]string),
+		ConditionalFormats: []ai.ConditionalFormat{},
+	}
+	
+	// Populate context from session
+	if excelCtx, ok := message.ExcelContext.(map[string]interface{}); ok {
+		eb.populateFinancialContext(financialContext, excelCtx)
+	} else if session.Context != nil {
+		// Use session context if no explicit context provided
+		eb.populateFinancialContext(financialContext, session.Context)
+	}
+	
+	// Get chat history
+	chatHistory := eb.chatHistory.GetHistory(session.ID)
+	aiHistory := make([]ai.Message, 0, len(chatHistory))
+	for _, msg := range chatHistory {
+		aiHistory = append(aiHistory, ai.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+	
+	eb.logger.WithFields(logrus.Fields{
+		"session_id": session.ID,
+		"history_length": len(aiHistory),
+		"autonomy_mode": message.AutonomyMode,
+	}).Info("Starting streaming chat processing")
+	
+	// Call streaming AI service
+	chunks, err := eb.aiService.ProcessChatWithToolsAndHistoryStreaming(
+		ctx,
+		session.ID,
+		message.Content,
+		financialContext,
+		aiHistory,
+		message.AutonomyMode,
+	)
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	// Create a new channel to intercept and process chunks
+	processedChunks := make(chan ai.CompletionChunk)
+	
+	go func() {
+		defer close(processedChunks)
+		
+		var fullContent strings.Builder
+		var hasContent bool
+		
+		for chunk := range chunks {
+			// Forward the chunk
+			select {
+			case processedChunks <- chunk:
+			case <-ctx.Done():
+				return
+			}
+			
+			// Accumulate content
+			if chunk.Type == "text" && chunk.Delta != "" {
+				fullContent.WriteString(chunk.Delta)
+				hasContent = true
+			}
+			
+			// When done, save to history
+			if chunk.Done && hasContent {
+				eb.chatHistory.AddMessage(session.ID, "user", message.Content)
+				eb.chatHistory.AddMessage(session.ID, "assistant", fullContent.String())
+				eb.logger.WithFields(logrus.Fields{
+					"session_id": session.ID,
+					"content_length": fullContent.Len(),
+				}).Info("Streaming completed, saved to history")
+			}
+		}
+	}()
+	
+	return processedChunks, nil
+}
+
 // GetCellValue retrieves a cell value from cache or requests it
 func (eb *ExcelBridge) GetCellValue(sheet, cell string) (interface{}, error) {
 	key := fmt.Sprintf("%s!%s", sheet, cell)

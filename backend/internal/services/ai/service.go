@@ -1011,6 +1011,65 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 	return nil, fmt.Errorf("exceeded maximum rounds of tool use")
 }
 
+// ProcessChatWithToolsAndHistoryStreaming - streaming version
+func (s *Service) ProcessChatWithToolsAndHistoryStreaming(
+	ctx context.Context,
+	sessionID string,
+	userMessage string,
+	context *FinancialContext,
+	chatHistory []Message,
+	autonomyMode string,
+) (<-chan CompletionChunk, error) {
+	// Build messages
+	messages := []Message{}
+	
+	// Add system prompt
+	systemPrompt := s.buildSystemPrompt(context)
+	messages = append(messages, Message{
+		Role:    "system",
+		Content: systemPrompt,
+	})
+	
+	// Add chat history
+	messages = append(messages, chatHistory...)
+	
+	// Add current user message
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: userMessage,
+	})
+	
+	// Get relevant tools
+	tools := s.getRelevantTools(userMessage, context)
+	
+	log.Info().
+		Str("session", sessionID).
+		Int("tools_count", len(tools)).
+		Str("autonomy_mode", autonomyMode).
+		Msg("Starting streaming chat with tools and history")
+	
+	// Create request with streaming enabled
+	request := CompletionRequest{
+		Messages:  messages,
+		MaxTokens: 4096,
+		Tools:     tools,
+		Stream:    true, // Enable streaming
+	}
+	
+	// Set tool choice based on autonomy mode
+	switch autonomyMode {
+	case "ask":
+		request.ToolChoice = &ToolChoice{Type: "none"}
+	case "auto":
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	case "full":
+		request.ToolChoice = &ToolChoice{Type: "any"}
+	}
+	
+	// Get streaming response
+	return s.provider.GetCompletionStreaming(ctx, request)
+}
+
 // SetAdvancedComponents wires up the advanced AI components (memory, context analyzer, orchestrator)
 func (s *Service) SetAdvancedComponents(memoryService *FinancialMemoryService, contextAnalyzer *FinancialModelAnalyzer, toolOrchestrator *ToolOrchestrator) {
 	s.memoryService = memoryService

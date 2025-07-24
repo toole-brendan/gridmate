@@ -166,8 +166,13 @@ func main() {
 	// Initialize document service
 	docService := documents.NewDocumentService(logger, aiService, repos.Documents, repos.Embeddings)
 
-	// Initialize handlers
+	// Create SignalR handler
 	signalRHandler := handlers.NewSignalRHandler(excelBridge, signalRBridge, logger)
+	
+	// Create streaming handler
+	streamingHandler := handlers.NewStreamingHandler(excelBridge, logger)
+	
+	// Create metrics handler
 	metricsHandler := handlers.NewMetricsHandler(sessionManager, logger)
 
 	// Initialize router
@@ -196,6 +201,9 @@ func main() {
 	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
 	router.HandleFunc("/api/tool-response", signalRHandler.HandleSignalRToolResponse).Methods("POST")
 	router.HandleFunc("/api/selection-update", signalRHandler.HandleSignalRSelectionUpdate).Methods("POST")
+	
+	// Streaming endpoint
+	router.HandleFunc("/api/chat/stream", streamingHandler.HandleChatStream).Methods("GET")
 
 	// Metrics endpoints
 	router.HandleFunc("/api/metrics/sessions", metricsHandler.GetSessionMetrics).Methods("GET")

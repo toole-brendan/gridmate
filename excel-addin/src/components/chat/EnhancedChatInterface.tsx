@@ -699,9 +699,7 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
               {/* Right side: Action buttons */}
               <div className="flex items-center gap-2">
                 {/* Token Counter - in place of former "Generating..." text */}
-                {tokenUsage && (
-                  <TokenCounter tokenUsage={tokenUsage} />
-                )}
+                <TokenCounter tokenUsage={tokenUsage} />
                 
                 {/* Stop button (when generating) */}
                 {aiIsGenerating && (

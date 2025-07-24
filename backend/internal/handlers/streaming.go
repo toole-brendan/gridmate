@@ -27,15 +27,30 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
     w.Header().Set("Content-Type", "text/event-stream")
     w.Header().Set("Cache-Control", "no-cache")
     w.Header().Set("Connection", "keep-alive")
-    w.Header().Set("Access-Control-Allow-Origin", "*")
+    // CORS is handled by middleware, don't set it here
     
     // Parse query params
     sessionID := r.URL.Query().Get("sessionId")
     content := r.URL.Query().Get("content")
     autonomyMode := r.URL.Query().Get("autonomyMode")
+    token := r.URL.Query().Get("token")
+    
+    // Basic auth check for development
+    if token != "dev-token-123" {
+        h.logger.Warn("Unauthorized streaming request")
+        fmt.Fprintf(w, "data: {\"error\": \"Unauthorized\"}\n\n")
+        if f, ok := w.(http.Flusher); ok {
+            f.Flush()
+        }
+        return
+    }
     
     if sessionID == "" || content == "" {
+        h.logger.Warn("Missing required parameters for streaming")
         fmt.Fprintf(w, "data: {\"error\": \"Missing required parameters\"}\n\n")
+        if f, ok := w.(http.Flusher); ok {
+            f.Flush()
+        }
         return
     }
     
@@ -60,6 +75,9 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
         h.logger.WithError(err).Error("Failed to start streaming")
         errorData, _ := json.Marshal(map[string]string{"error": err.Error()})
         fmt.Fprintf(w, "data: %s\n\n", errorData)
+        if f, ok := w.(http.Flusher); ok {
+            f.Flush()
+        }
         return
     }
     

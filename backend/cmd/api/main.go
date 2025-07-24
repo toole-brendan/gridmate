@@ -217,9 +217,9 @@ func main() {
 
 	// Configure CORS
 	corsOptions := cors.New(cors.Options{
-		AllowedOrigins:   getEnvAsSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "https://localhost:3000"}),
+		AllowedOrigins:   getEnvAsSlice("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3000", "https://localhost:3000", "http://localhost:8080", "https://localhost:7171"}),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With", "Upgrade", "Connection"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With", "Upgrade", "Connection", "Cache-Control"},
 		ExposedHeaders:   []string{"Content-Length", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,

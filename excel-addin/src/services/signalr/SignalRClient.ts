@@ -340,7 +340,7 @@ export class SignalRClient extends EventEmitter {
   }
 
   // Streaming methods
-  private baseUrl: string = 'https://localhost:7171';
+  private streamingBaseUrl: string = 'http://localhost:8080'; // Go backend URL
 
   async streamChat(message: {
     content: string;
@@ -353,7 +353,11 @@ export class SignalRClient extends EventEmitter {
       autonomyMode: message.autonomyMode || 'auto'
     });
     
-    const url = `${this.baseUrl}/api/chat/stream?${params}`;
+    // Add auth token to URL since EventSource doesn't support headers
+    const authToken = 'dev-token-123'; // Use the same token as SignalR
+    params.append('token', authToken);
+    
+    const url = `${this.streamingBaseUrl}/api/chat/stream?${params}`;
     console.log('🌊 Starting streaming chat:', url);
     
     const evtSource = new EventSource(url, {
@@ -363,7 +367,14 @@ export class SignalRClient extends EventEmitter {
     // Set up error handling
     evtSource.onerror = (error) => {
       console.error('❌ Streaming error:', error);
+      console.error('EventSource readyState:', evtSource.readyState);
+      console.error('EventSource URL:', evtSource.url);
       this.emit('stream_error', error);
+    };
+    
+    // Also listen for open event to confirm connection
+    evtSource.onopen = (event) => {
+      console.log('✅ Streaming connection opened');
     };
     
     return evtSource;

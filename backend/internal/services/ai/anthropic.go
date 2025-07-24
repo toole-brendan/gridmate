@@ -576,7 +576,7 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 						ID:      messageID,
 						Type:    "text",
 						Delta:   event.Delta.Text,
-						Content: event.Delta.Text,
+						Content: "", // Don't send content for deltas
 						Done:    false,
 					}
 				}

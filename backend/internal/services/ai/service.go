@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -1251,31 +1252,52 @@ func (s *Service) streamWithToolContinuation(
 // waitForToolResponses waits for tool responses or timeout
 func (s *Service) waitForToolResponses(ctx context.Context, sessionID string, toolCalls []ToolCall, responseChannels map[string]chan ToolResult) []ToolResult {
 	var toolResults []ToolResult
+	var wg sync.WaitGroup
+	resultChan := make(chan ToolResult, len(toolCalls))
 	
-	// For now, create synthetic results for queued tools
-	// In a full implementation, this would wait for actual responses from the tool executor
+	// Start goroutines to wait for each tool response
 	for _, tc := range toolCalls {
-		select {
-		case <-ctx.Done():
-			// Timeout reached
-			log.Warn().
-				Str("session", sessionID).
-				Str("tool", tc.Name).
-				Msg("Timeout waiting for tool response")
-			return toolResults
+		wg.Add(1)
+		go func(toolCall ToolCall) {
+			defer wg.Done()
 			
-		default:
-			// Create a synthetic result indicating the tool was queued
-			toolResult := ToolResult{
-				ToolUseID: tc.ID,
-				Content: map[string]interface{}{
-					"status": "queued",
-					"message": fmt.Sprintf("The %s operation has been queued for approval. Continuing with model creation.", tc.Name),
-				},
-				IsError: false,
+			// For now, wait for a reasonable time for the tool to complete
+			// In a full implementation, this would coordinate with the tool executor
+			// to get real-time updates
+			
+			// Wait a reasonable time for the tool to complete
+			timer := time.NewTimer(45 * time.Second)
+			defer timer.Stop()
+			
+			select {
+			case <-timer.C:
+				// Create a result indicating the tool is still processing
+				toolResult := ToolResult{
+					ToolUseID: toolCall.ID,
+					Content: map[string]interface{}{
+						"status": "processing",
+						"message": fmt.Sprintf("The %s operation is still being processed. Results will be available shortly.", toolCall.Name),
+					},
+					IsError: false,
+				}
+				resultChan <- toolResult
+				
+			case <-ctx.Done():
+				// Context cancelled
+				return
 			}
-			toolResults = append(toolResults, toolResult)
-		}
+		}(tc)
+	}
+	
+	// Wait for all goroutines to complete or timeout
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+	
+	// Collect results
+	for result := range resultChan {
+		toolResults = append(toolResults, result)
 	}
 	
 	return toolResults

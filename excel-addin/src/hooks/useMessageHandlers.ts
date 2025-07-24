@@ -865,6 +865,20 @@ export const useMessageHandlers = (
           chatManager.setAiIsGenerating(false);
           currentStreamRef.current = null;
           
+          // Clear timeout for the original message that triggered this stream
+          if (messageId) {
+            const timeout = messageTimeouts.get(messageId);
+            if (timeout) {
+              clearTimeout(timeout);
+              setMessageTimeouts(prev => {
+                const newMap = new Map(prev);
+                newMap.delete(messageId);
+                return newMap;
+              });
+              addDebugLog(`Cleared timeout for message ${messageId}`, 'info');
+            }
+          }
+          
           // Clean up health check
           if (streamHealthCheckRef.current) {
             clearInterval(streamHealthCheckRef.current);
@@ -928,8 +942,24 @@ export const useMessageHandlers = (
     
     switch (chunk.type) {
       case 'text':
-        // Use delta if available, otherwise fall back to content
-        const textToAppend = chunk.delta || chunk.content;
+        // Prefer delta over content to avoid duplication
+        let textToAppend = '';
+        
+        if (chunk.delta !== undefined && chunk.delta !== null) {
+          textToAppend = chunk.delta;
+        } else if (chunk.content && !chunk.delta) {
+          // Only use content if delta is not provided
+          // This handles cases where full content is sent instead of delta
+          const currentContent = updates.content || '';
+          if (chunk.content.startsWith(currentContent)) {
+            // Extract the delta by removing the current content prefix
+            textToAppend = chunk.content.substring(currentContent.length);
+          } else {
+            // Fallback to content if it doesn't match expected pattern
+            textToAppend = chunk.content;
+          }
+        }
+        
         console.log('[handleStreamChunk] Text to append:', textToAppend);
         
         if (textToAppend) {

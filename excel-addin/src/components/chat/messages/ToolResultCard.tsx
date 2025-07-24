@@ -58,14 +58,14 @@ export const ToolResultCard: React.FC<ToolResultCardProps> = ({ message }) => {
             <div className="flex-shrink-0">{getStatusIcon()}</div>
             <div className="flex-1">
               <div className="flex items-center space-x-2">
-                <h4 className="text-sm font-medium text-gray-100">{message.tool.name}</h4>
+                <h4 className="font-callout font-medium text-gray-100">{message.tool.name}</h4>
                 {message.details?.executionTime && (
-                  <span className="text-xs text-gray-500">
+                  <span className="font-caption text-gray-500">
                     {formatExecutionTime(message.details.executionTime)}
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-300 mt-0.5">{message.summary}</p>
+              <p className="font-callout text-gray-300 mt-0.5">{message.summary}</p>
             </div>
           </div>
 

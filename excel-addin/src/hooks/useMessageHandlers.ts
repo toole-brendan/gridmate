@@ -277,6 +277,11 @@ export const useMessageHandlers = (
     addDebugLog(`← Received tool_request: ${toolRequest.tool} (${toolRequest.request_id})`);
     addLog('info', `[Message Handler] Received tool request ${toolRequest.request_id} (${toolRequest.tool})`, { parameters: toolRequest });
     
+    // Debug log the full request to see if preview field is present
+    console.log('[DEBUG] Full tool request received:', JSON.stringify(toolRequest, null, 2));
+    console.log('[DEBUG] Preview field:', toolRequest.preview);
+    console.log('[DEBUG] Current autonomy mode:', autonomyMode);
+    
     // Auto-accept any existing preview before showing new one
     if (pendingPreviewRef.current.size > 0) {
       addDebugLog(`Auto-accepting ${pendingPreviewRef.current.size} pending previews before new tool request`, 'info');

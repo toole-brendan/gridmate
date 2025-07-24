@@ -12,6 +12,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 // --- UI Components ---
 import { EnhancedChatInterface } from './EnhancedChatInterface';
 import { EnhancedAutonomySelector } from './EnhancedAutonomySelector';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 // --- Services and Utils ---
 import { ExcelService } from '../../services/excel/ExcelService';
@@ -779,33 +780,40 @@ ${auditLogs || 'No audit logs.'}
       
       {/* --- Chat UI --- */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        <EnhancedChatInterface
-          messages={chatManager.messages}
-          input={input}
-          setInput={setInput}
-          handleSendMessage={handleSendMessage}
-          isLoading={chatManager.isLoading}
-          aiIsGenerating={chatManager.aiIsGenerating}
-          autonomySelector={<EnhancedAutonomySelector currentMode={autonomyMode} onModeChange={handleAutonomyModeChange} />}
-          onMessageAction={handleMessageAction}
-          availableMentions={availableMentions}
-          activeContext={activeContext}
-          onContextRemove={handleContextRemove}
-          onMentionSelect={handleMentionSelect}
-          isContextEnabled={isContextEnabled}
-          onContextToggle={handleContextClick}
-          onClearChat={handleClearChat}
-          onAcceptDiff={() => diffPreview.acceptCurrentPreview(messageHandlers.sendFinalToolResponse)}
-          onRejectDiff={diffPreview.rejectCurrentPreview}
-          tokenUsage={tokenUsage}
-          // Add bulk action props
-          pendingToolsCount={pendingTools.suggestions.size}
-          onAcceptAll={handleAcceptAll}
-          onRejectAll={handleRejectAll}
-          isProcessingBulkAction={pendingTools.isProcessingBulk}
-          // Add streaming control
-          onCancelStream={messageHandlers.cancelCurrentStream}
-        />
+        <ErrorBoundary
+          onError={(error, errorInfo) => {
+            addDebugLog(`Chat UI Error: ${error.message}`, 'error');
+            console.error('Chat UI crashed:', error, errorInfo);
+          }}
+        >
+          <EnhancedChatInterface
+            messages={chatManager.messages}
+            input={input}
+            setInput={setInput}
+            handleSendMessage={handleSendMessage}
+            isLoading={chatManager.isLoading}
+            aiIsGenerating={chatManager.aiIsGenerating}
+            autonomySelector={<EnhancedAutonomySelector currentMode={autonomyMode} onModeChange={handleAutonomyModeChange} />}
+            onMessageAction={handleMessageAction}
+            availableMentions={availableMentions}
+            activeContext={activeContext}
+            onContextRemove={handleContextRemove}
+            onMentionSelect={handleMentionSelect}
+            isContextEnabled={isContextEnabled}
+            onContextToggle={handleContextClick}
+            onClearChat={handleClearChat}
+            onAcceptDiff={() => diffPreview.acceptCurrentPreview(messageHandlers.sendFinalToolResponse)}
+            onRejectDiff={diffPreview.rejectCurrentPreview}
+            tokenUsage={tokenUsage}
+            // Add bulk action props
+            pendingToolsCount={pendingTools.suggestions.size}
+            onAcceptAll={handleAcceptAll}
+            onRejectAll={handleRejectAll}
+            isProcessingBulkAction={pendingTools.isProcessingBulk}
+            // Add streaming control
+            onCancelStream={messageHandlers.cancelCurrentStream}
+          />
+        </ErrorBoundary>
       </div>
 
       {/* --- Debug Panel --- */}

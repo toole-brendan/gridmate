@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { StreamingMessage as StreamingMessageType } from '../../../types/streaming';
 import { ToolIndicator } from './ToolIndicator';
 import ReactMarkdown from 'react-markdown';
@@ -10,6 +10,13 @@ interface Props {
 }
 
 export const StreamingMessage: React.FC<Props> = ({ message }) => {
+    // Use local state to ensure UI updates during streaming
+    const [localContent, setLocalContent] = useState(message.content);
+    
+    useEffect(() => {
+        setLocalContent(message.content);
+    }, [message.content]);
+    
     return (
         <div className="flex items-start space-x-3 p-4 animate-fadeIn">
             {/* Avatar */}
@@ -104,7 +111,7 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
                             ),
                         }}
                     >
-                        {message.content}
+                        {localContent}
                     </ReactMarkdown>
                     
                     {/* Typing indicator */}

@@ -21,6 +21,8 @@ type ContextBuilder struct {
 	// Cache for tracking cell changes
 	cellChangeTracker map[string]*CellChangeInfo
 	trackerMutex      sync.RWMutex
+	// Pattern detector for enhanced context
+	patternDetector   *PatternDetector
 }
 
 // CellChangeInfo tracks changes to individual cells
@@ -38,6 +40,7 @@ func NewContextBuilder(bridge ai.ExcelBridge) *ContextBuilder {
 		maxCells:          1000, // Default max cells to prevent context overflow
 		maxRanges:         10,   // Default max ranges to analyze
 		cellChangeTracker: make(map[string]*CellChangeInfo),
+		patternDetector:   NewPatternDetector(),
 	}
 }
 
@@ -174,6 +177,11 @@ func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID s
 	// 5. Analyze formulas and dependencies
 	if err := cb.analyzeFormulas(context); err != nil {
 		fmt.Printf("Warning: failed to analyze formulas: %v\n", err)
+	}
+
+	// 5.5. Use pattern detection for enhanced context
+	if err := cb.addPatternAnalysis(ctx, sessionID, rangeInfo, context); err != nil {
+		fmt.Printf("Warning: failed to add pattern analysis: %v\n", err)
 	}
 
 	// 6. Auto-detect model type
@@ -1591,6 +1599,56 @@ func (cb *ContextBuilder) generateDataSummary(values [][]interface{}) map[string
 	summary["sample_values"] = samples
 	
 	return summary
+}
+
+// addPatternAnalysis adds pattern detection results to the context
+func (cb *ContextBuilder) addPatternAnalysis(ctx context.Context, sessionID string, rangeInfo *RangeInfo, context *ai.FinancialContext) error {
+	// Get the full sheet data for pattern analysis
+	expandedRange := cb.ExpandRange(rangeInfo.Address, 10, 10)
+	data, err := cb.bridge.ReadRange(ctx, sessionID, expandedRange, true, false)
+	if err != nil {
+		return fmt.Errorf("failed to read expanded range for pattern analysis: %w", err)
+	}
+
+	// Detect semantic regions
+	regions := cb.patternDetector.DetectRegions(data)
+	if len(regions) > 0 {
+		// Add region information to document context
+		regionSummary := []string{}
+		for _, region := range regions {
+			regionSummary = append(regionSummary, fmt.Sprintf("%s region at %s (confidence: %.2f)", 
+				region.Type, region.Address, region.Confidence))
+		}
+		context.DocumentContext = append(context.DocumentContext,
+			fmt.Sprintf("Detected regions: %s", strings.Join(regionSummary, ", ")))
+	}
+
+	// Analyze formula patterns
+	formulaPatterns := cb.patternDetector.AnalyzeFormulaPatterns(data)
+	if len(formulaPatterns) > 0 {
+		// Add formula pattern information
+		patternSummary := []string{}
+		for _, pattern := range formulaPatterns {
+			patternSummary = append(patternSummary, fmt.Sprintf("%s (%d instances)", 
+				pattern.Type, pattern.Count))
+		}
+		context.DocumentContext = append(context.DocumentContext,
+			fmt.Sprintf("Formula patterns: %s", strings.Join(patternSummary, ", ")))
+	}
+
+	// Analyze data patterns
+	dataPatterns := cb.patternDetector.AnalyzeDataPatterns(data)
+	if len(dataPatterns) > 0 {
+		// Add data pattern information
+		patternSummary := []string{}
+		for _, pattern := range dataPatterns {
+			patternSummary = append(patternSummary, pattern.Description)
+		}
+		context.DocumentContext = append(context.DocumentContext,
+			fmt.Sprintf("Data patterns: %s", strings.Join(patternSummary, ", ")))
+	}
+
+	return nil
 }
 
 // BuildContext builds comprehensive financial context for a session

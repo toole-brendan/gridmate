@@ -9,6 +9,15 @@ This plan addresses the core challenge of representing 2D spatial spreadsheet st
 - **Problem**: LLMs process text linearly but spreadsheets are 2D spatial structures with complex relationships
 - **Solution**: Multi-modal representation combining spatial, semantic, structural, and differential approaches
 
+## Key Architecture Decisions
+
+Based on code review, this implementation should **enhance** rather than replace existing infrastructure:
+
+1. **Build on ExcelService**: The current `ExcelService.ts` already provides comprehensive context building - extend it with new representation modes
+2. **Leverage Existing Backend**: `context_builder.go` and `formula_intelligence.go` provide solid foundations - enhance with new serialization formats
+3. **Incremental Enhancement**: Add new capabilities through composition rather than replacement
+4. **Performance First**: Implement caching and lazy loading from the start to handle large spreadsheets
+
 ## Implementation Phases
 
 ### Phase 1: Foundation Libraries & Tools (Weeks 1-3)
@@ -16,28 +25,43 @@ This plan addresses the core challenge of representing 2D spatial spreadsheet st
 #### 1.1 Frontend: SheetJS Integration
 **Purpose**: Rich spreadsheet serialization and manipulation
 
+**⚠️ IMPORTANT**: SheetJS should complement, not replace, existing Excel.js integration. Use it specifically for:
+- Advanced formula parsing that Excel.js doesn't provide
+- File format conversions if needed
+- Complex serialization scenarios
+
 **Implementation Tasks**:
 - [ ] Install SheetJS in Excel add-in: `npm install xlsx`
-- [ ] Create `SpreadsheetSerializer` service
-- [ ] Implement formula dependency extraction
-- [ ] Add semantic region detection
+- [ ] Extend existing `ExcelService` with SheetJS capabilities
+- [ ] Implement formula dependency extraction using SheetJS parser
+- [ ] Add semantic region detection to existing `analyzeRangeData()`
 - [ ] Build named range context extraction
 
-**Key Files to Create**:
+**Key Files to Create/Modify**:
 ```
-excel-addin/src/services/serialization/
-├── SpreadsheetSerializer.ts
-├── FormulaDependencyAnalyzer.ts
-├── SemanticRegionDetector.ts
-└── types.ts
+excel-addin/src/services/
+├── excel/
+│   └── ExcelService.ts (ENHANCE existing)
+├── semantic/ (NEW)
+│   ├── RegionDetector.ts
+│   └── PatternAnalyzer.ts
+└── representation/ (NEW)
+    ├── SpatialSerializer.ts
+    └── CompressedGridBuilder.ts
 ```
 
 #### 1.2 Frontend: HyperFormula Integration
 **Purpose**: Understanding formula semantics
 
+**⚠️ LICENSING CONSIDERATION**: HyperFormula uses AGPL license. Consider alternatives:
+- **Option A**: Use HyperFormula if AGPL is acceptable
+- **Option B**: Use Formula.js (MIT license) for basic parsing
+- **Option C**: Build custom parser using existing backend formula_intelligence.go
+
 **Implementation Tasks**:
-- [ ] Install HyperFormula: `npm install hyperformula`
-- [ ] Create formula parser service
+- [ ] Evaluate licensing requirements and choose formula library
+- [ ] Install chosen library: `npm install hyperformula` or `npm install formulajs`
+- [ ] Create formula parser service that works with existing backend
 - [ ] Implement formula type detection
 - [ ] Build natural language formula descriptions
 - [ ] Add complexity analysis
@@ -54,20 +78,26 @@ excel-addin/src/services/formula/
 #### 1.3 Backend: Enhanced Spreadsheet Intelligence
 **Purpose**: Server-side spreadsheet understanding
 
-**Implementation Tasks**:
-- [ ] Create Go-based spreadsheet analyzer
-- [ ] Implement pattern detection algorithms
-- [ ] Build formula dependency graph generator
-- [ ] Add cell purpose classification
+**🔧 BUILD ON EXISTING**: Leverage existing `formula_intelligence.go` and `context_builder.go`
 
-**Key Files to Create**:
+**Implementation Tasks**:
+- [ ] Enhance existing `context_builder.go` with pattern detection
+- [ ] Extend `formula_intelligence.go` dependency analysis for visualization
+- [ ] Build on existing circular reference detection for graph generation
+- [ ] Add cell purpose classification to complement existing analysis
+
+**Key Files to Create/Enhance**:
 ```
-backend/internal/services/spreadsheet/
-├── analyzer.go
-├── pattern_detector.go
-├── dependency_graph.go
-├── cell_classifier.go
-└── types.go
+backend/internal/services/
+├── excel/
+│   ├── context_builder.go (ENHANCE)
+│   └── pattern_detector.go (NEW)
+├── formula/
+│   └── formula_intelligence.go (ENHANCE)
+└── spreadsheet/ (NEW)
+    ├── semantic_analyzer.go
+    ├── cell_classifier.go
+    └── representation_builder.go
 ```
 
 ### Phase 2: Grid Serialization System (Weeks 4-5)
@@ -75,11 +105,14 @@ backend/internal/services/spreadsheet/
 #### 2.1 Custom Grid Serializer
 **Purpose**: Efficient 2D to text representation
 
+**🎯 PERFORMANCE CRITICAL**: This is where token optimization happens
+
 **Implementation Tasks**:
 - [ ] Create markdown table formatter with coordinates
-- [ ] Implement sparse matrix representation
-- [ ] Build value compression algorithms
+- [ ] Implement sparse matrix representation for large sheets
+- [ ] Build value compression algorithms (RLE, pattern detection)
 - [ ] Add formula template extraction
+- [ ] Implement intelligent truncation for large ranges
 
 **Key Components**:
 ```typescript
@@ -89,8 +122,16 @@ class GridSerializer {
   toSparseFormat(range: Excel.Range): SparseGrid
   compressRepeatingPatterns(values: any[][]): CompressedGrid
   extractFormulaTemplates(formulas: string[][]): FormulaPattern[]
+  // NEW: Performance optimizations
+  estimateTokenCount(representation: string): number
+  optimizeForTokenLimit(data: RangeData, maxTokens: number): string
 }
 ```
+
+**Token Optimization Strategies**:
+- Use references for repeated formulas (e.g., "Same as B2" instead of full formula)
+- Compress empty cells and repeated values
+- Implement smart truncation that preserves context
 
 #### 2.2 Semantic Grid Builder
 **Purpose**: Create LLM-optimized representations
@@ -117,11 +158,14 @@ class SemanticGridBuilder {
 #### 3.1 Multi-Modal Context Builder
 **Purpose**: Combine multiple representations for best results
 
+**💡 KEY INSIGHT**: Different query types need different representations
+
 **Implementation Tasks**:
 - [ ] Create ASCII art visualizer for spatial understanding
 - [ ] Build structured JSON representation
 - [ ] Implement semantic description generator
 - [ ] Add differential change tracking
+- [ ] **NEW**: Query type classifier to select optimal representation
 
 **Key Components**:
 ```typescript
@@ -132,15 +176,29 @@ class MultiModalSpreadsheetContext {
   toStructuredJson(data: RangeData): StructuredGrid
   generateSemanticDescription(data: RangeData): string
   prepareChangeTracking(data: RangeData): ChangeMap
+  
+  // NEW: Intelligent representation selection
+  selectRepresentationMode(query: string): RepresentationMode[]
+  buildOptimizedContext(query: string, range: Excel.Range): Promise<LLMContext>
+}
+
+// Extend existing types instead of creating new ones
+interface EnhancedRangeData extends RangeData {
+  semanticRegions?: SemanticRegion[]
+  formulaDependencies?: DependencyGraph
+  spatialRepresentation?: string
+  compressedFormat?: CompressedGrid
 }
 ```
 
 #### 3.2 Spreadsheet State Machine
 **Purpose**: Maintain state for efficient updates
 
+**🔄 INTEGRATION**: Work with existing `ExcelChangeTracker.ts` and `WriteOperationQueue.ts`
+
 **Implementation Tasks**:
-- [ ] Implement state management system
-- [ ] Create change buffer with validation
+- [ ] Extend existing change tracking with semantic understanding
+- [ ] Create change buffer that integrates with `WriteOperationQueue`
 - [ ] Build relevance detection for queries
 - [ ] Add action possibility analyzer
 
@@ -148,6 +206,13 @@ class MultiModalSpreadsheetContext {
 ```typescript
 // excel-addin/src/services/state/SpreadsheetStateMachine.ts
 class SpreadsheetStateMachine {
+  // Work with existing services
+  constructor(
+    private excelService: ExcelService,
+    private changeTracker: ExcelChangeTracker,
+    private writeQueue: WriteOperationQueue
+  ) {}
+  
   syncWithLLM(userQuery: string): Promise<LLMResponse>
   identifyRelevantCells(query: string): CellRange[]
   validateEdit(edit: Edit): ValidationResult
@@ -160,13 +225,23 @@ class SpreadsheetStateMachine {
 #### 4.1 Python Microservice (Optional)
 **Purpose**: Advanced spreadsheet analysis using OpenPyXL
 
-**Implementation Tasks**:
-- [ ] Set up Python microservice with FastAPI
-- [ ] Implement OpenPyXL-based analyzer
-- [ ] Create NetworkX dependency graphs
-- [ ] Build formula flow analyzer
+**⚠️ RECOMMENDATION**: Start with Go-only implementation. Only add Python if:
+- Go libraries prove insufficient for specific analysis
+- You need OpenPyXL-specific features
+- Performance benchmarks show Python advantages
 
-**Directory Structure**:
+**Alternative Go Approach**:
+- Use existing Go libraries for graph analysis
+- Leverage current formula parsing capabilities
+- Build on existing pattern detection in Go
+
+**If Python is needed**:
+- [ ] Use as sidecar container, not separate service
+- [ ] Implement minimal FastAPI interface
+- [ ] Focus only on features Go can't handle
+- [ ] Ensure proper error handling and timeouts
+
+**Directory Structure (if needed)**:
 ```
 backend/services/spreadsheet-intelligence/
 ├── main.py
@@ -182,19 +257,38 @@ backend/services/spreadsheet-intelligence/
 #### 4.2 Go Service Enhancement
 **Purpose**: Integrate new serialization with existing services
 
-**Implementation Tasks**:
-- [ ] Update `ExcelBridge` to use new serializers
-- [ ] Enhance `PromptBuilder` with multi-modal context
-- [ ] Modify `ToolExecutor` for precise editing
-- [ ] Add validation layer for LLM edits
+**🎯 FOCUS**: Enhance don't replace - these services already work well
 
-**Files to Modify**:
+**Implementation Tasks**:
+- [ ] Enhance `context_builder.go` to support new representations
+- [ ] Extend `prompt_builder.go` with representation selection logic
+- [ ] Add caching layer for expensive representations
+- [ ] Create validation layer for LLM edits
+
+**Files to Modify/Create**:
 ```
 backend/internal/services/
-├── excel_bridge.go (enhance buildFinancialContext)
-├── ai/prompt_builder.go (add multi-modal prompts)
-├── ai/tool_executor.go (improve edit precision)
-└── ai/validator.go (new file for edit validation)
+├── excel/
+│   ├── context_builder.go (ENHANCE - add new representation methods)
+│   └── representation_cache.go (NEW - cache expensive computations)
+├── ai/
+│   ├── prompt_builder.go (ENHANCE - add multi-modal prompt support)
+│   ├── representation_selector.go (NEW - choose optimal representations)
+│   └── edit_validator.go (NEW - validate LLM-proposed edits)
+└── formula/
+    └── formula_intelligence.go (ENHANCE - expose dependency graphs)
+```
+
+**Integration Points**:
+```go
+// Extend existing FinancialContext
+type EnhancedFinancialContext struct {
+    *FinancialContext
+    SpatialView      string                 // ASCII representation
+    SemanticRegions  []SemanticRegion      // Detected regions
+    DependencyGraph  *FormulaDependencyGraph // From formula service
+    Representation   RepresentationMode     // Current mode
+}
 ```
 
 ### Phase 5: Semantic Grid Protocol (Weeks 10-11)
@@ -239,15 +333,24 @@ interface SemanticGridProtocol {
 - [ ] Round-trip editing tests
 - [ ] Performance benchmarks
 - [ ] LLM comprehension tests
+- [ ] **NEW**: Large spreadsheet stress tests (10MB+ files)
+- [ ] **NEW**: Token usage optimization tests
+
+**Critical Test Scenarios**:
+- Complex financial models with 1000+ formulas
+- Sheets with multiple merged regions
+- Models with circular references
+- Real-time collaboration scenarios
 
 #### 6.2 Optimization
 **Purpose**: Improve efficiency
 
 **Optimization Areas**:
-- [ ] Token usage reduction
-- [ ] Serialization speed
-- [ ] Cache hit rates
-- [ ] Edit accuracy
+- [ ] Token usage reduction (target: 50% reduction)
+- [ ] Serialization speed (target: <100ms for typical sheet)
+- [ ] Cache hit rates (target: 80%+ for repeated queries)
+- [ ] Edit accuracy (target: 99%+ for structured edits)
+- [ ] Memory usage (target: <500MB for large sheets)
 
 ## Key Deliverables
 
@@ -332,16 +435,30 @@ interface SemanticGridProtocol {
    - Start with simple representations
    - Incremental rollout with feature flags
    - Maintain backward compatibility
+   - **NEW**: Build on existing services rather than replacing
 
 2. **Performance Risk**
-   - Implement aggressive caching
+   - Implement aggressive caching from day one
    - Use lazy loading for large sheets
    - Optimize serialization algorithms
+   - **NEW**: Add query-based representation selection
+   - **NEW**: Implement streaming for large contexts
 
 3. **Accuracy Risk**
    - Comprehensive test suite
    - Validation at every step
    - Fallback to current system
+   - **NEW**: Leverage existing validation in formula_intelligence.go
+
+4. **Integration Risk**
+   - **NEW**: Test with production Excel add-in early
+   - **NEW**: Ensure WebSocket message size limits are respected
+   - **NEW**: Monitor memory usage in Electron app
+
+5. **Token Cost Risk**
+   - **NEW**: Implement token counting before sending to LLM
+   - **NEW**: Add configurable token limits
+   - **NEW**: Create representation fallback chain
 
 ## Timeline Summary
 
@@ -352,14 +469,34 @@ interface SemanticGridProtocol {
 - **Weeks 10-11**: Semantic Grid Protocol
 - **Weeks 12-13**: Testing and optimization
 
+## Implementation Priority Order
+
+Based on code review, here's the recommended implementation order:
+
+1. **Week 1**: Enhance existing ExcelService with semantic region detection
+2. **Week 2**: Build GridSerializer with token optimization
+3. **Week 3**: Implement formula parsing (evaluate library options first)
+4. **Week 4**: Create multi-modal context builder
+5. **Week 5**: Enhance backend context_builder.go
+6. **Week 6**: Add caching and performance optimizations
+7. **Week 7+**: Protocol definition and testing
+
+## Quick Wins (Can implement immediately)
+
+1. **Extend RangeData interface** with semantic fields
+2. **Add ASCII art representation** to existing context builder
+3. **Implement formula pattern detection** using existing backend
+4. **Create token counter** for current representations
+5. **Build query classifier** for representation selection
+
 ## Next Steps
 
-1. Review and approve plan
-2. Set up development branches
-3. Begin Phase 1 implementation
-4. Schedule weekly progress reviews
-5. Prepare testing environments
+1. Review and approve updated plan
+2. Evaluate formula library licensing (HyperFormula vs alternatives)
+3. Set up feature flags for incremental rollout
+4. Create performance benchmarks for current system
+5. Begin with quick wins while planning larger changes
 
 ## Conclusion
 
-This implementation plan addresses the fundamental challenge of representing complex spreadsheets to LLMs while maintaining bidirectional editing accuracy. By combining multiple representation modes and building a robust serialization system, Gridmate will achieve true "Cursor for financial modeling" capabilities with precise, intelligent spreadsheet manipulation.
+This implementation plan addresses the fundamental challenge of representing complex spreadsheets to LLMs while maintaining bidirectional editing accuracy. By enhancing existing infrastructure rather than replacing it, we minimize risk while maximizing the benefits of multi-modal representation. The phased approach allows for continuous delivery of value while building toward the complete vision of "Cursor for financial modeling."

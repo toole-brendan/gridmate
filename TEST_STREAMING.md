@@ -58,10 +58,12 @@ With the mock provider, you should see:
 
 ## Configuration
 
-To use a real AI provider instead of mock:
-1. Set `ANTHROPIC_API_KEY` environment variable
-2. Set `AI_PROVIDER=anthropic` environment variable
-3. Restart the backend service
+The backend will automatically use your API keys from the `.env` file in the project root:
+- `ANTHROPIC_API_KEY` - Required for Anthropic Claude (default provider)
+- `OPENAI_API_KEY` - Required if using OpenAI
+- `AI_PROVIDER` - Optional, defaults to "anthropic". Can be set to "azure_openai" or "mock"
+
+Make sure your `.env` file is in the root directory of the project (not in the backend folder).
 
 ## Debugging
 

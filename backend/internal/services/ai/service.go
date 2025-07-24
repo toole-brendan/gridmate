@@ -74,7 +74,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 // NewServiceFromEnv creates a new AI service from environment variables
 func NewServiceFromEnv() (*Service, error) {
 	config := ServiceConfig{
-		Provider:        getEnvOrDefault("AI_PROVIDER", "mock"), // Default to mock for development
+		Provider:        getEnvOrDefault("AI_PROVIDER", "anthropic"), // Default to anthropic
 		DefaultModel:    getEnvOrDefault("AI_MODEL", ""),
 		StreamingMode:   getEnvOrDefault("AI_STREAMING", "true") == "true",
 		MaxTokens:       8192, // Increased for complex tool sequences
@@ -308,9 +308,7 @@ func createProvider(config ServiceConfig) (AIProvider, error) {
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
-			// For development, use a placeholder key
-			log.Warn().Msg("ANTHROPIC_API_KEY not set, using placeholder for development")
-			apiKey = "sk-ant-placeholder-dev-key"
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
 		}
 
 		providerConfig := ProviderConfig{

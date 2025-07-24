@@ -31,9 +31,12 @@ import (
 )
 
 func main() {
-	// Load environment variables
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found")
+	// Load environment variables from project root
+	if err := godotenv.Load("../../.env"); err != nil {
+		// Try loading from current directory as fallback
+		if err := godotenv.Load(); err != nil {
+			log.Println("No .env file found")
+		}
 	}
 
 	// Initialize logger using factory

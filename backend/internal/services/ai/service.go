@@ -295,16 +295,6 @@ func (s *Service) GetProviderInfo() map[string]interface{} {
 // createProvider creates an AI provider based on configuration
 func createProvider(config ServiceConfig) (AIProvider, error) {
 	switch config.Provider {
-	case "mock":
-		// Mock provider for development
-		providerConfig := ProviderConfig{
-			Model:      "mock-model",
-			Timeout:    config.RequestTimeout,
-			MaxRetries: 1,
-			RetryDelay: config.RetryDelay,
-		}
-		return NewMockProvider(providerConfig), nil
-		
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {

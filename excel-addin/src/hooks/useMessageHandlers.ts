@@ -738,40 +738,48 @@ export const useMessageHandlers = (
     chatManager.setAiIsGenerating(true);
     
     try {
-      // Start streaming
-      const evtSource = await signalRClientRef.current.streamChat({
+      // Set up streaming handlers first
+      signalRClientRef.current.setupStreamingHandlers({
+        onChunk: (data: string) => {
+          if (data === '[DONE]') {
+            // Stream complete
+            chatManager.finalizeStreamingMessage(streamingMessageId);
+            chatManager.setAiIsGenerating(false);
+            currentStreamRef.current = null;
+            return;
+          }
+          
+          try {
+            const chunk: StreamChunk = JSON.parse(data);
+            handleStreamChunk(streamingMessageId, chunk);
+          } catch (error) {
+            console.error('Failed to parse chunk:', error);
+          }
+        },
+        onComplete: () => {
+          addDebugLog('Streaming completed', 'info');
+          chatManager.finalizeStreamingMessage(streamingMessageId);
+          chatManager.setAiIsGenerating(false);
+          currentStreamRef.current = null;
+        },
+        onError: (error) => {
+          addDebugLog('Streaming error occurred', 'error');
+          console.error('Streaming error:', error);
+          chatManager.finalizeStreamingMessage(streamingMessageId);
+          chatManager.setAiIsGenerating(false);
+          currentStreamRef.current = null;
+        }
+      });
+      
+      // Start streaming via SignalR
+      await signalRClientRef.current.streamChat({
         content,
         autonomyMode,
         excelContext: {} // Add context if needed
       });
       
-      currentStreamRef.current = evtSource;
-      
-      // Handle streaming events
-      evtSource.onmessage = (event) => {
-        if (event.data === '[DONE]') {
-          // Stream complete
-          chatManager.finalizeStreamingMessage(streamingMessageId);
-          chatManager.setAiIsGenerating(false);
-          evtSource.close();
-          currentStreamRef.current = null;
-          return;
-        }
-        
-        try {
-          const chunk: StreamChunk = JSON.parse(event.data);
-          handleStreamChunk(streamingMessageId, chunk);
-        } catch (error) {
-          console.error('Failed to parse chunk:', error);
-        }
-      };
-      
-      evtSource.onerror = (error) => {
-        addDebugLog('Streaming error occurred', 'error');
-        chatManager.finalizeStreamingMessage(streamingMessageId);
-        chatManager.setAiIsGenerating(false);
-        currentStreamRef.current = null;
-      };
+      // Store a reference to cancel if needed
+      currentStreamRef.current = { close: () => { /* No-op for now */ } };
       
     } catch (error) {
       console.error('Failed to start streaming:', error);

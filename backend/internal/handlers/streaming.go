@@ -84,8 +84,8 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
     // Stream chunks to client
     flusher, ok := w.(http.Flusher)
     if !ok {
-        http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-        return
+        h.logger.Warn("ResponseWriter does not support flushing, attempting to continue anyway")
+        // Continue anyway - the response will be buffered but should still work
     }
     
     for chunk := range chunks {
@@ -101,11 +101,15 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
             }
             
             fmt.Fprintf(w, "data: %s\n\n", data)
-            flusher.Flush()
+            if flusher != nil {
+                flusher.Flush()
+            }
             
             if chunk.Done {
                 fmt.Fprintf(w, "data: [DONE]\n\n")
-                flusher.Flush()
+                if flusher != nil {
+                    flusher.Flush()
+                }
                 h.logger.Info("Streaming completed successfully")
                 return
             }

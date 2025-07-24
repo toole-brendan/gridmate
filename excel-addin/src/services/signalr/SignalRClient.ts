@@ -339,45 +339,60 @@ export class SignalRClient extends EventEmitter {
     }
   }
 
-  // Streaming methods
-  private streamingBaseUrl: string = 'http://localhost:8080'; // Go backend URL
-
+  // Streaming methods using SignalR WebSocket
   async streamChat(message: {
     content: string;
     autonomyMode: string;
     excelContext?: any;
-  }): Promise<EventSource> {
-    const params = new URLSearchParams({
-      sessionId: this.sessionId || '',
-      content: message.content,
-      autonomyMode: message.autonomyMode || 'auto'
+  }): Promise<void> {
+    if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+      throw new Error('SignalR connection is not established');
+    }
+    
+    if (!this.sessionId) {
+      throw new Error('No session ID available');
+    }
+    
+    console.log('🌊 Starting streaming chat via SignalR');
+    
+    // Invoke the streaming method on the hub
+    try {
+      await this.connection.invoke('StreamChat', 
+        this.sessionId,
+        message.content,
+        message.autonomyMode || 'auto'
+      );
+    } catch (error) {
+      console.error('Failed to start streaming:', error);
+      throw error;
+    }
+  }
+  
+  // Set up handlers for streaming responses
+  setupStreamingHandlers(handlers: {
+    onChunk: (data: string) => void;
+    onComplete?: () => void;
+    onError?: (error: any) => void;
+  }): void {
+    if (!this.connection) return;
+    
+    // Remove any existing handlers
+    this.connection.off('streamChunk');
+    this.connection.off('streamComplete');
+    this.connection.off('streamError');
+    
+    // Set up new handlers
+    this.connection.on('streamChunk', (data: string) => {
+      handlers.onChunk(data);
     });
     
-    // Add auth token to URL since EventSource doesn't support headers
-    const authToken = 'dev-token-123'; // Use the same token as SignalR
-    params.append('token', authToken);
+    if (handlers.onComplete) {
+      this.connection.on('streamComplete', handlers.onComplete);
+    }
     
-    const url = `${this.streamingBaseUrl}/api/chat/stream?${params}`;
-    console.log('🌊 Starting streaming chat:', url);
-    
-    const evtSource = new EventSource(url, {
-      withCredentials: true
-    });
-    
-    // Set up error handling
-    evtSource.onerror = (error) => {
-      console.error('❌ Streaming error:', error);
-      console.error('EventSource readyState:', evtSource.readyState);
-      console.error('EventSource URL:', evtSource.url);
-      this.emit('stream_error', error);
-    };
-    
-    // Also listen for open event to confirm connection
-    evtSource.onopen = (event) => {
-      console.log('✅ Streaming connection opened');
-    };
-    
-    return evtSource;
+    if (handlers.onError) {
+      this.connection.on('streamError', handlers.onError);
+    }
   }
 
   // Helper to cancel streaming

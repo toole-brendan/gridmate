@@ -332,5 +332,93 @@ namespace GridmateSignalR.Hubs
             _logger.LogDebug("Heartbeat received for session: {SessionId}", sessionId);
             return Task.CompletedTask;
         }
+        
+        // Streaming chat support - proxy to Go backend
+        public async Task StreamChat(string sessionId, string content, string autonomyMode)
+        {
+            UpdateSessionActivity(sessionId);
+            _logger.LogInformation("[HUB] StreamChat request received for session {SessionId}", sessionId);
+            
+            try
+            {
+                var httpClient = _httpClientFactory.CreateClient("GoBackend");
+                
+                // Build query parameters
+                var queryParams = new Dictionary<string, string>
+                {
+                    { "sessionId", sessionId },
+                    { "content", content },
+                    { "autonomyMode", autonomyMode ?? "auto" },
+                    { "token", "dev-token-123" }
+                };
+                
+                var queryString = string.Join("&", queryParams.Select(kvp => $"{kvp.Key}={Uri.EscapeDataString(kvp.Value)}"));
+                var streamUrl = $"/api/chat/stream?{queryString}";
+                
+                _logger.LogInformation("[HUB] Starting streaming request to {StreamUrl}", streamUrl);
+                
+                // Use a more compatible approach for SSE
+                var request = new HttpRequestMessage(HttpMethod.Get, streamUrl);
+                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+                
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("[HUB] Streaming request failed: {StatusCode} - {Error}", response.StatusCode, error);
+                    await Clients.Caller.SendAsync("streamError", new
+                    {
+                        error = $"Backend error: {response.StatusCode}",
+                        details = error,
+                        sessionId,
+                        timestamp = DateTime.UtcNow
+                    });
+                    return;
+                }
+                
+                // Read the SSE stream
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
+                
+                var buffer = new List<string>();
+                string line;
+                
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (line.StartsWith("data: "))
+                    {
+                        var data = line.Substring(6);
+                        if (!string.IsNullOrWhiteSpace(data))
+                        {
+                            await Clients.Caller.SendAsync("streamChunk", data);
+                            _logger.LogDebug("[HUB] Sent chunk: {Data}", data.Length > 100 ? data.Substring(0, 100) + "..." : data);
+                        }
+                    }
+                    else if (string.IsNullOrWhiteSpace(line) && buffer.Count > 0)
+                    {
+                        // Empty line signals end of event
+                        buffer.Clear();
+                    }
+                }
+                
+                _logger.LogInformation("[HUB] Streaming completed for session {SessionId}", sessionId);
+                await Clients.Caller.SendAsync("streamComplete", new
+                {
+                    sessionId,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HUB] Streaming failed for session {SessionId}", sessionId);
+                await Clients.Caller.SendAsync("streamError", new
+                {
+                    error = ex.Message,
+                    sessionId,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
     }
 }

@@ -1,9 +1,10 @@
-Last login: Thu Jul 24 10:34:23 on ttys015
+Last login: Thu Jul 24 11:35:18 on ttys019
 cd '/Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR' && echo '--- .NET SignalR Service ---' && /usr/local/share/dotnet/dotnet run --launch-profile https
 brendantoole@Mac ~ % cd '/Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR' && echo '--- .NET SignalR Service ---' && /usr/local/share/dotnet/dotnet run --launch-profile https
 --- .NET SignalR Service ---
 Using launch settings from /Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR/Properties/launchSettings.json...
 Building...
+/Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR/Hubs/GridmateHub.cs(387,32): warning CS8600: Converting null literal or possible null value to non-nullable type.
 info: GridmateSignalR.Services.SessionCleanupService[0]
       SessionCleanupService started
 info: Microsoft.Hosting.Lifetime[14]
@@ -17,23 +18,21 @@ info: Microsoft.Hosting.Lifetime[0]
 info: Microsoft.Hosting.Lifetime[0]
       Content root path: /Users/brendantoole/projects2/gridmate/signalr-service/GridmateSignalR
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client connected: 7DzgGQz6mv-kfXI7rcBtIQ
+      Client connected: MVyJzojD0SZsTylLRGWQ-A
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Authentication attempt for connection: 7DzgGQz6mv-kfXI7rcBtIQ
+      Authentication attempt for connection: MVyJzojD0SZsTylLRGWQ-A
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client disconnected: 7DzgGQz6mv-kfXI7rcBtIQ
+      [HUB] StreamChat request received for session session_638889683020138520
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client connected: izn-jefR_3WpYLSzL5lMqA
+      [HUB] Starting streaming request to /api/chat/stream?sessionId=session_638889683020138520&content=Please%20make%20DCF%20model%20in%20this%20sheet%2C%20use%20mock%20data&autonomyMode=agent-default&token=dev-token-123
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[100]
+      Start processing HTTP request GET http://localhost:8080/api/chat/stream?*
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[100]
+      Sending HTTP request GET http://localhost:8080/api/chat/stream?*
+info: System.Net.Http.HttpClient.GoBackend.ClientHandler[101]
+      Received HTTP response headers after 3441.9662ms - 200
+info: System.Net.Http.HttpClient.GoBackend.LogicalHandler[101]
+      End processing HTTP request after 3458.8795ms - 200
 info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client disconnected: izn-jefR_3WpYLSzL5lMqA
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client connected: mTtpdvcv6oZ90LK5f3pFzQ
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Authentication attempt for connection: mTtpdvcv6oZ90LK5f3pFzQ
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client disconnected: mTtpdvcv6oZ90LK5f3pFzQ
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Client connected: lMOC6ev58UQ7JBnnqQbtbQ
-info: GridmateSignalR.Hubs.GridmateHub[0]
-      Authentication attempt for connection: lMOC6ev58UQ7JBnnqQbtbQ
+      [HUB] Streaming completed for session session_638889683020138520
 

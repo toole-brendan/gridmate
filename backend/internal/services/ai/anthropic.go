@@ -174,14 +174,15 @@ func (a *AnthropicProvider) GetEmbedding(ctx context.Context, text string) ([]fl
 
 // anthropicRequest represents the request format for Anthropic API
 type anthropicRequest struct {
-	Model       string             `json:"model"`
-	MaxTokens   int                `json:"max_tokens"`
-	Messages    []anthropicMessage `json:"messages"`
-	Temperature *float32           `json:"temperature,omitempty"`
-	TopP        *float32           `json:"top_p,omitempty"`
-	Stream      bool               `json:"stream,omitempty"`
-	System      string             `json:"system,omitempty"`
-	Tools       []anthropicTool    `json:"tools,omitempty"`
+	Model       string                  `json:"model"`
+	MaxTokens   int                     `json:"max_tokens"`
+	Messages    []anthropicMessage      `json:"messages"`
+	Temperature *float32                `json:"temperature,omitempty"`
+	TopP        *float32                `json:"top_p,omitempty"`
+	Stream      bool                    `json:"stream,omitempty"`
+	System      string                  `json:"system,omitempty"`
+	Tools       []anthropicTool         `json:"tools,omitempty"`
+	ToolChoice  *map[string]interface{} `json:"tool_choice,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -266,12 +267,13 @@ type anthropicUsage struct {
 }
 
 type anthropicStreamEvent struct {
-	Type    string             `json:"type"`
-	Index   int                `json:"index,omitempty"`
-	Delta   *anthropicDelta    `json:"delta,omitempty"`
-	Message *anthropicResponse `json:"message,omitempty"`
-	Usage   *anthropicUsage    `json:"usage,omitempty"`
-	Error   *anthropicError    `json:"error,omitempty"`
+	Type         string                 `json:"type"`
+	Index        int                    `json:"index,omitempty"`
+	Delta        *anthropicDelta        `json:"delta,omitempty"`
+	ContentBlock *anthropicContentBlock `json:"content_block,omitempty"`
+	Message      *anthropicResponse     `json:"message,omitempty"`
+	Usage        *anthropicUsage        `json:"usage,omitempty"`
+	Error        *anthropicError        `json:"error,omitempty"`
 }
 
 type anthropicDelta struct {
@@ -390,6 +392,23 @@ func (a *AnthropicProvider) convertToAnthropicRequest(request CompletionRequest)
 		}
 	}
 
+	// Add tool choice conversion
+	if request.ToolChoice != nil {
+		switch request.ToolChoice.Type {
+		case "none":
+			anthropicReq.ToolChoice = &map[string]interface{}{"type": "none"}
+		case "any":
+			anthropicReq.ToolChoice = &map[string]interface{}{"type": "any"}
+		case "auto":
+			anthropicReq.ToolChoice = &map[string]interface{}{"type": "auto"}
+		case "tool":
+			anthropicReq.ToolChoice = &map[string]interface{}{
+				"type": "tool",
+				"name": request.ToolChoice.Name,
+			}
+		}
+	}
+
 	return anthropicReq
 }
 
@@ -497,6 +516,8 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 
 	scanner := bufio.NewScanner(resp.Body)
 	var messageID string
+	var currentToolCall *ToolCall
+	var toolInputBuffer strings.Builder
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -522,14 +543,59 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 			if event.Message != nil {
 				messageID = event.Message.ID
 			}
+		case "content_block_start":
+			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
+				currentToolCall = &ToolCall{
+					ID:    event.ContentBlock.ID,
+					Name:  event.ContentBlock.Name,
+					Input: make(map[string]interface{}),
+				}
+				toolInputBuffer.Reset()
+				ch <- CompletionChunk{
+					ID:       messageID,
+					Type:     "tool_start",
+					ToolCall: currentToolCall,
+					Done:     false,
+				}
+			}
 		case "content_block_delta":
 			if event.Delta != nil {
-				ch <- CompletionChunk{
-					ID:      messageID,
-					Delta:   event.Delta.Text,
-					Content: event.Delta.Text,
-					Done:    false,
+				if currentToolCall != nil && event.Delta.Type == "input_json_delta" {
+					// Accumulate tool input JSON
+					toolInputBuffer.WriteString(event.Delta.Text)
+					ch <- CompletionChunk{
+						ID:       messageID,
+						Type:     "tool_progress",
+						ToolCall: currentToolCall,
+						Delta:    event.Delta.Text,
+						Done:     false,
+					}
+				} else {
+					// Regular text delta
+					ch <- CompletionChunk{
+						ID:      messageID,
+						Type:    "text",
+						Delta:   event.Delta.Text,
+						Content: event.Delta.Text,
+						Done:    false,
+					}
 				}
+			}
+		case "content_block_stop":
+			if currentToolCall != nil {
+				// Parse the accumulated JSON input
+				if toolInputBuffer.Len() > 0 {
+					if err := json.Unmarshal([]byte(toolInputBuffer.String()), &currentToolCall.Input); err != nil {
+						log.Error().Err(err).Str("json", toolInputBuffer.String()).Msg("Failed to parse tool input JSON")
+					}
+				}
+				ch <- CompletionChunk{
+					ID:       messageID,
+					Type:     "tool_complete",
+					ToolCall: currentToolCall,
+					Done:     false,
+				}
+				currentToolCall = nil
 			}
 		case "message_delta":
 			if event.Delta != nil && event.Delta.StopReason != "" {

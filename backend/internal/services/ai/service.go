@@ -801,6 +801,35 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			Stream:      false, // Don't stream when using tools
 		}
 
+		// Respect autonomy mode with tool choice
+		var toolChoice *ToolChoice
+		switch autonomyMode {
+		case "ask":
+			toolChoice = &ToolChoice{Type: "none"}
+		case "auto":
+			toolChoice = &ToolChoice{Type: "auto"}
+		case "full":
+			toolChoice = &ToolChoice{Type: "any"}
+		}
+		
+		// Check if user is asking for a specific tool operation
+		if specificTool := s.detectSpecificToolRequest(userMessage); specificTool != "" && autonomyMode != "ask" {
+			toolChoice = &ToolChoice{
+				Type: "tool",
+				Name: specificTool,
+			}
+		}
+		
+		if toolChoice != nil {
+			request.ToolChoice = toolChoice
+			log.Info().
+				Str("tool_choice", request.ToolChoice.Type).
+				Str("tool_name", request.ToolChoice.Name).
+				Int("tools_available", len(request.Tools)).
+				Str("autonomy_mode", autonomyMode).
+				Msg("Processing request with tool choice")
+		}
+
 		// Add tools if available - but be smart about it and respect autonomy mode
 		if s.config.EnableActions && s.toolExecutor != nil && autonomyMode != "ask" {
 			// In "ask" mode, don't provide any tools to the AI
@@ -1118,4 +1147,73 @@ func (s *Service) GetContextAnalyzer() *FinancialModelAnalyzer {
 // GetToolOrchestrator returns the tool orchestrator
 func (s *Service) GetToolOrchestrator() *ToolOrchestrator {
 	return s.toolOrchestrator
+}
+
+// detectSpecificToolRequest analyzes the user message to determine if they're asking for a specific tool
+func (s *Service) detectSpecificToolRequest(userMessage string) string {
+	msg := strings.ToLower(userMessage)
+	
+	// Check for specific tool patterns
+	if strings.Contains(msg, "read") && (strings.Contains(msg, "range") || strings.Contains(msg, "cell") || strings.Contains(msg, "value")) {
+		return "read_range"
+	}
+	if strings.Contains(msg, "write") && (strings.Contains(msg, "range") || strings.Contains(msg, "cell") || strings.Contains(msg, "value")) {
+		return "write_range"
+	}
+	if strings.Contains(msg, "formula") && (strings.Contains(msg, "create") || strings.Contains(msg, "write") || strings.Contains(msg, "set")) {
+		return "write_formula"
+	}
+	if strings.Contains(msg, "format") && (strings.Contains(msg, "apply") || strings.Contains(msg, "set") || strings.Contains(msg, "change")) {
+		return "apply_formatting"
+	}
+	if strings.Contains(msg, "chart") && (strings.Contains(msg, "create") || strings.Contains(msg, "make") || strings.Contains(msg, "generate")) {
+		return "create_chart"
+	}
+	if strings.Contains(msg, "pivot") && (strings.Contains(msg, "create") || strings.Contains(msg, "make") || strings.Contains(msg, "generate")) {
+		return "create_pivot_table"
+	}
+	if strings.Contains(msg, "conditional format") || (strings.Contains(msg, "conditional") && strings.Contains(msg, "formatting")) {
+		return "apply_conditional_formatting"
+	}
+	if strings.Contains(msg, "named range") || (strings.Contains(msg, "name") && strings.Contains(msg, "range")) {
+		return "create_named_range"
+	}
+	if strings.Contains(msg, "data validation") || (strings.Contains(msg, "validate") && strings.Contains(msg, "data")) {
+		return "add_data_validation"
+	}
+	if strings.Contains(msg, "comment") && (strings.Contains(msg, "add") || strings.Contains(msg, "insert")) {
+		return "add_comment"
+	}
+	if strings.Contains(msg, "sheet") && (strings.Contains(msg, "create") || strings.Contains(msg, "add") || strings.Contains(msg, "new")) {
+		return "create_sheet"
+	}
+	if strings.Contains(msg, "sheet") && (strings.Contains(msg, "rename") || strings.Contains(msg, "name")) {
+		return "rename_sheet"
+	}
+	if strings.Contains(msg, "sheet") && (strings.Contains(msg, "delete") || strings.Contains(msg, "remove")) {
+		return "delete_sheet"
+	}
+	if strings.Contains(msg, "copy") && (strings.Contains(msg, "range") || strings.Contains(msg, "cell")) {
+		return "copy_range"
+	}
+	if strings.Contains(msg, "merge") && (strings.Contains(msg, "cell") || strings.Contains(msg, "range")) {
+		return "merge_cells"
+	}
+	if strings.Contains(msg, "sort") && (strings.Contains(msg, "data") || strings.Contains(msg, "range")) {
+		return "sort_range"
+	}
+	if strings.Contains(msg, "filter") && (strings.Contains(msg, "apply") || strings.Contains(msg, "set") || strings.Contains(msg, "add")) {
+		return "apply_filter"
+	}
+	if strings.Contains(msg, "freeze") && (strings.Contains(msg, "pane") || strings.Contains(msg, "row") || strings.Contains(msg, "column")) {
+		return "freeze_panes"
+	}
+	if strings.Contains(msg, "protect") && (strings.Contains(msg, "range") || strings.Contains(msg, "sheet")) {
+		return "protect_range"
+	}
+	if strings.Contains(msg, "link") && (strings.Contains(msg, "cell") || strings.Contains(msg, "sheet")) {
+		return "link_cells"
+	}
+	
+	return ""
 }

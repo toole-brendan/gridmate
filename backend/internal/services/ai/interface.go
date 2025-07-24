@@ -23,6 +23,12 @@ type AIProvider interface {
 	IsHealthy(ctx context.Context) error
 }
 
+// ToolChoice represents the tool selection strategy
+type ToolChoice struct {
+	Type string `json:"type"` // "auto", "any", "none", or "tool"
+	Name string `json:"name,omitempty"` // For specific tool selection
+}
+
 // CompletionRequest represents a request for text completion
 type CompletionRequest struct {
 	Messages      []Message    `json:"messages"`
@@ -34,6 +40,7 @@ type CompletionRequest struct {
 	SystemPrompt  string       `json:"system_prompt,omitempty"`
 	StopSequences []string     `json:"stop_sequences,omitempty"`
 	Tools         []ExcelTool  `json:"tools,omitempty"`
+	ToolChoice    *ToolChoice  `json:"tool_choice,omitempty"`
 }
 
 // CompletionResponse represents a completion response
@@ -50,11 +57,13 @@ type CompletionResponse struct {
 
 // CompletionChunk represents a streaming chunk
 type CompletionChunk struct {
-	ID      string `json:"id"`
-	Content string `json:"content"`
-	Delta   string `json:"delta"`
-	Done    bool   `json:"done"`
-	Error   error  `json:"error,omitempty"`
+	ID       string     `json:"id"`
+	Content  string     `json:"content"`
+	Delta    string     `json:"delta"`
+	Done     bool       `json:"done"`
+	Error    error      `json:"error,omitempty"`
+	Type     string     `json:"type,omitempty"` // "text", "tool_start", "tool_progress", "tool_complete"
+	ToolCall *ToolCall  `json:"tool_call,omitempty"`
 }
 
 // Message represents a conversation message

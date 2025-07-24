@@ -978,12 +978,22 @@ export const useMessageHandlers = (
         break;
         
       case 'tool_progress':
-        if (chunk.toolCall && chunk.delta) {
-          chatManager.updateToolProgress(
-            messageId, 
-            chunk.toolCall.id, 
-            chunk.delta
-          );
+        if (chunk.toolCall) {
+          // Update tool progress
+          if (chunk.delta) {
+            chatManager.updateToolProgress(
+              messageId, 
+              chunk.toolCall.id, 
+              chunk.delta
+            );
+          }
+          
+          // Add visual feedback for long-running tools
+          const toolName = chunk.toolCall?.name || 'tool';
+          addDebugLog(`Tool progress: ${toolName} is executing...`, 'info');
+          
+          // Update UI to show tool is running (could trigger a loading indicator)
+          chatManager.setToolExecuting(messageId, chunk.toolCall.id, true);
         }
         break;
         
@@ -991,6 +1001,9 @@ export const useMessageHandlers = (
         if (chunk.toolCall) {
           chatManager.completeToolCall(messageId, chunk.toolCall.id);
           addDebugLog(`Tool completed: ${chunk.toolCall.name}`, 'success');
+          
+          // Clear the executing state
+          chatManager.setToolExecuting(messageId, chunk.toolCall.id, false);
         }
         break;
         

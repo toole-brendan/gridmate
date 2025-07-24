@@ -74,7 +74,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 // NewServiceFromEnv creates a new AI service from environment variables
 func NewServiceFromEnv() (*Service, error) {
 	config := ServiceConfig{
-		Provider:        getEnvOrDefault("AI_PROVIDER", "anthropic"),
+		Provider:        getEnvOrDefault("AI_PROVIDER", "anthropic"), // Default to anthropic
 		DefaultModel:    getEnvOrDefault("AI_MODEL", ""),
 		StreamingMode:   getEnvOrDefault("AI_STREAMING", "true") == "true",
 		MaxTokens:       8192, // Increased for complex tool sequences
@@ -295,6 +295,16 @@ func (s *Service) GetProviderInfo() map[string]interface{} {
 // createProvider creates an AI provider based on configuration
 func createProvider(config ServiceConfig) (AIProvider, error) {
 	switch config.Provider {
+	case "mock":
+		// Mock provider for development
+		providerConfig := ProviderConfig{
+			Model:      "mock-model",
+			Timeout:    config.RequestTimeout,
+			MaxRetries: 1,
+			RetryDelay: config.RetryDelay,
+		}
+		return NewMockProvider(providerConfig), nil
+		
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {

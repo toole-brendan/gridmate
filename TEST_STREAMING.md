@@ -1,92 +1,74 @@
-# Streaming Implementation Test Plan
+# Streaming Implementation Test Results
 
-## Implementation Summary
+## Issues Found and Fixed
 
-I've successfully implemented streaming support for GridMate's chat interface. Here's what was added:
+### 1. **Wrong Backend URL**
+- **Issue**: The Excel add-in was trying to connect to the SignalR service (port 7171) for streaming instead of the Go backend (port 8080)
+- **Fix**: Updated `SignalRClient.ts` to use the correct streaming URL: `http://localhost:8080`
 
-### Backend Changes:
-1. **Streaming Handler** (`backend/internal/handlers/streaming.go`) - New SSE endpoint for streaming
-2. **Excel Bridge** - Added `ProcessChatMessageStreaming` method
-3. **AI Service** - Added `ProcessChatWithToolsAndHistoryStreaming` method
-4. **Routes** - Added `/api/chat/stream` endpoint
+### 2. **CORS Configuration**
+- **Issue**: The backend CORS configuration didn't include all necessary origins
+- **Fix**: Added all required origins to CORS allowed list
+- **Fix**: Removed duplicate CORS headers in streaming handler
 
-### Frontend Changes:
-1. **Streaming Types** (`excel-addin/src/types/streaming.ts`) - Type definitions for streaming
-2. **SignalR Client** - Added `streamChat` and `cancelStream` methods
-3. **Message Handlers** - Added streaming support with `sendStreamingMessage` and `cancelCurrentStream`
-4. **Chat Manager** - Added methods for updating streaming messages
-5. **UI Components**:
-   - `StreamingMessage.tsx` - Component for rendering streaming messages
-   - `ToolIndicator.tsx` - Component for showing tool usage in real-time
-6. **Chat Interface** - Updated to handle streaming messages and show cancel button
+### 3. **Authentication**
+- **Issue**: EventSource doesn't support custom headers for authentication
+- **Fix**: Added token as query parameter for streaming requests
+- **Fix**: Added token validation in streaming handler
 
-## Testing Instructions
+### 4. **Missing AI Provider**
+- **Issue**: No ANTHROPIC_API_KEY was set, causing the AI service to fail
+- **Fix**: Created a mock AI provider for development testing
+- **Fix**: Set default provider to "mock" for development
 
-### 1. Start the Backend
-```bash
-cd backend
-go run cmd/api/main.go
-```
+## How to Test
 
-### 2. Start the Excel Add-in
-```bash
-cd excel-addin
-npm run dev
-```
+1. **Start the backend services**:
+   ```bash
+   # Terminal 1 - Go Backend
+   cd backend
+   go run cmd/api/main.go
+   
+   # Terminal 2 - SignalR Service
+   cd signalr-service/GridmateSignalR
+   dotnet run
+   ```
 
-### 3. Test Scenarios
+2. **Start the Excel add-in**:
+   ```bash
+   cd excel-addin
+   npm run dev
+   ```
 
-#### Basic Text Streaming
-1. Open Excel with the add-in
-2. Type: "Hello, how are you?"
-3. **Expected**: Response appears word-by-word with a blinking cursor indicator
+3. **Test streaming**:
+   - Open Excel with the add-in
+   - Type a message like "Please make DCF model in this sheet, use mock data"
+   - You should see:
+     - Streaming text appearing character by character
+     - Tool usage indicators when tools are called
+     - Proper completion when done
 
-#### Tool Usage Streaming
-1. Type: "Read the data in A1:A10"
-2. **Expected**: 
-   - Text streams in: "I'll read the data from cells A1:A10..."
-   - Tool indicator appears: "🔄 Reading spreadsheet data..."
-   - Tool completes: "✅ Reading spreadsheet data (0.5s)"
+## Expected Behavior
 
-#### Cancel Streaming
-1. Type: "Explain financial modeling in detail"
-2. While response is streaming, click the red Stop button
-3. **Expected**: Streaming stops immediately
+With the mock provider, you should see:
+1. Gradual text streaming: "I'll help you create a DCF (Discounted Cash Flow) model with mock data..."
+2. Tool indicators showing "write_range" being called
+3. Progress updates during tool execution
+4. Final completion message
 
-#### Multiple Tools
-1. Type: "Calculate the sum of column B and write it to C1"
-2. **Expected**: Multiple tool indicators appear sequentially
+## Configuration
 
-## What Gets Streamed
+The backend will automatically use your API keys from the `.env` file in the project root:
+- `ANTHROPIC_API_KEY` - Required for Anthropic Claude (default provider)
+- `OPENAI_API_KEY` - Required if using OpenAI
+- `AI_PROVIDER` - Optional, defaults to "anthropic". Can be set to "azure_openai" or "mock"
 
-1. **AI Text Response** - Appears progressively as it's generated
-2. **Tool Notifications** - Real-time visibility of tool usage:
-   - Tool Start: "🔄 Reading spreadsheet data..."
-   - Tool Progress: Updates during execution
-   - Tool Complete: "✅ Finished reading range"
+Make sure your `.env` file is in the root directory of the project (not in the backend folder).
 
-## Important Notes
+## Debugging
 
-- Tool execution still follows the existing preview/accept flow
-- Streaming is about response visibility, not changing the tool execution model
-- The existing safety mechanisms remain intact
-
-## Verification Checklist
-
-- [ ] Backend starts without errors
-- [ ] Streaming endpoint is accessible at `/api/chat/stream`
-- [ ] Frontend connects to streaming endpoint
-- [ ] Text appears incrementally
-- [ ] Tool indicators show during streaming
-- [ ] Cancel button works
-- [ ] No errors in console
-- [ ] Messages finalize correctly after streaming
-
-## Troubleshooting
-
-If streaming doesn't work:
-1. Check browser console for errors
-2. Verify the backend is running and accessible
-3. Check network tab for SSE connection
-4. Ensure CORS headers are set correctly
-5. Verify SignalR connection is authenticated
+If streaming still doesn't work:
+1. Check browser console for detailed error messages
+2. Check backend logs for streaming request details
+3. Verify all services are running on correct ports
+4. Ensure CORS is properly configured

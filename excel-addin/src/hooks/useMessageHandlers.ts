@@ -1,6 +1,4 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
-import { flushSync } from 'react-dom';
-import { EnhancedChatMessage } from '../types/enhanced-chat';
 import { StreamChunk, StreamingMessage } from '../types/streaming';
 import { ExcelService } from '../services/excel/ExcelService';
 import { useDiffPreview } from './useDiffPreview';
@@ -8,7 +6,6 @@ import { useChatManager } from './useChatManager';
 import { SignalRToolRequest, SignalRAIResponse } from '../types/signalr';
 import { DiffPreviewMessage } from '../types/enhanced-chat';
 import { AuditLogger } from '../utils/safetyChecks';
-import { BatchExecutor } from '../services/excel/batchExecutor';
 import { clearAppliedOperations } from '../utils/diffSimulator';
 
 const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
@@ -94,10 +91,29 @@ export const useMessageHandlers = (
   
   // Forward declare processNextOperation - it will be defined after showOperationPreview
   const processNextOperationRef = useRef<() => Promise<void>>();
+  
+  // Helper to ensure processNextOperation is called safely
+  const startProcessingQueue = useCallback(() => {
+    if (processNextOperationRef.current) {
+      addDebugLog('Starting queue processing via startProcessingQueue');
+      processNextOperationRef.current();
+    } else {
+      // Fallback: try again after a short delay if ref not yet assigned
+      addDebugLog('processNextOperationRef not yet assigned, retrying in 50ms', 'warning');
+      setTimeout(() => {
+        if (processNextOperationRef.current) {
+          addDebugLog('Retry successful - starting queue processing');
+          processNextOperationRef.current();
+        } else {
+          addDebugLog('processNextOperationRef still not assigned after retry!', 'error');
+        }
+      }, 50);
+    }
+  }, [addDebugLog]);
 
   // Handle individual operation preview
   const showOperationPreview = useCallback(async (toolRequest: SignalRToolRequest) => {
-    const messageId = currentMessageIdRef.current || 'unknown';
+    addDebugLog(`showOperationPreview called for ${toolRequest.tool} (${toolRequest.request_id})`);
     
     // Store the pending operation
     pendingPreviewRef.current.set(toolRequest.request_id, toolRequest);
@@ -112,7 +128,14 @@ export const useMessageHandlers = (
     // Generate visual diff preview in Excel
     // Note: We'll pass the preview message ID to avoid attaching diff data to the AI message
     const previewMessageId = `preview_${toolRequest.request_id}`;
-    await diffPreview.generatePreview(previewMessageId, [operation]);
+    
+    try {
+      addDebugLog(`Generating visual preview for ${previewMessageId}`);
+      await diffPreview.generatePreview(previewMessageId, [operation]);
+      addDebugLog(`Visual preview generated successfully`);
+    } catch (error) {
+      addDebugLog(`Failed to generate visual preview: ${error}`, 'error');
+    }
     
     // Add a preview message to the chat with operation counter
     const previewMessage: DiffPreviewMessage = {
@@ -131,11 +154,15 @@ export const useMessageHandlers = (
       }
     };
     
+    addDebugLog(`Adding preview message to chat: ${previewMessage.id}`);
     chatManager.addMessage(previewMessage);
-  }, [chatManager, diffPreview]);
+    addDebugLog(`Preview message added successfully`);
+  }, [chatManager, diffPreview, addDebugLog]);
   
   // Process the next operation in the queue
   const processNextOperation = useCallback(async () => {
+    addDebugLog(`processNextOperation called. Queue length: ${operationQueueRef.current.length}, isProcessing: ${isProcessingQueueRef.current}`);
+    
     // Check if queue is empty
     if (operationQueueRef.current.length === 0) {
       if (isProcessingQueueRef.current) {
@@ -180,8 +207,10 @@ export const useMessageHandlers = (
     await showOperationPreview(nextOperation);
   }, [addDebugLog, showOperationPreview, chatManager]);
   
-  // Assign to ref so it can be called from other functions
-  processNextOperationRef.current = processNextOperation;
+  // Assign to ref immediately using useEffect to ensure it's available
+  useEffect(() => {
+    processNextOperationRef.current = processNextOperation;
+  }, [processNextOperation]);
 
   const processReadBatch = useCallback(async () => {
     const requests = readRequestQueue.current;
@@ -309,7 +338,7 @@ export const useMessageHandlers = (
               totalOperationsRef.current = operationQueueRef.current.length;
               addDebugLog(`Queued ${totalOperationsRef.current} operations for preview`);
               // Start processing the queue
-              processNextOperationRef.current?.();
+              startProcessingQueue();
             }
           }, 200);
         }
@@ -398,7 +427,7 @@ export const useMessageHandlers = (
         await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
       }
     }
-  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch]);
+  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch, startProcessingQueue]);
 
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content?.substring(0, 50) || ''}...`);
@@ -648,7 +677,7 @@ export const useMessageHandlers = (
       // Process next operation after a short delay
       isProcessingQueueRef.current = false;
       setTimeout(() => {
-        processNextOperationRef.current?.();
+        startProcessingQueue();
       }, 200);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Operation failed';
@@ -662,10 +691,10 @@ export const useMessageHandlers = (
       
       // Continue with next operation even on failure
       setTimeout(() => {
-        processNextOperationRef.current?.();
+        startProcessingQueue();
       }, 200);
     }
-  }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview]);
+  }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview, startProcessingQueue]);
 
   // Handle preview reject for individual operation
   const handlePreviewReject = useCallback(async (requestId: string) => {
@@ -715,11 +744,12 @@ export const useMessageHandlers = (
     setTimeout(() => {
       processNextOperationRef.current?.();
     }, 200);
-  }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview]);
+  }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview, startProcessingQueue]);
 
   // Streaming support
   const currentStreamRef = useRef<EventSource | null>(null);
   const streamHealthCheckRef = useRef<NodeJS.Timeout | null>(null);
+  const handleStreamChunkRef = useRef<(messageId: string, chunk: StreamChunk) => void>();
 
   // Add a ref to track streaming updates
   const streamingUpdatesRef = useRef<Map<string, { count: number; content: string; lastUpdate: number }>>(new Map());
@@ -816,7 +846,7 @@ export const useMessageHandlers = (
           try {
             const chunk: StreamChunk = JSON.parse(data);
             console.log(`[Stream] Chunk type: ${chunk.type}, has delta: ${!!chunk.delta}, has content: ${!!chunk.content}, delta length: ${chunk.delta?.length || 0}, content length: ${chunk.content?.length || 0}`);
-            handleStreamChunk(streamingMessageId, chunk);
+            handleStreamChunkRef.current?.(streamingMessageId, chunk);
           } catch (error) {
             console.error('Failed to parse chunk:', error);
             console.error('Raw chunk data:', data);
@@ -838,7 +868,7 @@ export const useMessageHandlers = (
           // Clean up tracking
           streamingUpdatesRef.current.delete(streamingMessageId);
         },
-        onError: (error) => {
+        onError: (error: any) => {
           addDebugLog('Streaming error occurred', 'error');
           console.error('Streaming error:', error);
           chatManager.finalizeStreamingMessage(streamingMessageId);
@@ -864,7 +894,7 @@ export const useMessageHandlers = (
       });
       
       // Store a reference to cancel if needed
-      currentStreamRef.current = { close: () => { /* No-op for now */ } };
+      currentStreamRef.current = { close: () => { /* No-op for now */ } } as EventSource;
       
     } catch (error) {
       console.error('Failed to start streaming:', error);
@@ -884,13 +914,8 @@ export const useMessageHandlers = (
       contentValue: chunk.content
     });
     
-    // Verify the streaming message exists
-    const streamingMessage = chatManager.messages.find(m => m.id === messageId);
-    if (!streamingMessage) {
-      console.error('[handleStreamChunk] Streaming message not found:', messageId);
-      console.log('[handleStreamChunk] Current messages:', chatManager.messages.map(m => ({ id: m.id, type: m.type })));
-      return;
-    }
+    // Don't verify message existence here - trust that it was created
+    // The chatManager.messages in this closure might be stale
     
     // Track updates
     const updates = streamingUpdatesRef.current.get(messageId) || { count: 0, content: '', lastUpdate: Date.now() };
@@ -914,39 +939,23 @@ export const useMessageHandlers = (
             totalLength: updates.content.length
           });
           
-          // Use flushSync to force immediate state update with retry logic
-          const MAX_RETRIES = 3;
-          let retryCount = 0;
-          
-          const updateWithRetry = () => {
-            try {
-              flushSync(() => {
-                chatManager.updateStreamingMessage(messageId, {
-                  content: (prev: string) => {
-                    const newContent = prev + textToAppend;
-                    console.log('[handleStreamChunk] Updating content:', {
-                      prevLength: prev.length,
-                      appendLength: textToAppend.length,
-                      newLength: newContent.length,
-                      retryCount
-                    });
-                    return newContent;
-                  }
+          // Update the streaming message content
+          try {
+            chatManager.updateStreamingMessage(messageId, {
+              content: (prev: string) => {
+                const newContent = prev + textToAppend;
+                console.log('[handleStreamChunk] Updating content:', {
+                  prevLength: prev.length,
+                  appendLength: textToAppend.length,
+                  newLength: newContent.length
                 });
-              });
-            } catch (error) {
-              retryCount++;
-              if (retryCount < MAX_RETRIES) {
-                console.warn(`[handleStreamChunk] Retry ${retryCount} for chunk update`, error);
-                setTimeout(updateWithRetry, 10);
-              } else {
-                console.error('[handleStreamChunk] Failed after retries:', error);
-                addDebugLog(`Failed to update streaming message after ${MAX_RETRIES} retries`, 'error');
+                return newContent;
               }
-            }
-          };
-          
-          updateWithRetry();
+            });
+          } catch (error) {
+            console.error('[handleStreamChunk] Failed to update message:', error);
+            addDebugLog(`Failed to update streaming message: ${error}`, 'error');
+          }
         }
         break;
         
@@ -1024,7 +1033,8 @@ export const useMessageHandlers = (
   useEffect(() => {
     handlePreviewAcceptRef.current = handlePreviewAccept;
     handlePreviewRejectRef.current = handlePreviewReject;
-  }, [handlePreviewAccept, handlePreviewReject]);
+    handleStreamChunkRef.current = handleStreamChunk;
+  }, [handlePreviewAccept, handlePreviewReject, handleStreamChunk]);
 
   return {
     handleSignalRMessage,

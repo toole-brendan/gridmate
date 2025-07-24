@@ -1,6 +1,5 @@
 import ReactDOM from 'react-dom/client'
 import { EnhancedChatInterfaceWrapper } from './components/chat/EnhancedChatInterfaceWrapper'
-import { PerformanceDashboard } from './components/debug/PerformanceDashboard'
 import './styles/index.css'
 import './styles/cursor-theme-enhanced.css'
 import './styles/button-animations.css'
@@ -19,7 +18,6 @@ const MainApp = () => {
   return (
     <>
       <EnhancedChatInterfaceWrapper />
-      <PerformanceDashboard />
     </>
   )
 }

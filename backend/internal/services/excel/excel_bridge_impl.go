@@ -369,7 +369,7 @@ func (b *BridgeImpl) WriteRange(ctx context.Context, sessionID string, rangeAddr
 
 	// Check if preview mode is set in context
 	if previewMode, ok := ctx.Value("preview_mode").(bool); ok && previewMode {
-		request["preview_mode"] = true
+		request["preview"] = true
 	}
 
 	// Check if we have edit tracking info in context
@@ -408,7 +408,7 @@ func (b *BridgeImpl) ApplyFormula(ctx context.Context, sessionID string, rangeAd
 
 	// Check if preview mode is set in context
 	if previewMode, ok := ctx.Value("preview_mode").(bool); ok && previewMode {
-		request["preview_mode"] = true
+		request["preview"] = true
 	}
 
 	response, err := b.sendToolRequest(ctx, sessionID, request)
@@ -506,7 +506,7 @@ func (b *BridgeImpl) FormatRange(ctx context.Context, sessionID string, rangeAdd
 
 	// Check if preview mode is set in context
 	if previewMode, ok := ctx.Value("preview_mode").(bool); ok && previewMode {
-		request["preview_mode"] = true
+		request["preview"] = true
 	}
 
 	b.logger.Info().

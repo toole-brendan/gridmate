@@ -1185,11 +1185,26 @@ func (s *Service) streamWithToolContinuation(
 							Int("queued_tools", len(toolCalls)).
 							Msg("Tools returned queued status, continuing conversation")
 						
-						// Add a tool result message to continue the conversation
-						// This simulates the tool results being added to the conversation
+						// Add tool results to messages for each tool call
+						var toolResults []ToolResult
+						for _, tc := range toolCalls {
+							// Create a tool result indicating the tool was queued
+							toolResult := ToolResult{
+								ToolUseID: tc.ID,
+								Content: map[string]interface{}{
+									"status": "queued",
+									"message": fmt.Sprintf("The %s operation has been queued for approval. Continuing with model creation.", tc.Name),
+								},
+								IsError: false,
+							}
+							toolResults = append(toolResults, toolResult)
+						}
+						
+						// Add tool results message
 						toolResultMsg := Message{
-							Role: "user",
-							Content: "The financial model organization has been queued for your approval. Please continue with creating the DCF model content and formulas.",
+							Role:        "user",
+							Content:     "",  // Empty content for tool results message
+							ToolResults: toolResults,
 						}
 						messages = append(messages, toolResultMsg)
 						

@@ -17,9 +17,20 @@ export interface SignalRAIResponse {
   content: string
   messageId: string
   isComplete: boolean
-  type?: 'completion' | 'response'
+  type?: 'completion' | 'response' | 'ai_response' | 'error'
   operationsSummary?: any
   tokenUsage?: TokenUsage
+  actions?: Array<{
+    type: string
+    operation_id?: string
+    id?: string
+    tool_type?: string
+    input?: any
+    preview?: any
+    preview_type?: string
+    description?: string
+  }>
+  error?: string
 }
 
 export interface TokenUsage {

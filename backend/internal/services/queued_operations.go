@@ -41,10 +41,11 @@ type QueuedOperation struct {
 	CompletedAt  *time.Time             `json:"completed_at,omitempty"`
 
 	// Cursor-style metadata
-	Preview  interface{} `json:"preview,omitempty"`   // What the operation will do
-	Context  string      `json:"context,omitempty"`   // Why this operation is needed
-	CanMerge bool        `json:"can_merge,omitempty"` // Can be merged with adjacent ops
-	Priority int         `json:"priority,omitempty"`  // Execution priority
+	Preview     interface{} `json:"preview,omitempty"`      // What the operation will do
+	PreviewType string      `json:"preview_type,omitempty"` // Type of preview (excel_diff, image, json)
+	Context     string      `json:"context,omitempty"`      // Why this operation is needed
+	CanMerge    bool        `json:"can_merge,omitempty"`    // Can be merged with adjacent ops
+	Priority    int         `json:"priority,omitempty"`     // Execution priority
 
 	// Message tracking
 	MessageID string `json:"message_id,omitempty"` // ID of the chat message that triggered this operation
@@ -109,6 +110,11 @@ func (r *QueuedOperationRegistry) QueueOperation(op interface{}) error {
 		// Handle message ID if present
 		if messageID := getStringFromMap(v, "MessageID"); messageID != "" {
 			operation.MessageID = messageID
+		}
+
+		// Handle preview type if present
+		if previewType := getStringFromMap(v, "PreviewType"); previewType != "" {
+			operation.PreviewType = previewType
 		}
 	default:
 		return fmt.Errorf("unsupported operation type: %T", op)
@@ -389,7 +395,7 @@ func (r *QueuedOperationRegistry) MarkOperationComplete(operationID string, resu
 	if !exists {
 		return fmt.Errorf("operation %s not found", operationID)
 	}
-	
+
 	// Count operations for this message
 	totalOps := 0
 	completedCount := 0
@@ -406,7 +412,7 @@ func (r *QueuedOperationRegistry) MarkOperationComplete(operationID string, resu
 	op.Status = StatusCompleted
 	op.CompletedAt = &now
 	op.Result = result
-	
+
 	// Enhanced logging with operation sequence info
 	log.Info().
 		Str("operation_id", operationID).
@@ -916,7 +922,7 @@ func (r *QueuedOperationRegistry) GetMessageOperationsSummary(messageID string) 
 func (r *QueuedOperationRegistry) UnregisterMessageCompletionCallback(messageID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if _, exists := r.operationCallbacks[messageID]; exists {
 		delete(r.operationCallbacks, messageID)
 		log.Info().

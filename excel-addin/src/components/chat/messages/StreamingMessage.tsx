@@ -14,13 +14,19 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
     // Use local state for displayed content
     const [displayContent, setDisplayContent] = useState('');
     const rendererRef = useRef<ChunkedRenderer | null>(null);
+    const contentRef = useRef(''); // Track accumulated content
+    const processedChunksRef = useRef<Set<string>>(new Set()); // Track processed chunks
     
     useEffect(() => {
         // Create renderer on mount
         rendererRef.current = new ChunkedRenderer({
-            onUpdate: (content) => setDisplayContent(prev => prev + content),
-            flushInterval: 100, // 10Hz update rate
-            maxBufferSize: 500  // Force update every 500 chars
+            onUpdate: (content) => {
+                // Append delta content
+                contentRef.current += content;
+                setDisplayContent(contentRef.current);
+            },
+            flushInterval: 50, // Faster update rate for smoother streaming
+            maxBufferSize: 300  // Smaller buffer for more frequent updates
         });
         
         return () => {
@@ -30,19 +36,38 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
     }, []);
     
     useEffect(() => {
-        // Handle new content chunks
-        if (message.content && rendererRef.current) {
-            const newContent = message.content.substring(displayContent.length);
-            if (newContent) {
-                rendererRef.current.addChunk(newContent);
-            }
+        // Process new chunks
+        if (message.chunks && rendererRef.current) {
+            message.chunks.forEach((chunk) => {
+                // Skip if we've already processed this chunk
+                if (processedChunksRef.current.has(chunk.id)) {
+                    return;
+                }
+                
+                // Mark as processed
+                processedChunksRef.current.add(chunk.id);
+                
+                // Handle text chunks with deltas
+                if (chunk.type === 'text' && chunk.delta) {
+                    rendererRef.current.addChunk(chunk.delta);
+                }
+            });
         }
         
         // Force flush when streaming completes
         if (!message.isStreaming && rendererRef.current) {
             rendererRef.current.forceFlush();
         }
-    }, [message.content, message.isStreaming, displayContent.length]);
+    }, [message.chunks, message.isStreaming]);
+    
+    // Reset content when message ID changes (new message)
+    useEffect(() => {
+        if (message.id) {
+            contentRef.current = '';
+            setDisplayContent('');
+            processedChunksRef.current.clear();
+        }
+    }, [message.id]);
     
     return (
         <div className="flex items-start space-x-3 p-4 animate-fadeIn">

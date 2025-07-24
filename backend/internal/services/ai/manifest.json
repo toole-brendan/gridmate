@@ -1,0 +1,111 @@
+{
+  "version": "1.0",
+  "tools": [
+    {
+      "name": "read_range",
+      "description": "Read data from a range of cells",
+      "permission": "read",
+      "preview_type": "none",
+      "category": "data_access"
+    },
+    {
+      "name": "write_range",
+      "description": "Write data to a range of cells",
+      "permission": "write",
+      "preview_type": "excel_diff",
+      "category": "data_modification",
+      "requires_preview": true
+    },
+    {
+      "name": "apply_formula",
+      "description": "Apply a formula to one or more cells",
+      "permission": "write",
+      "preview_type": "excel_diff",
+      "category": "formula_modification",
+      "requires_preview": true
+    },
+    {
+      "name": "analyze_data",
+      "description": "Analyze data in a range including statistics and patterns",
+      "permission": "read",
+      "preview_type": "json",
+      "category": "data_analysis"
+    },
+    {
+      "name": "format_range",
+      "description": "Apply formatting to cells",
+      "permission": "write",
+      "preview_type": "excel_diff",
+      "category": "formatting",
+      "requires_preview": true
+    },
+    {
+      "name": "create_chart",
+      "description": "Create a chart from data",
+      "permission": "write",
+      "preview_type": "image",
+      "category": "visualization",
+      "requires_preview": true
+    },
+    {
+      "name": "validate_model",
+      "description": "Validate formulas and data integrity",
+      "permission": "read",
+      "preview_type": "json",
+      "category": "validation"
+    },
+    {
+      "name": "get_named_ranges",
+      "description": "Get all named ranges in the workbook",
+      "permission": "read",
+      "preview_type": "json",
+      "category": "metadata"
+    },
+    {
+      "name": "create_named_range",
+      "description": "Create a new named range",
+      "permission": "write",
+      "preview_type": "json",
+      "category": "metadata",
+      "requires_preview": true
+    },
+    {
+      "name": "insert_rows_columns",
+      "description": "Insert rows or columns",
+      "permission": "write",
+      "preview_type": "excel_diff",
+      "category": "structure_modification",
+      "requires_preview": true
+    },
+    {
+      "name": "analyze_formulas",
+      "description": "Analyze formulas for dependencies and circular references",
+      "permission": "read",
+      "preview_type": "json",
+      "category": "formula_analysis"
+    },
+    {
+      "name": "get_workbook_info",
+      "description": "Get information about the workbook",
+      "permission": "read",
+      "preview_type": "json",
+      "category": "metadata"
+    },
+    {
+      "name": "clear_range",
+      "description": "Clear content or formatting from cells",
+      "permission": "write",
+      "preview_type": "excel_diff",
+      "category": "data_modification",
+      "requires_preview": true
+    },
+    {
+      "name": "copy_range",
+      "description": "Copy data from one range to another",
+      "permission": "write",
+      "preview_type": "excel_diff",
+      "category": "data_modification",
+      "requires_preview": true
+    }
+  ]
+} 

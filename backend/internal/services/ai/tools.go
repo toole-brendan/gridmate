@@ -1,18 +1,95 @@
 package ai
 
+import (
+	_ "embed"
+	"encoding/json"
+	"log"
+)
+
+//go:embed manifest.json
+var toolManifestJSON []byte
+
+// ToolManifest represents the structure of the tool manifest
+type ToolManifest struct {
+	Version string                   `json:"version"`
+	Tools   []ToolManifestDefinition `json:"tools"`
+}
+
+// ToolManifestDefinition represents a tool definition in the manifest
+type ToolManifestDefinition struct {
+	Name            string `json:"name"`
+	Description     string `json:"description"`
+	Permission      string `json:"permission"`
+	PreviewType     string `json:"preview_type"`
+	Category        string `json:"category"`
+	RequiresPreview bool   `json:"requires_preview"`
+}
+
+// loadToolManifest loads the embedded tool manifest
+func loadToolManifest() (*ToolManifest, error) {
+	var manifest ToolManifest
+	if err := json.Unmarshal(toolManifestJSON, &manifest); err != nil {
+		return nil, err
+	}
+	return &manifest, nil
+}
+
+// enrichToolsWithManifest enriches tool definitions with manifest data
+func enrichToolsWithManifest(tools []ExcelTool) []ExcelTool {
+	manifest, err := loadToolManifest()
+	if err != nil {
+		log.Printf("Warning: Failed to load tool manifest: %v", err)
+		return tools
+	}
+
+	// Create a map for quick lookup
+	manifestMap := make(map[string]ToolManifestDefinition)
+	for _, tool := range manifest.Tools {
+		manifestMap[tool.Name] = tool
+	}
+
+	// Enrich tools with manifest data
+	for i := range tools {
+		if manifestTool, exists := manifestMap[tools[i].Name]; exists {
+			// Only override if not already set
+			if tools[i].Permission == "" {
+				tools[i].Permission = manifestTool.Permission
+			}
+			if tools[i].PreviewType == "" {
+				tools[i].PreviewType = manifestTool.PreviewType
+			}
+			if tools[i].Category == "" {
+				tools[i].Category = manifestTool.Category
+			}
+			if !tools[i].RequiresPreview && manifestTool.RequiresPreview {
+				tools[i].RequiresPreview = manifestTool.RequiresPreview
+			}
+		}
+	}
+
+	return tools
+}
+
 // ExcelTool represents a tool that can be called by the AI
 type ExcelTool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"input_schema"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	InputSchema     map[string]interface{} `json:"input_schema"`
+	Permission      string                 `json:"permission,omitempty"`       // "read" or "write"
+	PreviewType     string                 `json:"preview_type,omitempty"`     // "excel_diff", "image", "json", "none"
+	Category        string                 `json:"category,omitempty"`         // Tool category for grouping
+	RequiresPreview bool                   `json:"requires_preview,omitempty"` // Whether preview is required
 }
 
 // GetExcelTools returns all available Excel manipulation tools
 func GetExcelTools() []ExcelTool {
-	return []ExcelTool{
+	tools := []ExcelTool{
 		{
 			Name:        "read_range",
 			Description: "Read cell values, formulas, and formatting from a specified range in the Excel spreadsheet. Returns detailed information about each cell including values, formulas, formatting, and data types.",
+			Permission:  "read",
+			PreviewType: "none",
+			Category:    "data_access",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -35,8 +112,12 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "write_range",
-			Description: "Write values to a specified range in the Excel spreadsheet. Can write single values or arrays of values. Preserves existing formatting unless specified otherwise.",
+			Name:            "write_range",
+			Description:     "Write values to a specified range in the Excel spreadsheet. Can write single values or arrays of values. Preserves existing formatting unless specified otherwise.",
+			Permission:      "write",
+			PreviewType:     "excel_diff",
+			Category:        "data_modification",
+			RequiresPreview: true,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -69,8 +150,12 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "apply_formula",
-			Description: "Apply a formula to one or more cells. Handles relative and absolute references correctly when applying to multiple cells.",
+			Name:            "apply_formula",
+			Description:     "Apply a formula to one or more cells. Handles relative and absolute references correctly when applying to multiple cells.",
+			Permission:      "write",
+			PreviewType:     "excel_diff",
+			Category:        "formula_modification",
+			RequiresPreview: true,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -94,6 +179,9 @@ func GetExcelTools() []ExcelTool {
 		{
 			Name:        "analyze_data",
 			Description: "Analyze a data range to understand its structure, data types, and patterns. Useful for understanding data before performing operations.",
+			Permission:  "read",
+			PreviewType: "json",
+			Category:    "data_analysis",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -116,8 +204,12 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "format_range",
-			Description: "Apply formatting to a range of cells including number formats, colors, borders, and alignment.",
+			Name:            "format_range",
+			Description:     "Apply formatting to a range of cells including number formats, colors, borders, and alignment.",
+			Permission:      "write",
+			PreviewType:     "excel_diff",
+			Category:        "formatting",
+			RequiresPreview: true,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -184,8 +276,12 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "create_chart",
-			Description: "Create a chart based on data in the spreadsheet. Supports various chart types commonly used in financial modeling.",
+			Name:            "create_chart",
+			Description:     "Create a chart based on data in the spreadsheet. Supports various chart types commonly used in financial modeling.",
+			Permission:      "write",
+			PreviewType:     "image",
+			Category:        "visualization",
+			RequiresPreview: true,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -217,6 +313,9 @@ func GetExcelTools() []ExcelTool {
 		{
 			Name:        "validate_model",
 			Description: "Validate a financial model by checking for common issues like circular references, broken formulas, inconsistent formulas in ranges, and #REF! errors.",
+			Permission:  "read",
+			PreviewType: "json",
+			Category:    "validation",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -243,6 +342,9 @@ func GetExcelTools() []ExcelTool {
 		{
 			Name:        "get_named_ranges",
 			Description: "Get all named ranges in the workbook or worksheet. Named ranges are commonly used in financial models for important values and ranges.",
+			Permission:  "read",
+			PreviewType: "json",
+			Category:    "metadata",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -257,8 +359,12 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "create_named_range",
-			Description: "Create a named range for easier reference in formulas and navigation.",
+			Name:            "create_named_range",
+			Description:     "Create a named range for easier reference in formulas and navigation.",
+			Permission:      "write",
+			PreviewType:     "json",
+			Category:        "metadata",
+			RequiresPreview: true,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -275,8 +381,12 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 		{
-			Name:        "insert_rows_columns",
-			Description: "Insert rows or columns at a specified position, shifting existing data as needed.",
+			Name:            "insert_rows_columns",
+			Description:     "Insert rows or columns at a specified position, shifting existing data as needed.",
+			Permission:      "write",
+			PreviewType:     "excel_diff",
+			Category:        "structure_modification",
+			RequiresPreview: true,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -603,6 +713,10 @@ func GetExcelTools() []ExcelTool {
 			},
 		},
 	}
+
+	tools = enrichToolsWithManifest(tools)
+
+	return tools
 }
 
 // ToolResult represents the result of executing a tool

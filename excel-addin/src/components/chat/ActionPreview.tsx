@@ -1,6 +1,7 @@
 import React from 'react'
 import { CheckIcon, XMarkIcon, SparklesIcon } from '@heroicons/react/24/outline'
 import { useAcceptRejectButtonStyles } from '../../hooks/useAcceptRejectButtonStyles'
+import { ExcelDiffRenderer } from './diff/ExcelDiffRenderer'
 
 export interface PendingAction {
   id: string
@@ -10,6 +11,8 @@ export interface PendingAction {
   timestamp: Date
   status?: 'pending' | 'executing' | 'completed' | 'failed'
   error?: string
+  preview?: any  // Structured preview data
+  previewType?: string  // Type of preview: excel_diff, image, json, none
 }
 
 interface ActionPreviewProps {
@@ -26,7 +29,14 @@ const TOOL_DESCRIPTIONS: { [key: string]: string } = {
   'smart_format_cells': 'Format cells',
   'analyze_model_structure': 'Analyze spreadsheet structure',
   'build_financial_formula': 'Build financial formula',
-  'create_audit_trail': 'Create audit documentation'
+  'create_audit_trail': 'Create audit documentation',
+  'format_range': 'Format cells',
+  'create_chart': 'Create chart',
+  'validate_model': 'Validate model',
+  'create_named_range': 'Create named range',
+  'insert_rows_columns': 'Insert rows/columns',
+  'clear_range': 'Clear cells',
+  'copy_range': 'Copy cells'
 }
 
 export const ActionPreview: React.FC<ActionPreviewProps> = ({
@@ -49,7 +59,18 @@ export const ActionPreview: React.FC<ActionPreviewProps> = ({
       case 'apply_formula':
         return `Range: ${params.range || 'N/A'}, Formula: ${params.formula || 'N/A'}`
       case 'smart_format_cells':
-        return `Range: ${params.range || 'N/A'}, Format: ${params.format_type || 'N/A'}`
+      case 'format_range':
+        return `Range: ${params.range || 'N/A'}, Format: ${params.format_type || params.number_format || 'N/A'}`
+      case 'create_chart':
+        return `Type: ${params.chart_type || 'N/A'}, Data: ${params.data_range || 'N/A'}`
+      case 'create_named_range':
+        return `Name: ${params.name || 'N/A'}, Range: ${params.range || 'N/A'}`
+      case 'insert_rows_columns':
+        return `Insert ${params.count || 0} ${params.type || 'rows'} at ${params.position || 'N/A'}`
+      case 'clear_range':
+        return `Range: ${params.range || 'N/A'}, Type: ${params.clear_type || 'all'}`
+      case 'copy_range':
+        return `From: ${params.source_range || 'N/A'} To: ${params.destination_range || 'N/A'}`
       default:
         // Show first few key-value pairs
         return Object.entries(params)
@@ -57,6 +78,59 @@ export const ActionPreview: React.FC<ActionPreviewProps> = ({
           .map(([key, value]) => `${key}: ${value}`)
           .join(', ')
     }
+  }
+
+  const renderPreview = () => {
+    if (!action.preview) return null
+
+    // If preview is a structured object with preview data
+    if (typeof action.preview === 'object' && action.preview.preview_type) {
+      const previewType = action.preview.preview_type || action.previewType
+
+      switch (previewType) {
+        case 'excel_diff':
+          // For Excel diff, we need to have the diff data in the preview
+          if (action.preview.diff || action.preview.changes) {
+            return (
+              <div className="mt-3 border-t border-blue-200 pt-3 max-h-48 overflow-y-auto">
+                <ExcelDiffRenderer 
+                  diff={action.preview.diff || action.preview.changes} 
+                />
+              </div>
+            )
+          }
+          break
+        
+        case 'json':
+          // For JSON preview, show formatted JSON
+          return (
+            <div className="mt-3 border-t border-blue-200 pt-3">
+              <pre className="text-xs bg-gray-50 p-2 rounded overflow-x-auto max-h-32">
+                {JSON.stringify(action.preview.data || action.preview, null, 2)}
+              </pre>
+            </div>
+          )
+        
+        case 'text':
+          // For text preview, show as-is
+          return (
+            <div className="mt-3 border-t border-blue-200 pt-3 text-xs text-gray-600">
+              {action.preview.text || action.preview}
+            </div>
+          )
+      }
+    }
+
+    // Fallback: if preview is just a string
+    if (typeof action.preview === 'string') {
+      return (
+        <div className="mt-3 border-t border-blue-200 pt-3 text-xs text-gray-600">
+          {action.preview}
+        </div>
+      )
+    }
+
+    return null
   }
 
   return (
@@ -75,7 +149,9 @@ export const ActionPreview: React.FC<ActionPreviewProps> = ({
             {formatParameters(action.parameters)}
           </p>
           
-          <div className="flex items-center gap-2">
+          {renderPreview()}
+          
+          <div className="flex items-center gap-2 mt-3">
             <button
               onClick={() => onApprove(action.id)}
               disabled={isProcessing}

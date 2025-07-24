@@ -143,14 +143,25 @@ func (s *Service) ProcessChatMessage(ctx context.Context, userMessage string, co
 }
 
 // ProcessChatMessageStreaming processes a chat message with streaming response
-func (s *Service) ProcessChatMessageStreaming(ctx context.Context, userMessage string, context *FinancialContext) (<-chan CompletionChunk, error) {
+func (s *Service) ProcessChatMessageStreaming(ctx context.Context, sessionID string, userMessage string, financialContext *FinancialContext, chatHistory []Message, autonomyMode string, messageID string) (<-chan CompletionChunk, error) {
+	log.Info().
+		Str("session_id", sessionID).
+		Str("message_id", messageID).
+		Str("autonomy_mode", autonomyMode).
+		Bool("has_context", financialContext != nil).
+		Int("history_length", len(chatHistory)).
+		Msg("Starting ProcessChatMessageStreaming")
+
+	// Add message ID to context for tool executor
+	ctx = context.WithValue(ctx, "message_id", messageID)
+
 	// Auto-detect model type if not provided
-	if context != nil && context.ModelType == "" {
-		context.ModelType = s.promptBuilder.DetectModelType(context)
+	if financialContext != nil && financialContext.ModelType == "" {
+		financialContext.ModelType = s.promptBuilder.DetectModelType(financialContext)
 	}
 
 	// Build the prompt
-	messages := s.promptBuilder.BuildChatPrompt(userMessage, context)
+	messages := s.promptBuilder.BuildChatPrompt(userMessage, financialContext)
 
 	// Create request
 	request := CompletionRequest{
@@ -160,6 +171,20 @@ func (s *Service) ProcessChatMessageStreaming(ctx context.Context, userMessage s
 		TopP:        s.config.TopP,
 		Model:       s.config.DefaultModel,
 		Stream:      true,
+	}
+
+	// Add Excel tools if enabled - use smart selection
+	if s.config.EnableActions && s.toolExecutor != nil {
+		request.Tools = s.selectRelevantTools(userMessage, financialContext)
+		log.Info().
+			Int("tools_count", len(request.Tools)).
+			Int("total_available_tools", len(GetExcelTools())).
+			Msg("Added relevant tools to ProcessChatMessageStreaming request")
+	} else {
+		log.Warn().
+			Bool("actions_enabled", s.config.EnableActions).
+			Bool("tool_executor_available", s.toolExecutor != nil).
+			Msg("No tools added to ProcessChatMessageStreaming request")
 	}
 
 	// Get streaming response
@@ -458,13 +483,13 @@ func (s *Service) ProcessToolCalls(ctx context.Context, sessionID string, toolCa
 
 		// For batches with multiple tools, we could optimize further
 		// For now, process sequentially but mark with batch IDs
-		
+
 		// Create a mapping of batch indices to tool IDs for dependency tracking
 		batchToolIDs := make([]string, len(batch))
 		for idx, tc := range batch {
 			batchToolIDs[idx] = tc.ID
 		}
-		
+
 		for j, toolCall := range batch {
 			// Add batch metadata if this is part of a batch
 			if len(batch) > 1 {
@@ -772,7 +797,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 
 	// Build messages array with fresh context every time
 	messages := make([]Message, 0)
-	
+
 	// Use the prompt builder to create system message with current context
 	if s.promptBuilder != nil {
 		// This will include both base prompt and current context
@@ -812,7 +837,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 		case "full":
 			toolChoice = &ToolChoice{Type: "any"}
 		}
-		
+
 		// Check if user is asking for a specific tool operation
 		if specificTool := s.detectSpecificToolRequest(userMessage); specificTool != "" && autonomyMode != "ask" {
 			toolChoice = &ToolChoice{
@@ -820,7 +845,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 				Name: specificTool,
 			}
 		}
-		
+
 		if toolChoice != nil {
 			request.ToolChoice = toolChoice
 			log.Info().
@@ -976,7 +1001,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 			if err == nil {
 				context = refreshedContext
 				log.Info().Msg("Context refreshed after tool execution")
-				
+
 				// Rebuild messages with refreshed context for next round
 				if s.promptBuilder != nil && round < maxRounds-1 {
 					// Get all messages except the system message
@@ -986,10 +1011,10 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 							historyWithoutSystem = append(historyWithoutSystem, msg)
 						}
 					}
-					
+
 					// Rebuild with fresh context
 					newMessages := s.promptBuilder.BuildPromptWithHistory("", context, historyWithoutSystem)
-					
+
 					// Replace messages, but keep the last user message (tool results)
 					if len(messages) > 0 && messages[len(messages)-1].Role == "user" && messages[len(messages)-1].ToolResults != nil {
 						lastMsg := messages[len(messages)-1]
@@ -998,7 +1023,7 @@ func (s *Service) ProcessChatWithToolsAndHistory(ctx context.Context, sessionID 
 					} else {
 						messages = newMessages
 					}
-					
+
 					log.Info().
 						Int("messages_count", len(messages)).
 						Msg("Rebuilt messages with refreshed context")
@@ -1023,34 +1048,34 @@ func (s *Service) ProcessChatWithToolsAndHistoryStreaming(
 ) (<-chan CompletionChunk, error) {
 	// Create output channel
 	outChan := make(chan CompletionChunk, 10)
-	
+
 	// Start processing in a goroutine
 	go func() {
 		defer close(outChan)
-		
+
 		// Build initial messages
 		messages := []Message{}
-		
+
 		// Add system prompt
 		systemPrompt := s.buildSystemPrompt(context)
 		messages = append(messages, Message{
 			Role:    "system",
 			Content: systemPrompt,
 		})
-		
+
 		// Add chat history
 		messages = append(messages, chatHistory...)
-		
+
 		// Add current user message
 		messages = append(messages, Message{
 			Role:    "user",
 			Content: userMessage,
 		})
-		
+
 		// Process with tool continuation support
 		s.streamWithToolContinuation(ctx, sessionID, messages, context, autonomyMode, outChan)
 	}()
-	
+
 	return outChan, nil
 }
 
@@ -1063,20 +1088,20 @@ func (s *Service) streamWithToolContinuation(
 	autonomyMode string,
 	outChan chan<- CompletionChunk,
 ) {
-	const maxIterations = 5 // Prevent infinite loops
+	const maxIterations = 5                      // Prevent infinite loops
 	const toolResponseTimeout = 45 * time.Second // Extended timeout for tool responses
-	
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Get relevant tools
 		tools := s.getRelevantTools(messages[len(messages)-1].Content, financialContext)
-		
+
 		log.Info().
 			Str("session", sessionID).
 			Int("tools_count", len(tools)).
 			Str("autonomy_mode", autonomyMode).
 			Int("iteration", iteration).
 			Msg("Starting streaming iteration with tools")
-		
+
 		// Create request with streaming enabled
 		request := CompletionRequest{
 			Messages:  messages,
@@ -1084,7 +1109,7 @@ func (s *Service) streamWithToolContinuation(
 			Tools:     tools,
 			Stream:    true,
 		}
-		
+
 		// Set tool choice based on autonomy mode
 		switch autonomyMode {
 		case "ask":
@@ -1094,7 +1119,7 @@ func (s *Service) streamWithToolContinuation(
 		case "full":
 			request.ToolChoice = &ToolChoice{Type: "any"}
 		}
-		
+
 		// Get streaming response
 		providerChan, err := s.provider.GetStreamingCompletion(ctx, request)
 		if err != nil {
@@ -1106,14 +1131,15 @@ func (s *Service) streamWithToolContinuation(
 			}
 			return
 		}
-		
+
 		// Track assistant message content and tool calls
 		var assistantContent strings.Builder
 		var toolCalls []ToolCall
 		var currentToolCall *ToolCall
 		hasQueuedTools := false
+		hasExecutedTools := false
 		toolsWaitingForResponse := make(map[string]chan ToolResult)
-		
+
 		// Forward chunks and collect tool calls
 		for chunk := range providerChan {
 			// Forward the chunk
@@ -1122,14 +1148,14 @@ func (s *Service) streamWithToolContinuation(
 			case <-ctx.Done():
 				return
 			}
-			
+
 			// Collect content and tool calls
 			switch chunk.Type {
 			case "text":
 				if chunk.Delta != "" {
 					assistantContent.WriteString(chunk.Delta)
 				}
-				
+
 			case "tool_start":
 				if chunk.ToolCall != nil {
 					currentToolCall = &ToolCall{
@@ -1138,7 +1164,7 @@ func (s *Service) streamWithToolContinuation(
 						Input: make(map[string]interface{}),
 					}
 				}
-				
+
 			case "tool_progress":
 				if currentToolCall != nil && chunk.Delta != "" {
 					// Parse and merge the JSON delta
@@ -1149,13 +1175,14 @@ func (s *Service) streamWithToolContinuation(
 						}
 					}
 				}
-				
+
 			case "tool_complete":
 				if currentToolCall != nil {
 					toolCalls = append(toolCalls, *currentToolCall)
+					hasExecutedTools = true
 					currentToolCall = nil
 				}
-				
+
 			case "tool_result":
 				// Handle tool results that come back during streaming
 				if chunk.ToolCall != nil && chunk.Content != "" {
@@ -1172,11 +1199,46 @@ func (s *Service) streamWithToolContinuation(
 					}
 				}
 			}
-			
+
 			// Check if this is the final chunk
 			if chunk.Done {
-				// If we have tool calls that need responses, wait for them
-				if len(toolCalls) > 0 && hasQueuedTools {
+				// If we have executed tools but they're all queued, don't wait or continue
+				if hasExecutedTools && hasQueuedTools && len(toolCalls) > 0 {
+					// Add assistant message to history for context
+					if assistantContent.Len() > 0 {
+						assistantMsg := Message{
+							Role:      "assistant",
+							Content:   assistantContent.String(),
+							ToolCalls: toolCalls,
+						}
+						messages = append(messages, assistantMsg)
+					}
+
+					log.Info().
+						Str("session", sessionID).
+						Int("iteration", iteration).
+						Int("queued_tools", len(toolCalls)).
+						Msg("All tools queued for preview - ending stream gracefully")
+
+					// Send a final informative message if no content was generated
+					if assistantContent.Len() == 0 {
+						outChan <- CompletionChunk{
+							Type:  "text",
+							Delta: "I've queued the requested operations for your review. You can approve or reject them in the preview panel.",
+							Done:  false,
+						}
+					}
+
+					// Send final done chunk
+					outChan <- CompletionChunk{
+						Type: "",
+						Done: true,
+					}
+					return
+				}
+
+				// If we have non-queued tool calls that need responses, wait for them
+				if len(toolCalls) > 0 && !hasQueuedTools {
 					// Add assistant message to history
 					assistantMsg := Message{
 						Role:      "assistant",
@@ -1184,29 +1246,29 @@ func (s *Service) streamWithToolContinuation(
 						ToolCalls: toolCalls,
 					}
 					messages = append(messages, assistantMsg)
-					
+
 					log.Info().
 						Str("session", sessionID).
 						Int("iteration", iteration).
-						Int("queued_tools", len(toolCalls)).
-						Msg("Waiting for queued tool responses before continuing")
-					
+						Int("tool_calls", len(toolCalls)).
+						Msg("Processing tool results before continuing")
+
 					// Create a context with timeout for waiting
 					waitCtx, cancel := context.WithTimeout(ctx, toolResponseTimeout)
 					defer cancel()
-					
+
 					// Wait for tool responses with timeout
 					toolResults := s.waitForToolResponses(waitCtx, sessionID, toolCalls, toolsWaitingForResponse)
-					
+
 					if len(toolResults) > 0 {
 						// Add tool results message
 						toolResultMsg := Message{
 							Role:        "user",
-							Content:     "",  // Empty content for tool results message
+							Content:     "", // Empty content for tool results message
 							ToolResults: toolResults,
 						}
 						messages = append(messages, toolResultMsg)
-						
+
 						// Continue to next iteration
 						if iteration < maxIterations-1 {
 							log.Info().
@@ -1214,38 +1276,21 @@ func (s *Service) streamWithToolContinuation(
 								Int("iteration", iteration).
 								Int("tool_results", len(toolResults)).
 								Msg("Received tool responses, continuing conversation")
-							break
+							break // Continue to next iteration
 						}
-					} else {
-						// Timeout or no responses - send a graceful ending
-						log.Warn().
-							Str("session", sessionID).
-							Msg("Tool response timeout - ending stream gracefully")
-						
-						outChan <- CompletionChunk{
-							Type:  "text",
-							Delta: "\n\nThe requested operations are being processed. You'll see the results shortly.",
-							Done:  false,
-						}
-						
-						outChan <- CompletionChunk{
-							Type: "",
-							Done: true,
-						}
-						return
 					}
 				}
-				
-				// No more iterations needed
+
+				// No more iterations needed - send final done if not already sent
+				if !chunk.Done {
+					outChan <- CompletionChunk{
+						Type: "",
+						Done: true,
+					}
+				}
 				return
 			}
 		}
-	}
-	
-	// Send final chunk if we hit max iterations
-	outChan <- CompletionChunk{
-		Type: "",
-		Done: true,
 	}
 }
 
@@ -1254,52 +1299,52 @@ func (s *Service) waitForToolResponses(ctx context.Context, sessionID string, to
 	var toolResults []ToolResult
 	var wg sync.WaitGroup
 	resultChan := make(chan ToolResult, len(toolCalls))
-	
+
 	// Start goroutines to wait for each tool response
 	for _, tc := range toolCalls {
 		wg.Add(1)
 		go func(toolCall ToolCall) {
 			defer wg.Done()
-			
+
 			// For now, wait for a reasonable time for the tool to complete
 			// In a full implementation, this would coordinate with the tool executor
 			// to get real-time updates
-			
+
 			// Wait a reasonable time for the tool to complete
 			timer := time.NewTimer(45 * time.Second)
 			defer timer.Stop()
-			
+
 			select {
 			case <-timer.C:
 				// Create a result indicating the tool is still processing
 				toolResult := ToolResult{
 					ToolUseID: toolCall.ID,
 					Content: map[string]interface{}{
-						"status": "processing",
+						"status":  "processing",
 						"message": fmt.Sprintf("The %s operation is still being processed. Results will be available shortly.", toolCall.Name),
 					},
 					IsError: false,
 				}
 				resultChan <- toolResult
-				
+
 			case <-ctx.Done():
 				// Context cancelled
 				return
 			}
 		}(tc)
 	}
-	
+
 	// Wait for all goroutines to complete or timeout
 	go func() {
 		wg.Wait()
 		close(resultChan)
 	}()
-	
+
 	// Collect results
 	for result := range resultChan {
 		toolResults = append(toolResults, result)
 	}
-	
+
 	return toolResults
 }
 
@@ -1440,7 +1485,7 @@ func (s *Service) buildSystemPrompt(context *FinancialContext) string {
 			return messages[0].Content
 		}
 	}
-	
+
 	// Default system prompt
 	return "You are a financial modeling assistant helping with spreadsheet analysis and calculations. Provide accurate financial insights and calculations."
 }
@@ -1465,7 +1510,7 @@ func (s *Service) GetToolOrchestrator() *ToolOrchestrator {
 // detectSpecificToolRequest analyzes the user message to determine if they're asking for a specific tool
 func (s *Service) detectSpecificToolRequest(userMessage string) string {
 	msg := strings.ToLower(userMessage)
-	
+
 	// Check for specific tool patterns
 	if strings.Contains(msg, "read") && (strings.Contains(msg, "range") || strings.Contains(msg, "cell") || strings.Contains(msg, "value")) {
 		return "read_range"
@@ -1527,6 +1572,6 @@ func (s *Service) detectSpecificToolRequest(userMessage string) string {
 	if strings.Contains(msg, "link") && (strings.Contains(msg, "cell") || strings.Contains(msg, "sheet")) {
 		return "link_cells"
 	}
-	
+
 	return ""
 }

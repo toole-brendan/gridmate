@@ -67,10 +67,10 @@ type ExcelSession struct {
 	LastActivity time.Time
 	CreatedAt    time.Time
 	LastRefresh  time.Time
-	
+
 	// Memory support
-	MemoryStore  *memory.VectorStore `json:"-"` // Don't serialize
-	MemoryStats  *MemoryStats        // Statistics for UI
+	MemoryStore *memory.VectorStore `json:"-"` // Don't serialize
+	MemoryStats *MemoryStats        // Statistics for UI
 }
 
 // MemoryStats contains memory statistics for the session
@@ -190,14 +190,14 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 
 	if _, exists := eb.sessions[sessionID]; !exists {
 		now := time.Now()
-		
+
 		// Initialize with memory store
 		var memStore memory.VectorStore = memory.NewHybridVectorStore(
 			memory.WithInMemoryCache(10000), // 10k chunks max
 			memory.WithDiskPersistence(fmt.Sprintf("./data/sessions/%s.db", sessionID)),
-			memory.WithAutoSave(5 * time.Minute),
+			memory.WithAutoSave(5*time.Minute),
 		)
-		
+
 		eb.sessions[sessionID] = &ExcelSession{
 			ID:           sessionID,
 			UserID:       "signalr-user",
@@ -209,7 +209,7 @@ func (eb *ExcelBridge) CreateSignalRSession(sessionID string) {
 			MemoryStore:  &memStore,
 			MemoryStats:  &MemoryStats{IndexVersion: "1.0"},
 		}
-		
+
 		// Start background indexing of initial workbook state
 		go eb.indexInitialWorkbook(sessionID)
 
@@ -338,11 +338,11 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 	// Get or create session
 	session := eb.getOrCreateSession(clientID, message.SessionID)
-	
+
 	// Build comprehensive context BEFORE adding message to history
 	var financialContext *ai.FinancialContext
 	var msgContext map[string]interface{}
-	
+
 	if eb.contextBuilder != nil {
 		ctx := context.Background()
 		builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
@@ -376,7 +376,7 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 	// Get existing history BEFORE adding new message
 	existingHistory := eb.chatHistory.GetHistory(session.ID)
-	
+
 	// Convert to AI message format
 	aiHistory := make([]ai.Message, 0, len(existingHistory))
 	for _, msg := range existingHistory {
@@ -427,23 +427,23 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 		}
 
 		eb.logger.Info("Calling ProcessChatWithToolsAndHistory for session", "session_id", session.ID, "history_length", len(aiHistory), "autonomy_mode", message.AutonomyMode)
-		
+
 		// Call AI with full context and history
 		aiResponse, err := eb.aiService.ProcessChatWithToolsAndHistory(
-			ctx, 
-			session.ID, 
-			message.Content, 
-			financialContext, 
-			aiHistory, 
+			ctx,
+			session.ID,
+			message.Content,
+			financialContext,
+			aiHistory,
 			message.AutonomyMode,
 		)
-		
+
 		// NOW add messages to history after processing
 		eb.chatHistory.AddMessage(session.ID, "user", message.Content)
 		if aiResponse != nil && err == nil {
 			eb.chatHistory.AddMessage(session.ID, "assistant", aiResponse.Content)
 		}
-		
+
 		if err != nil {
 			eb.logger.WithError(err).Error("AI processing failed")
 			content = "I encountered an error processing your request. Please try again."
@@ -559,9 +559,9 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 			Input:  aiResponse.Usage.PromptTokens,
 			Output: aiResponse.Usage.CompletionTokens,
 			Total:  aiResponse.Usage.TotalTokens, // Fixed: use TotalTokens for cumulative usage
-			Max:    200000, // Claude 3.5's context window
+			Max:    200000,                       // Claude 3.5's context window
 		}
-		
+
 		// Log token usage for debugging
 		eb.logger.WithFields(logrus.Fields{
 			"input":  response.TokenUsage.Input,
@@ -584,20 +584,20 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 // ProcessChatMessageStreaming processes a chat message with streaming response
 func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID string, message ChatMessage) (<-chan ai.CompletionChunk, error) {
 	session := eb.getOrCreateSession(clientID, message.SessionID)
-	
+
 	// Build financial context from Excel state
 	financialContext := &ai.FinancialContext{
-		CellValues:        make(map[string]interface{}),
-		NamedRanges:       make(map[string]ai.NamedRangeInfo),
-		Formulas:          make(map[string]string),
-		WorkbookName:      "",
-		WorksheetName:     "",
-		SelectedRange:     "",
-		ModelType:         "",
-		RecentChanges:     []ai.CellChange{},
-		DocumentContext:   []string{},
+		CellValues:      make(map[string]interface{}),
+		NamedRanges:     make(map[string]ai.NamedRangeInfo),
+		Formulas:        make(map[string]string),
+		WorkbookName:    "",
+		WorksheetName:   "",
+		SelectedRange:   "",
+		ModelType:       "",
+		RecentChanges:   []ai.CellChange{},
+		DocumentContext: []string{},
 	}
-	
+
 	// Populate context from message or session
 	if message.Context != nil {
 		// Extract relevant data from message context
@@ -618,7 +618,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 			financialContext.CellValues = cellData
 		}
 	}
-	
+
 	// Get chat history
 	chatHistory := eb.chatHistory.GetHistory(session.ID)
 	aiHistory := make([]ai.Message, 0, len(chatHistory))
@@ -628,37 +628,39 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 			Content: msg.Content,
 		})
 	}
-	
+
 	eb.logger.WithFields(logrus.Fields{
-		"session_id": session.ID,
+		"session_id":     session.ID,
 		"history_length": len(aiHistory),
-		"autonomy_mode": message.AutonomyMode,
+		"autonomy_mode":  message.AutonomyMode,
 	}).Info("Starting streaming chat processing")
-	
-	// Call streaming AI service
-	chunks, err := eb.aiService.ProcessChatWithToolsAndHistoryStreaming(
+
+	// Call streaming AI service with message ID
+	chunks, err := eb.aiService.ProcessChatMessageStreaming(
 		ctx,
 		session.ID,
 		message.Content,
 		financialContext,
 		aiHistory,
 		message.AutonomyMode,
+		message.MessageID,
 	)
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Create a new channel to forward chunks with proper buffering
 	outChan := make(chan ai.CompletionChunk, 1) // Smaller buffer to ensure streaming
-	
+
 	go func() {
 		defer close(outChan)
-		
+
 		var fullContent strings.Builder
 		var collectedToolCalls []ai.ToolCall
 		var currentToolCall *ai.ToolCall
-		
+		var queuedOperations []map[string]interface{}
+
 		for chunk := range chunks {
 			// Forward the chunk immediately
 			select {
@@ -668,7 +670,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 				// Context cancelled
 				return
 			}
-			
+
 			// Handle different chunk types
 			switch chunk.Type {
 			case "text":
@@ -676,7 +678,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 				if chunk.Content != "" {
 					fullContent.WriteString(chunk.Content)
 				}
-				
+
 			case "tool_start":
 				// Start collecting a new tool call
 				if chunk.ToolCall != nil {
@@ -686,7 +688,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 						Input: make(map[string]interface{}),
 					}
 				}
-				
+
 			case "tool_progress":
 				// Accumulate tool input data
 				if currentToolCall != nil && chunk.Delta != "" {
@@ -698,7 +700,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 						}
 					}
 				}
-				
+
 			case "tool_complete":
 				// Tool call is complete, execute it immediately
 				if currentToolCall != nil {
@@ -707,22 +709,28 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 						"tool_name": currentToolCall.Name,
 						"tool_id":   currentToolCall.ID,
 					}).Info("Executing tool during stream")
-					
+
+					// Add message ID to context for tool executor
+					toolCtx := ctx
+					if message.MessageID != "" {
+						toolCtx = context.WithValue(ctx, "message_id", message.MessageID)
+					}
+
 					// Process the single tool call
-					toolResults, err := eb.aiService.ProcessToolCalls(ctx, session.ID, []ai.ToolCall{*currentToolCall}, message.AutonomyMode)
-					
+					toolResults, err := eb.aiService.ProcessToolCallsWithMessageID(toolCtx, session.ID, []ai.ToolCall{*currentToolCall}, message.AutonomyMode, message.MessageID)
+
 					// Create a tool result chunk
 					var resultChunk ai.CompletionChunk
 					var isQueued bool
-					
+
 					if err != nil {
 						eb.logger.WithError(err).Error("Tool execution failed during stream")
 						resultChunk = ai.CompletionChunk{
-							Type: "tool_result",
+							Type:     "tool_result",
 							ToolCall: currentToolCall,
-							Content: fmt.Sprintf("Tool execution failed: %v", err),
-							Error: err,
-							Done: false,
+							Content:  fmt.Sprintf("Tool execution failed: %v", err),
+							Error:    err,
+							Done:     false,
 						}
 					} else if len(toolResults) > 0 {
 						// Check if the tool result indicates queued status
@@ -730,20 +738,41 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 							if resultMap, ok := toolResults[0].Content.(map[string]interface{}); ok {
 								if status, ok := resultMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
 									isQueued = true
+
+									// Extract action data from the result
+									if action, ok := resultMap["action"].(map[string]interface{}); ok {
+										// Create a queued operation info
+										queuedOp := map[string]interface{}{
+											"type":         "preview_queued",
+											"operation_id": currentToolCall.ID,
+											"tool_type":    currentToolCall.Name,
+											"input":        currentToolCall.Input,
+											"preview":      resultMap["preview"],
+											"preview_type": action["preview_type"],
+											"description":  action["description"],
+										}
+										queuedOperations = append(queuedOperations, queuedOp)
+
+										eb.logger.WithFields(logrus.Fields{
+											"tool_name": currentToolCall.Name,
+											"tool_id":   currentToolCall.ID,
+											"preview":   action["description"],
+										}).Info("Tool queued for preview during stream")
+									}
 								}
 							}
 						}
-						
+
 						// Convert tool result to JSON for streaming
 						resultJSON, _ := json.Marshal(toolResults[0])
 						resultChunk = ai.CompletionChunk{
-							Type: "tool_result",
+							Type:     "tool_result",
 							ToolCall: currentToolCall,
-							Content: string(resultJSON),
-							Done: false,
+							Content:  string(resultJSON),
+							Done:     false,
 						}
 					}
-					
+
 					// Send the tool result chunk
 					select {
 					case outChan <- resultChunk:
@@ -755,7 +784,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 					case <-ctx.Done():
 						return
 					}
-					
+
 					// If the tool result is queued, we should continue the AI stream
 					// to allow it to generate more content or tool calls
 					if isQueued {
@@ -763,31 +792,55 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 							"tool_name": currentToolCall.Name,
 							"tool_id":   currentToolCall.ID,
 						}).Info("Tool returned queued status, AI should continue generating")
-						
+
 						// Note: The AI provider should continue streaming after receiving
 						// the tool result. If it doesn't, we may need to implement a
 						// continuation mechanism here.
 					}
-					
+
 					// Add to collected tool calls for tracking
 					collectedToolCalls = append(collectedToolCalls, *currentToolCall)
 					currentToolCall = nil
 				}
 			}
-			
-			// If this is the final chunk, save to history
+
+			// If this is the final chunk, save to history and send actions
 			if chunk.Done {
 				// Save the complete message to history
 				if fullContent.Len() > 0 {
 					eb.chatHistory.AddMessage(session.ID, "assistant", fullContent.String())
 				}
-				
+
+				// If we have queued operations, send them as actions
+				if len(queuedOperations) > 0 {
+					actionsChunk := ai.CompletionChunk{
+						Type:    "actions",
+						Content: "queued_operations",
+						Done:    false,
+					}
+					// Marshal the actions as the delta
+					if actionsJSON, err := json.Marshal(queuedOperations); err == nil {
+						actionsChunk.Delta = string(actionsJSON)
+					}
+
+					// Send the actions chunk before the final done chunk
+					select {
+					case outChan <- actionsChunk:
+						eb.logger.WithFields(logrus.Fields{
+							"operations_count": len(queuedOperations),
+						}).Info("Sent queued operations as actions chunk")
+					case <-ctx.Done():
+						return
+					}
+				}
+
 				eb.logger.WithFields(logrus.Fields{
-					"session_id":     session.ID,
-					"content_length": fullContent.Len(),
-					"tool_calls_count": len(collectedToolCalls),
+					"session_id":        session.ID,
+					"content_length":    fullContent.Len(),
+					"tool_calls_count":  len(collectedToolCalls),
+					"queued_operations": len(queuedOperations),
 				}).Info("Streaming completed")
-				
+
 				// Track AI-edited ranges in session context if any tools were executed
 				if len(collectedToolCalls) > 0 {
 					var editedRanges []string
@@ -798,12 +851,12 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 							}
 						}
 					}
-					
+
 					// Update session selection to include all AI-edited ranges
 					if len(editedRanges) > 0 {
 						mergedRange := eb.mergeRanges(editedRanges)
 						session.Selection.SelectedRange = mergedRange
-						
+
 						eb.logger.WithFields(logrus.Fields{
 							"session_id":    session.ID,
 							"edited_ranges": editedRanges,
@@ -814,7 +867,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 			}
 		}
 	}()
-	
+
 	return outChan, nil
 }
 
@@ -913,14 +966,14 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 			IndexVersion: "1.0",
 		},
 	}
-	
+
 	// Initialize in-memory vector store for the session
 	inMemStore := memory.NewInMemoryStore(1000) // Max 1000 chunks per session
 	var vectorStore memory.VectorStore = inMemStore
 	session.MemoryStore = &vectorStore
 
 	eb.sessions[newSessionID] = session
-	
+
 	// Log session creation with memory store info
 	eb.logger.WithFields(logrus.Fields{
 		"session_id": newSessionID,
@@ -1358,7 +1411,7 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 							cols = len(firstRow)
 						}
 					}
-					context.DocumentContext = append(context.DocumentContext, 
+					context.DocumentContext = append(context.DocumentContext,
 						fmt.Sprintf("Active sheet has %d×%d cells (truncated for context)", rows, cols))
 				}
 			}
@@ -1370,29 +1423,29 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 		if wbData, ok := wbSummary["sheets"].([]interface{}); ok {
 			summaryLines := []string{"Workbook structure:"}
 			totalSheets := len(wbData)
-			
+
 			for i, sheet := range wbData {
 				if i >= 5 { // Limit to first 5 sheets
 					summaryLines = append(summaryLines, fmt.Sprintf("  ... and %d more sheets", totalSheets-5))
 					break
 				}
-				
+
 				if sheetMap, ok := sheet.(map[string]interface{}); ok {
 					name := ""
 					if n, ok := sheetMap["name"].(string); ok {
 						name = n
 					}
-					
+
 					rows := 0
 					if r, ok := sheetMap["lastRow"].(float64); ok {
 						rows = int(r)
 					}
-					
+
 					cols := 0
 					if c, ok := sheetMap["lastColumn"].(float64); ok {
 						cols = int(c)
 					}
-					
+
 					// Check if data is truncated
 					truncated := false
 					if data, ok := sheetMap["data"].(map[string]interface{}); ok {
@@ -1406,19 +1459,19 @@ func (eb *ExcelBridge) buildFinancialContext(session *ExcelSession, additionalCo
 							}
 						}
 					}
-					
+
 					status := ""
 					if truncated {
 						status = " (summary only)"
 					} else if rows*cols > 1000 {
 						status = " (partial)"
 					}
-					
-					summaryLines = append(summaryLines, 
+
+					summaryLines = append(summaryLines,
 						fmt.Sprintf("  - %s: %d×%d cells%s", name, rows, cols, status))
 				}
 			}
-			
+
 			if len(summaryLines) > 1 { // Only add if we have actual sheet info
 				context.DocumentContext = append(context.DocumentContext, summaryLines...)
 			}
@@ -1901,7 +1954,6 @@ func (eb *ExcelBridge) GetRequestIDMapper() *RequestIDMapper {
 	return eb.requestIDMapper
 }
 
-
 // mergeMessageContext merges additional context from the message into the financial context
 func (eb *ExcelBridge) mergeMessageContext(fc *ai.FinancialContext, msgContext map[string]interface{}) {
 	// Add any document context from the message
@@ -1918,7 +1970,7 @@ func (eb *ExcelBridge) mergeMessageContext(fc *ai.FinancialContext, msgContext m
 // indexInitialWorkbook starts background indexing of the workbook
 func (eb *ExcelBridge) indexInitialWorkbook(sessionID string) {
 	eb.logger.WithField("session_id", sessionID).Info("Starting initial workbook indexing")
-	
+
 	// Get session and check if memory store exists
 	session := eb.GetSession(sessionID)
 	if session == nil || session.MemoryStore == nil {
@@ -1947,7 +1999,7 @@ func (eb *ExcelBridge) indexInitialWorkbook(sessionID string) {
 	if indexer, ok := eb.indexingService.(indexingServiceInterface); ok {
 		ctx := context.Background()
 		err := indexer.IndexWorkbook(ctx, sessionID, workbook, *session.MemoryStore)
-		
+
 		if err != nil {
 			eb.logger.WithError(err).WithField("session_id", sessionID).Error("Failed to index workbook")
 		} else {
@@ -1964,7 +2016,7 @@ func (eb *ExcelBridge) indexInitialWorkbook(sessionID string) {
 				}
 			}
 			eb.sessionMutex.Unlock()
-			
+
 			eb.logger.WithField("session_id", sessionID).Info("Workbook indexing completed successfully")
 		}
 	} else {
@@ -1987,7 +2039,7 @@ func (eb *ExcelBridge) indexChatExchange(sessionID, userMessage, assistantRespon
 	if indexer, ok := eb.indexingService.(chatIndexerInterface); ok {
 		ctx := context.Background()
 		err := indexer.IndexChatMessages(ctx, sessionID, userMessage, assistantResponse, turn, *session.MemoryStore)
-		
+
 		if err != nil {
 			eb.logger.WithError(err).Error("Failed to index chat messages")
 		} else {
@@ -1998,7 +2050,7 @@ func (eb *ExcelBridge) indexChatExchange(sessionID, userMessage, assistantRespon
 				session.MemoryStats.TotalChunks += 2
 			}
 			eb.sessionMutex.Unlock()
-			
+
 			eb.logger.WithFields(logrus.Fields{
 				"session_id": sessionID,
 				"turn":       turn,
@@ -2015,29 +2067,29 @@ func (eb *ExcelBridge) IndexWorkbookForSession(sessionID string) error {
 	if session == nil {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
-	
+
 	if session.MemoryStore == nil {
 		return fmt.Errorf("no memory store for session: %s", sessionID)
 	}
-	
+
 	// Check if indexing service is available
 	if eb.indexingService == nil {
 		eb.logger.Warn("Indexing service not available, skipping workbook indexing")
 		return nil
 	}
-	
+
 	// Get workbook data from context
 	if session.Context == nil {
 		return fmt.Errorf("no context available for session")
 	}
-	
+
 	// Convert session context to workbook model
 	workbook := &models.Workbook{
 		Name:      fmt.Sprintf("Workbook_%s", sessionID),
 		SessionID: sessionID,
 		Sheets:    []*models.Sheet{},
 	}
-	
+
 	// Extract sheet data from context if available
 	if sheets, ok := session.Context["sheets"].([]interface{}); ok {
 		for _, sheetData := range sheets {
@@ -2046,26 +2098,26 @@ func (eb *ExcelBridge) IndexWorkbookForSession(sessionID string) error {
 					Name:     fmt.Sprintf("%v", sheetMap["name"]),
 					IsActive: false, // Set based on actual active sheet
 				}
-				
+
 				// TODO: Extract and populate sheet data if available
 				// For now, just add the sheet with basic info
-				
+
 				workbook.Sheets = append(workbook.Sheets, sheet)
 			}
 		}
 	}
-	
+
 	// Perform indexing
 	ctx := context.Background()
 	indexer := eb.indexingService.(interface {
 		IndexWorkbook(ctx context.Context, sessionID string, workbook *models.Workbook, store memory.VectorStore) error
 	})
-	
+
 	err := indexer.IndexWorkbook(ctx, sessionID, workbook, *session.MemoryStore)
 	if err != nil {
 		return fmt.Errorf("failed to index workbook: %w", err)
 	}
-	
+
 	// Update memory stats
 	if session.MemoryStats != nil {
 		stats := (*session.MemoryStore).GetStats()
@@ -2075,12 +2127,12 @@ func (eb *ExcelBridge) IndexWorkbookForSession(sessionID string) error {
 		session.MemoryStats.ChatChunks = stats.ChatChunks
 		session.MemoryStats.LastIndexed = time.Now()
 	}
-	
+
 	eb.logger.WithFields(logrus.Fields{
 		"session_id":   sessionID,
 		"total_chunks": session.MemoryStats.TotalChunks,
 	}).Info("Workbook indexed successfully")
-	
+
 	return nil
 }
 

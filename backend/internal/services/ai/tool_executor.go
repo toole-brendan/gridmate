@@ -285,19 +285,122 @@ func generateOperationPreview(toolName string, input map[string]interface{}) str
 		dataRange, _ := input["data_range"].(string)
 		return fmt.Sprintf("Create %s chart from %s", chartType, dataRange)
 
+	case "create_named_range":
+		name, _ := input["name"].(string)
+		rangeAddr, _ := input["range"].(string)
+		return fmt.Sprintf("Create named range '%s' for %s", name, rangeAddr)
+
 	case "insert_rows_columns":
 		position, _ := input["position"].(string)
 		count, _ := input["count"].(int)
 		insertType, _ := input["type"].(string)
 		return fmt.Sprintf("Insert %d %s at %s", count, insertType, position)
 
-	case "create_named_range":
-		name, _ := input["name"].(string)
+	case "clear_range":
 		rangeAddr, _ := input["range"].(string)
-		return fmt.Sprintf("Create named range '%s' for %s", name, rangeAddr)
+		clearType, _ := input["clear_type"].(string)
+		if clearType == "" {
+			clearType = "all"
+		}
+		return fmt.Sprintf("Clear %s from %s", clearType, rangeAddr)
+
+	case "copy_range":
+		sourceRange, _ := input["source_range"].(string)
+		destRange, _ := input["destination_range"].(string)
+		return fmt.Sprintf("Copy %s to %s", sourceRange, destRange)
 
 	default:
-		return fmt.Sprintf("Execute %s operation", toolName)
+		// Generic preview for unknown tools
+		rangeAddr, hasRange := input["range"].(string)
+		if hasRange {
+			return fmt.Sprintf("Execute %s on %s", toolName, rangeAddr)
+		}
+		return fmt.Sprintf("Execute %s", toolName)
+	}
+}
+
+// generateStructuredPreview creates a structured preview with additional metadata
+func generateStructuredPreview(toolName string, input map[string]interface{}) map[string]interface{} {
+	// Get basic preview text
+	previewText := generateOperationPreview(toolName, input)
+
+	// Build structured preview
+	preview := map[string]interface{}{
+		"text":         previewText,
+		"tool":         toolName,
+		"preview_type": getPreviewType(toolName),
+	}
+
+	// Add tool-specific preview data
+	switch toolName {
+	case "write_range":
+		preview["affected_range"] = input["range"]
+		if values, ok := input["values"].([][]interface{}); ok {
+			preview["dimensions"] = map[string]int{
+				"rows":    len(values),
+				"columns": 0,
+			}
+			if len(values) > 0 {
+				preview["dimensions"].(map[string]int)["columns"] = len(values[0])
+			}
+			// Add sample values for preview
+			if len(values) > 0 && len(values[0]) > 0 {
+				preview["sample_value"] = values[0][0]
+			}
+		}
+
+	case "apply_formula":
+		preview["affected_range"] = input["range"]
+		preview["formula"] = input["formula"]
+		preview["relative_references"] = input["relative_references"]
+
+	case "format_range":
+		preview["affected_range"] = input["range"]
+		preview["formatting"] = input["format"]
+
+	case "create_chart":
+		preview["chart_type"] = input["chart_type"]
+		preview["data_range"] = input["data_range"]
+		preview["position"] = input["position"]
+
+	case "create_named_range":
+		preview["name"] = input["name"]
+		preview["range"] = input["range"]
+
+	case "insert_rows_columns":
+		preview["position"] = input["position"]
+		preview["count"] = input["count"]
+		preview["type"] = input["type"]
+	}
+
+	return preview
+}
+
+// getPreviewType returns the preview type for a given tool
+func getPreviewType(toolName string) string {
+	// Get tools with enriched manifest data
+	tools := GetExcelTools()
+
+	// Find the tool and return its preview type
+	for _, tool := range tools {
+		if tool.Name == toolName {
+			if tool.PreviewType != "" {
+				return tool.PreviewType
+			}
+			break
+		}
+	}
+
+	// Default preview types based on tool category
+	switch toolName {
+	case "read_range", "analyze_data", "validate_model", "get_named_ranges":
+		return "json"
+	case "write_range", "apply_formula", "format_range", "insert_rows_columns", "clear_range", "copy_range":
+		return "excel_diff"
+	case "create_chart":
+		return "image"
+	default:
+		return "text"
 	}
 }
 
@@ -385,7 +488,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 			Status:    "error",
 		}, nil
 	}
-	
+
 	return result, nil
 }
 
@@ -439,6 +542,15 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 					"status":  "queued",
 					"message": "Write range operation queued for user approval",
 					"preview": preview,
+					"action": map[string]interface{}{
+						"type":         "preview_queued",
+						"operation_id": toolCall.ID,
+						"tool_type":    "write_range",
+						"input":        toolCall.Input,
+						"preview":      preview,
+						"preview_type": "excel_diff",
+						"description":  preview,
+					},
 				}
 				result.Details = map[string]interface{}{
 					"operation": "write_range",
@@ -447,8 +559,9 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 					"timestamp": time.Now().Format(time.RFC3339),
 				}
 
-				// Queue the operation
-				preview = generateOperationPreview("write_range", toolCall.Input)
+				// Queue the operation with structured preview
+				structuredPreview := generateStructuredPreview("write_range", toolCall.Input)
+				preview = structuredPreview["text"].(string)
 				if preview == "" {
 					preview = "Write data to Excel range"
 				}
@@ -482,7 +595,8 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 						"SessionID":    sessionID,
 						"Type":         "write_range",
 						"Input":        toolCall.Input,
-						"Preview":      preview,
+						"Preview":      structuredPreview,
+						"PreviewType":  structuredPreview["preview_type"].(string),
 						"Context":      "Excel write operation requested by AI",
 						"Priority":     50, // Normal priority
 						"BatchID":      batchID,
@@ -499,6 +613,9 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 						}
 					}
 				}
+
+				// Remove preview callback code that was accidentally added
+				// This functionality is already handled by the queuedOpsRegistry above
 
 				return result, nil
 			}
@@ -542,8 +659,8 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 
 				// Register in queued operations registry if available
 				if te.queuedOpsRegistry != nil {
-					// Generate preview for the operation
-					preview := generateOperationPreview("apply_formula", toolCall.Input)
+					// Generate structured preview for the operation
+					structuredPreview := generateStructuredPreview("apply_formula", toolCall.Input)
 
 					// Extract batch information if present
 					var batchID string
@@ -570,7 +687,8 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 						"SessionID":    sessionID,
 						"Type":         "apply_formula",
 						"Input":        toolCall.Input,
-						"Preview":      preview,
+						"Preview":      structuredPreview,
+						"PreviewType":  structuredPreview["preview_type"].(string),
 						"Context":      "Excel formula application requested by AI",
 						"Priority":     50, // Normal priority
 						"BatchID":      batchID,
@@ -632,8 +750,8 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 
 				// Register in queued operations registry if available
 				if te.queuedOpsRegistry != nil {
-					// Generate preview for the operation
-					preview := generateOperationPreview("format_range", toolCall.Input)
+					// Generate structured preview for the operation
+					structuredPreview := generateStructuredPreview("format_range", toolCall.Input)
 
 					// Extract batch information if present
 					var batchID string
@@ -660,7 +778,8 @@ func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID 
 						"SessionID":    sessionID,
 						"Type":         "format_range",
 						"Input":        toolCall.Input,
-						"Preview":      preview,
+						"Preview":      structuredPreview,
+						"PreviewType":  structuredPreview["preview_type"].(string),
 						"Context":      "Excel formatting requested by AI",
 						"Priority":     40, // Lower priority for formatting
 						"BatchID":      batchID,
@@ -3318,13 +3437,13 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 	if te.excelBridge == nil {
 		return nil, fmt.Errorf("excel bridge not available for memory search")
 	}
-	
+
 	// Get the session from Excel bridge
 	session := te.excelBridge.GetSession(sessionID)
 	if session == nil {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	
+
 	// Check if memory store exists
 	if session.MemoryStore == nil {
 		log.Warn().
@@ -3335,9 +3454,9 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			"message": "No indexed content available for this session",
 		}, nil
 	}
-	
+
 	memStore := *session.MemoryStore
-	
+
 	// Create filter based on source type
 	var filter memory.FilterFunc
 	if sourceFilter != "all" {
@@ -3345,10 +3464,10 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			return chunk.Metadata.Source == sourceFilter
 		}
 	}
-	
+
 	// Perform search
 	var searchResults []memory.SearchResult
-	
+
 	if te.embeddingProvider != nil {
 		// Use vector search with embeddings
 		log.Info().
@@ -3357,7 +3476,7 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			Str("source_filter", sourceFilter).
 			Int("limit", limit).
 			Msg("Performing vector search with embeddings")
-			
+
 		queryVector, err := te.embeddingProvider.GetEmbedding(ctx, query)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to get query embedding, falling back to keyword search")
@@ -3378,7 +3497,7 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			Str("session", sessionID).
 			Str("query", query).
 			Msg("Performing keyword search (no embedding provider)")
-			
+
 		if inMemStore, ok := memStore.(*memory.InMemoryStore); ok {
 			keywords := strings.Fields(query)
 			searchResults = inMemStore.KeywordSearch(keywords, limit, filter)
@@ -3386,7 +3505,7 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			return nil, fmt.Errorf("keyword search not supported for this memory store type")
 		}
 	}
-	
+
 	// Format results
 	results := make([]map[string]interface{}, 0, len(searchResults))
 	for _, result := range searchResults {
@@ -3396,7 +3515,7 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			"similarity": result.Similarity,
 			"reference":  formatChunkReference(result.Chunk),
 		}
-		
+
 		// Add source-specific metadata
 		switch result.Chunk.Metadata.Source {
 		case "spreadsheet":
@@ -3412,22 +3531,22 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 			resultMap["role"] = result.Chunk.Metadata.Role
 			resultMap["turn"] = result.Chunk.Metadata.Turn
 		}
-		
+
 		// Include surrounding context if requested
 		if includeContext && result.Chunk.Metadata.SourceMeta != nil {
 			if context, ok := result.Chunk.Metadata.SourceMeta["context"]; ok {
 				resultMap["context"] = context
 			}
 		}
-		
+
 		results = append(results, resultMap)
 	}
-	
+
 	log.Info().
 		Str("session", sessionID).
 		Int("results_count", len(results)).
 		Msg("Memory search completed")
-	
+
 	return map[string]interface{}{
 		"results":       results,
 		"query":         query,
@@ -3548,13 +3667,13 @@ func (te *ToolExecutor) executeTraceDependents(ctx context.Context, sessionID st
 
 	// For now, we'll do a simple implementation that searches the current sheet
 	// In a full implementation, this would use Excel's dependency tracking
-	
+
 	// Get the current sheet's used range
 	// This is a simplified approach - in practice, Excel APIs provide better dependency tracking
 	searchRange := "A1:Z1000" // Default search range
-	
+
 	dependents := []map[string]interface{}{}
-	
+
 	// Read the search range
 	rangeData, err := te.excelBridge.ReadRange(ctx, sessionID, searchRange, true, false)
 	if err != nil {
@@ -3569,7 +3688,7 @@ func (te *ToolExecutor) executeTraceDependents(ctx context.Context, sessionID st
 
 	// Search for formulas that reference the target cell
 	cellPattern := regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(cell)))
-	
+
 	if rangeData != nil && rangeData.Formulas != nil {
 		for row := 0; row < len(rangeData.Formulas); row++ {
 			for col := 0; col < len(rangeData.Formulas[row]); col++ {
@@ -3577,16 +3696,16 @@ func (te *ToolExecutor) executeTraceDependents(ctx context.Context, sessionID st
 					if cellPattern.MatchString(formula) {
 						// Found a dependent
 						depCell := getCellAddress(row+1, col+1) // Assuming A1 start
-						
+
 						dep := map[string]interface{}{
 							"cell":    depCell,
 							"formula": formula,
 						}
-						
+
 						if includeValues && row < len(rangeData.Values) && col < len(rangeData.Values[row]) {
 							dep["value"] = rangeData.Values[row][col]
 						}
-						
+
 						dependents = append(dependents, dep)
 					}
 				}
@@ -3615,14 +3734,14 @@ func (te *ToolExecutor) extractPrecedentsFromFormula(formula string, currentCell
 	}
 
 	precedents := []map[string]interface{}{}
-	
+
 	// Extract cell references using regex
 	// Matches: A1, $A$1, Sheet1!A1, 'Sheet Name'!A1
 	cellRefRegex := regexp.MustCompile(`(?:'([^']+)'|(\w+))?!?(\$?[A-Z]+\$?\d+)`)
 	matches := cellRefRegex.FindAllStringSubmatch(formula, -1)
-	
+
 	seenCells := make(map[string]bool)
-	
+
 	for _, match := range matches {
 		var cellRef string
 		if match[1] != "" || match[2] != "" {
@@ -3636,18 +3755,18 @@ func (te *ToolExecutor) extractPrecedentsFromFormula(formula string, currentCell
 			// Same sheet reference
 			cellRef = match[3]
 		}
-		
+
 		// Avoid duplicates
 		if seenCells[cellRef] {
 			continue
 		}
 		seenCells[cellRef] = true
-		
+
 		precedent := map[string]interface{}{
 			"cell":  cellRef,
 			"depth": 3 - depth, // Convert remaining depth to current depth
 		}
-		
+
 		// Get value and formula if requested
 		if includeValues || includeFormulas {
 			rangeData, err := te.excelBridge.ReadRange(ctx, sessionID, cellRef, includeFormulas, false)
@@ -3655,11 +3774,11 @@ func (te *ToolExecutor) extractPrecedentsFromFormula(formula string, currentCell
 				if includeValues {
 					precedent["value"] = rangeData.Values[0][0]
 				}
-				
+
 				if includeFormulas && rangeData.Formulas != nil && len(rangeData.Formulas) > 0 && len(rangeData.Formulas[0]) > 0 {
 					if f, ok := rangeData.Formulas[0][0].(string); ok && f != "" {
 						precedent["formula"] = f
-						
+
 						// Recursively trace precedents
 						if depth > 1 {
 							subPrecedents := te.extractPrecedentsFromFormula(f, cellRef, depth-1, sessionID, ctx, includeValues, includeFormulas)
@@ -3671,10 +3790,10 @@ func (te *ToolExecutor) extractPrecedentsFromFormula(formula string, currentCell
 				}
 			}
 		}
-		
+
 		precedents = append(precedents, precedent)
 	}
-	
+
 	return precedents
 }
 

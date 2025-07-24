@@ -1,6 +1,6 @@
 export interface StreamChunk {
     id: string;
-    type: 'text' | 'tool_start' | 'tool_progress' | 'tool_complete' | 'tool_result' | 'done';
+    type: 'text' | 'tool_start' | 'tool_progress' | 'tool_complete' | 'tool_result' | 'done' | 'actions' | 'error';
     content?: string;  // Full content (used by some backends)
     delta?: string;    // Incremental content (used for streaming)
     toolCall?: {
@@ -8,6 +8,7 @@ export interface StreamChunk {
         name: string;
         input?: any;
     };
+    actions?: any[];   // For actions chunk type
     done: boolean;
     error?: string;
 }
@@ -26,9 +27,11 @@ export interface StreamingMessage {
 export interface StreamingToolCall {
     id: string;
     name: string;
-    status: 'running' | 'complete' | 'error';
+    status: 'running' | 'complete' | 'error' | 'queued';
     progress?: string;
     input?: any;
+    output?: any;
+    error?: string;
     startTime?: number;
     endTime?: number;
 }

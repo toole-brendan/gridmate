@@ -483,25 +483,63 @@ export const useMessageHandlers = (
       
       return; // Early return for completion messages
     }
+
+    // Handle actions in the AI response (including preview_queued)
+    if (response.actions && Array.isArray(response.actions)) {
+      addDebugLog(`Processing ${response.actions.length} actions from AI response`);
+      
+      response.actions.forEach((action: any) => {
+        if (action.type === 'preview_queued') {
+          addDebugLog(`Found preview_queued action: ${JSON.stringify(action)}`);
+          
+          // Create a preview message for each queued operation
+          const previewMessage: DiffPreviewMessage = {
+            id: `preview_${action.operation_id || action.id}`,
+            type: 'diff-preview',
+            content: '',
+            timestamp: new Date(),
+            requestId: action.operation_id || action.id,
+            operation: {
+              tool: action.tool_type || action.type,
+              input: action.input || {},
+              description: action.preview || action.description || `Execute ${action.tool_type || action.type}`
+            },
+            status: 'pending',
+            preview: action.preview, // Include the structured preview
+            previewType: action.preview_type,
+            actions: {
+              accept: () => handlePreviewAcceptRef.current?.(action.operation_id || action.id),
+              reject: () => handlePreviewRejectRef.current?.(action.operation_id || action.id)
+            }
+          };
+          
+          chatManager.addMessage(previewMessage);
+          addDebugLog(`Added preview message for queued operation: ${previewMessage.id}`);
+        }
+      });
+    }
     
     // Check if this is an error response
-    const isError = response.content.includes("error") || response.content.includes("Please try again");
+    const isError = response.error || (response.content && (response.content.includes("error") || response.content.includes("Please try again")));
     
     // Check if the response is complete or is an error
     if (response.isComplete || isError) {
-      addDebugLog(isError ? 'AI response error' : 'AI response complete', isError ? 'error' : 'success');
-      chatManager.setAiIsGenerating(false);
-      chatManager.setIsLoading(false);
-      
-      // Clear timeout for this message
-      const timeout = messageTimeouts.get(response.messageId);
-      if (timeout) {
-        clearTimeout(timeout);
-        setMessageTimeouts(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(response.messageId);
-          return newMap;
-        });
+      // If error, mark as complete
+      if (isError) {
+        addDebugLog(isError ? 'AI response error' : 'AI response complete', isError ? 'error' : 'success');
+        chatManager.setAiIsGenerating(false);
+        chatManager.setIsLoading(false);
+        
+        // Clear timeout for this message
+        const timeout = messageTimeouts.get(response.messageId);
+        if (timeout) {
+          clearTimeout(timeout);
+          setMessageTimeouts(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(response.messageId);
+            return newMap;
+          });
+        }
       }
     }
     
@@ -865,19 +903,8 @@ export const useMessageHandlers = (
           chatManager.setAiIsGenerating(false);
           currentStreamRef.current = null;
           
-          // Clear timeout for the original message that triggered this stream
-          if (messageId) {
-            const timeout = messageTimeouts.get(messageId);
-            if (timeout) {
-              clearTimeout(timeout);
-              setMessageTimeouts(prev => {
-                const newMap = new Map(prev);
-                newMap.delete(messageId);
-                return newMap;
-              });
-              addDebugLog(`Cleared timeout for message ${messageId}`, 'info');
-            }
-          }
+          // Store a reference to cancel if needed
+          currentStreamRef.current = { close: () => { /* No-op for now */ } } as EventSource;
           
           // Clean up health check
           if (streamHealthCheckRef.current) {
@@ -1023,7 +1050,8 @@ export const useMessageHandlers = (
           addDebugLog(`Tool progress: ${toolName} is executing...`, 'info');
           
           // Update UI to show tool is running (could trigger a loading indicator)
-          chatManager.setToolExecuting(messageId, chunk.toolCall.id, true);
+          // TODO: Implement tool execution state tracking
+          // chatManager.setToolExecuting(messageId, chunk.toolCall.id, true);
         }
         break;
         
@@ -1033,7 +1061,8 @@ export const useMessageHandlers = (
           addDebugLog(`Tool completed: ${chunk.toolCall.name}`, 'success');
           
           // Clear the executing state
-          chatManager.setToolExecuting(messageId, chunk.toolCall.id, false);
+          // TODO: Implement tool execution state tracking
+          // chatManager.setToolExecuting(messageId, chunk.toolCall.id, false);
         }
         break;
         
@@ -1041,30 +1070,84 @@ export const useMessageHandlers = (
         // Handle tool execution result
         if (chunk.content && chunk.toolCall) {
           try {
-            // Parse the tool result from content
-            const toolResult = JSON.parse(chunk.content);
+            const result = JSON.parse(chunk.content);
             
-            // Log the tool result
-            addDebugLog(`Tool result received for ${chunk.toolCall.name}: ${toolResult.status || 'unknown'}`, 
-              chunk.error ? 'error' : 'info');
+            // Update the streaming message with tool result info
+            chatManager.updateStreamingMessage(messageId, {
+              toolCalls: [{
+                id: chunk.toolCall.id,
+                name: chunk.toolCall.name,
+                status: result.status === 'queued' || result.status === 'queued_for_preview' ? 'queued' : 'complete',
+                output: result,
+                endTime: Date.now()
+              }]
+            });
             
-            // If it's an error, update the tool status
-            if (chunk.error || toolResult.isError) {
-              // Mark the tool as complete but with error
-              chatManager.completeToolCall(messageId, chunk.toolCall.id);
-              // Add error message to chat
-              addDebugLog(`Tool ${chunk.toolCall.name} failed: ${chunk.error?.toString() || toolResult.content}`, 'error');
-            }
+            addDebugLog(`Tool result received for ${chunk.toolCall.name}`, 'success');
             
-            // For queued operations, add to preview panel
-            if (toolResult.status === 'queued' || toolResult.status === 'queued_for_preview') {
-              // This will be handled by the existing preview system
-              addDebugLog(`Tool ${chunk.toolCall.name} queued for preview`, 'info');
+            // Check if the tool was queued
+            if (result.status === 'queued' || result.status === 'queued_for_preview') {
+              addDebugLog(`Tool ${chunk.toolCall.name} queued for preview`);
             }
           } catch (error) {
             console.error('Failed to parse tool result:', error);
-            addDebugLog(`Failed to parse tool result: ${error}`, 'error');
           }
+        }
+        break;
+        
+      case 'actions':
+        // Handle actions chunk with queued operations
+        if (chunk.actions && Array.isArray(chunk.actions)) {
+          addDebugLog(`Received actions chunk with ${chunk.actions.length} actions`);
+          
+          chunk.actions.forEach((action: any) => {
+            if (action.type === 'preview_queued') {
+              addDebugLog(`Creating preview for queued operation: ${action.tool_type}`);
+              
+              // Create a preview message for the queued operation
+              const previewMessage: DiffPreviewMessage = {
+                id: `preview_${action.operation_id}`,
+                type: 'diff-preview',
+                content: '',
+                timestamp: new Date(),
+                requestId: action.operation_id,
+                operation: {
+                  tool: action.tool_type,
+                  input: action.input || {},
+                  description: action.description || `Execute ${action.tool_type}`
+                },
+                status: 'pending',
+                preview: action.preview,
+                previewType: action.preview_type,
+                actions: {
+                  accept: () => handlePreviewAcceptRef.current?.(action.operation_id),
+                  reject: () => handlePreviewRejectRef.current?.(action.operation_id)
+                }
+              };
+              
+              chatManager.addMessage(previewMessage);
+              addDebugLog(`Added preview message for queued operation: ${previewMessage.id}`);
+              
+              // Store in pending preview
+              pendingPreviewRef.current.set(action.operation_id, {
+                request_id: action.operation_id,
+                tool: action.tool_type,
+                parameters: action.input || {},
+                range: action.input?.range,
+                preview: true
+              });
+            }
+          });
+        }
+        break;
+        
+      case 'error':
+        if (chunk.error) {
+          // Update the streaming message to show error
+          chatManager.updateStreamingMessage(messageId, {
+            content: chatManager.messages.find(m => m.id === messageId)?.content + `\n\nError: ${chunk.error}`
+          });
+          addDebugLog(`Stream error: ${chunk.error}`, 'error');
         }
         break;
     }

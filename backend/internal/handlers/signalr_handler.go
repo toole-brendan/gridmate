@@ -181,6 +181,7 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 		h.logger.WithError(err).Error("Failed to process chat message")
 		// Send error back to client via SignalR
 		h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
+			"type":       "error", // Add type to distinguish error messages
 			"messageId":  req.MessageID,
 			"error":      err.Error(),
 			"isComplete": true, // Mark as complete on error
@@ -217,6 +218,7 @@ func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Reques
 
 	// Send response back to client via SignalR
 	err = h.signalRBridge.SendAIResponse(req.SessionID, map[string]interface{}{
+		"type":       "ai_response", // Add type to distinguish from other messages
 		"messageId":  req.MessageID, // Include the message ID from the request
 		"content":    response.Content,
 		"actions":    response.Actions,

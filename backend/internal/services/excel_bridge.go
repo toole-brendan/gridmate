@@ -675,12 +675,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 			if chunk.Done {
 				if fullContent.Len() > 0 {
 					// Save the complete message to history
-					eb.chatHistory.AddMessage(session.ID, ChatMessage{
-						Role:      "assistant",
-						Content:   fullContent.String(),
-						Timestamp: time.Now(),
-						SessionID: session.ID,
-					})
+					eb.chatHistory.AddMessage(session.ID, "assistant", fullContent.String())
 					
 					eb.logger.WithFields(logrus.Fields{
 						"session_id":     session.ID,

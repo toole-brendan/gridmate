@@ -1,21 +1,48 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StreamingMessage as StreamingMessageType } from '../../../types/streaming';
 import { ToolIndicator } from './ToolIndicator';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { ChunkedRenderer } from '../../../services/streaming/ChunkedRenderer';
 
 interface Props {
     message: StreamingMessageType;
 }
 
 export const StreamingMessage: React.FC<Props> = ({ message }) => {
-    // Use local state to ensure UI updates during streaming
-    const [localContent, setLocalContent] = useState(message.content);
+    // Use local state for displayed content
+    const [displayContent, setDisplayContent] = useState('');
+    const rendererRef = useRef<ChunkedRenderer | null>(null);
     
     useEffect(() => {
-        setLocalContent(message.content);
-    }, [message.content]);
+        // Create renderer on mount
+        rendererRef.current = new ChunkedRenderer({
+            onUpdate: (content) => setDisplayContent(prev => prev + content),
+            flushInterval: 100, // 10Hz update rate
+            maxBufferSize: 500  // Force update every 500 chars
+        });
+        
+        return () => {
+            // Cleanup on unmount
+            rendererRef.current?.destroy();
+        };
+    }, []);
+    
+    useEffect(() => {
+        // Handle new content chunks
+        if (message.content && rendererRef.current) {
+            const newContent = message.content.substring(displayContent.length);
+            if (newContent) {
+                rendererRef.current.addChunk(newContent);
+            }
+        }
+        
+        // Force flush when streaming completes
+        if (!message.isStreaming && rendererRef.current) {
+            rendererRef.current.forceFlush();
+        }
+    }, [message.content, message.isStreaming, displayContent.length]);
     
     return (
         <div className="flex items-start space-x-3 p-4 animate-fadeIn">
@@ -111,10 +138,10 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
                             ),
                         }}
                     >
-                        {localContent}
+                        {displayContent}
                     </ReactMarkdown>
                     
-                    {/* Typing indicator */}
+                    {/* Improved typing indicator */}
                     {message.isStreaming && (
                         <span className="inline-block ml-1">
                             <span className="animate-pulse text-blue-500">▊</span>

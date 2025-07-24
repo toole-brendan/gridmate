@@ -4,6 +4,8 @@ import { ToolExecutionError } from '../../types/errors'
 import type { BatchableRequest } from './batchExecutor'
 import { conditionalLog } from '../../config/logging'
 import * as XLSX from 'xlsx'
+import { excelQueue } from './ExcelOperationQueue'
+import { v4 as uuidv4 } from 'uuid'
 
 // Helper function for ExcelService-specific logging
 const debugLog = (category: string, ...args: any[]) => {
@@ -2268,12 +2270,42 @@ export class ExcelService {
     })
   }
 
-  async writeRange(range: string, values: any[][]): Promise<any> {
-    return this.toolWriteRange({ range, values })
+  async writeRange(
+    range: string, 
+    values: any[][], 
+    worksheet?: string,
+    priority?: number
+  ): Promise<void> {
+    await excelQueue.enqueue({
+      id: uuidv4(),
+      type: 'write',
+      worksheet,
+      range,
+      data: values,
+      priority: priority || 5,
+      timestamp: Date.now()
+    });
   }
 
-  async applyFormula(range: string, formula: string): Promise<any> {
-    return this.toolApplyFormula({ range, formula })
+  async applyFormula(
+    range: string,
+    formula: string | string[][],
+    worksheet?: string,
+    priority?: number
+  ): Promise<void> {
+    const formulas = typeof formula === 'string' 
+      ? [[formula]] 
+      : formula;
+      
+    await excelQueue.enqueue({
+      id: uuidv4(),
+      type: 'formula',
+      worksheet,
+      range,
+      data: formulas,
+      priority: priority || 5,
+      timestamp: Date.now()
+    });
   }
 
   // Create a snapshot of the workbook for diff comparison

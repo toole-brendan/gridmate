@@ -1,5 +1,6 @@
 import ReactDOM from 'react-dom/client'
 import { EnhancedChatInterfaceWrapper } from './components/chat/EnhancedChatInterfaceWrapper'
+import { PerformanceDashboard } from './components/debug/PerformanceDashboard'
 import './styles/index.css'
 import './styles/cursor-theme-enhanced.css'
 import './styles/button-animations.css'
@@ -15,7 +16,12 @@ console.log('🔍 Document ready state:', document.readyState)
 // Main app component
 const MainApp = () => {
   console.log('🎨 MainApp rendering')
-  return <EnhancedChatInterfaceWrapper />
+  return (
+    <>
+      <EnhancedChatInterfaceWrapper />
+      <PerformanceDashboard />
+    </>
+  )
 }
 
 if (typeof Office !== 'undefined') {

@@ -524,9 +524,6 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
   return (
     <KeyboardShortcuts shortcuts={shortcuts}>
       <div className="h-full flex flex-col bg-app-background text-text-primary">
-        {/* Token Counter */}
-        <TokenCounter tokenUsage={tokenUsage} />
-        
         {/* Messages Container */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
@@ -687,6 +684,10 @@ export const EnhancedChatInterface: React.FC<EnhancedChatInterfaceProps> = ({
               
               {/* Right side: Action buttons */}
               <div className="flex items-center gap-2">
+                {/* Token Counter - in place of former "Generating..." text */}
+                {tokenUsage && (
+                  <TokenCounter tokenUsage={tokenUsage} />
+                )}
                 
                 {/* Stop button (when generating) */}
                 {aiIsGenerating && (

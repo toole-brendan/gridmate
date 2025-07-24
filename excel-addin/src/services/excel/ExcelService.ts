@@ -3,6 +3,7 @@ import { FormatErrorHandler } from '../../utils/formatErrorHandler'
 import { ToolExecutionError } from '../../types/errors'
 import type { BatchableRequest } from './batchExecutor'
 import { conditionalLog } from '../../config/logging'
+import * as XLSX from 'xlsx'
 
 // Helper function for ExcelService-specific logging
 const debugLog = (category: string, ...args: any[]) => {
@@ -2417,5 +2418,178 @@ export class ExcelService {
       num = Math.floor((num - 1) / 26)
     }
     return letter
+  }
+
+  /**
+   * Extract formula dependencies using SheetJS parser
+   * @param range - The range to analyze
+   * @returns Map of cell addresses to their dependencies
+   */
+  async extractFormulaDependencies(range: Excel.Range): Promise<Map<string, string[]>> {
+    const dependencies = new Map<string, string[]>()
+    
+    try {
+      await Excel.run(async (context) => {
+        range.load(['address', 'formulas', 'rowCount', 'columnCount'])
+        await context.sync()
+        
+        const formulas = range.formulas
+        const startCell = this.parseAddress(range.address.split(':')[0])
+        
+        for (let row = 0; row < range.rowCount; row++) {
+          for (let col = 0; col < range.columnCount; col++) {
+            const formula = formulas[row][col]
+            if (formula && typeof formula === 'string' && formula.startsWith('=')) {
+              const cellAddress = this.offsetCell(
+                `${this.numberToColumnLetter(startCell.col)}${startCell.row}`,
+                row,
+                col
+              )
+              
+              // Use XLSX to parse formula dependencies
+              try {
+                const parsed = XLSX.utils.decode_formulae(formula)
+                const deps = this.extractReferencesFromFormula(formula)
+                if (deps.length > 0) {
+                  dependencies.set(cellAddress, deps)
+                }
+              } catch (parseError) {
+                debugLog('Formula parsing error', { cellAddress, formula, error: parseError })
+              }
+            }
+          }
+        }
+      })
+    } catch (error) {
+      debugLog('Error extracting formula dependencies', error)
+      throw new ToolExecutionError(`Failed to extract formula dependencies: ${error}`)
+    }
+    
+    return dependencies
+  }
+
+  /**
+   * Extract all cell references from a formula
+   * @param formula - The formula to parse
+   * @returns Array of cell references
+   */
+  private extractReferencesFromFormula(formula: string): string[] {
+    const references: string[] = []
+    
+    // Match cell references (with optional sheet name and absolute references)
+    const cellRefPattern = /(?:(?:'[^']*'|[A-Za-z_]\w*)!)?(?:\$)?[A-Z]+(?:\$)?[0-9]+(?::(?:\$)?[A-Z]+(?:\$)?[0-9]+)?/g
+    const matches = formula.match(cellRefPattern)
+    
+    if (matches) {
+      matches.forEach(match => {
+        // Remove sheet references for now (can be enhanced later)
+        const cleanRef = match.includes('!') ? match.split('!')[1] : match
+        references.push(cleanRef)
+      })
+    }
+    
+    // Also match named ranges
+    const namedRangePattern = /(?<![A-Z])([A-Za-z_]\w*)(?![A-Z0-9(])/g
+    const namedMatches = formula.match(namedRangePattern)
+    
+    if (namedMatches) {
+      // Filter out function names (basic list, can be expanded)
+      const functionNames = ['SUM', 'AVERAGE', 'COUNT', 'IF', 'VLOOKUP', 'INDEX', 'MATCH', 'MAX', 'MIN']
+      namedMatches.forEach(match => {
+        if (!functionNames.includes(match.toUpperCase())) {
+          references.push(match)
+        }
+      })
+    }
+    
+    return [...new Set(references)] // Remove duplicates
+  }
+
+  /**
+   * Extract named range context from the workbook
+   * @returns Map of named ranges with their definitions and usage
+   */
+  async extractNamedRangeContext(): Promise<Map<string, { address: string; sheet?: string; usage: string[] }>> {
+    const namedRangeContext = new Map<string, { address: string; sheet?: string; usage: string[] }>()
+    
+    try {
+      await Excel.run(async (context) => {
+        const workbook = context.workbook
+        const namedItems = workbook.names
+        namedItems.load(['items'])
+        await context.sync()
+        
+        for (const namedItem of namedItems.items) {
+          namedItem.load(['name', 'formula', 'scope', 'type'])
+          await context.sync()
+          
+          const rangeInfo = {
+            address: namedItem.formula,
+            sheet: namedItem.scope === 'Workbook' ? undefined : namedItem.scope,
+            usage: [] as string[]
+          }
+          
+          // Find where this named range is used
+          const sheets = workbook.worksheets
+          sheets.load(['items'])
+          await context.sync()
+          
+          for (const sheet of sheets.items) {
+            const usedRange = sheet.getUsedRange()
+            usedRange.load(['formulas', 'address'])
+            
+            try {
+              await context.sync()
+              
+              if (usedRange.formulas) {
+                const formulas = usedRange.formulas
+                const startCell = this.parseAddress(usedRange.address.split(':')[0])
+                
+                for (let row = 0; row < formulas.length; row++) {
+                  for (let col = 0; col < formulas[row].length; col++) {
+                    const formula = formulas[row][col]
+                    if (formula && typeof formula === 'string' && formula.includes(namedItem.name)) {
+                      const cellAddress = this.offsetCell(
+                        `${this.numberToColumnLetter(startCell.col)}${startCell.row}`,
+                        row,
+                        col
+                      )
+                      rangeInfo.usage.push(`${sheet.name}!${cellAddress}`)
+                    }
+                  }
+                }
+              }
+            } catch (sheetError) {
+              // Sheet might be empty, continue
+              debugLog('Sheet analysis error', { sheet: sheet.name, error: sheetError })
+            }
+          }
+          
+          namedRangeContext.set(namedItem.name, rangeInfo)
+        }
+      })
+    } catch (error) {
+      debugLog('Error extracting named range context', error)
+      throw new ToolExecutionError(`Failed to extract named range context: ${error}`)
+    }
+    
+    return namedRangeContext
+  }
+
+  /**
+   * Analyze range data with semantic region detection
+   * Enhanced version that includes semantic analysis
+   */
+  async analyzeRangeDataWithSemantics(range: Excel.Range): Promise<RangeData & { semanticRegions?: any[] }> {
+    const rangeData = await this.getRangeData(range)
+    
+    // Import RegionDetector dynamically to avoid circular dependencies
+    const { RegionDetector } = await import('../semantic/RegionDetector')
+    const semanticRegions = RegionDetector.detectRegions(rangeData)
+    
+    return {
+      ...rangeData,
+      semanticRegions
+    }
   }
 }

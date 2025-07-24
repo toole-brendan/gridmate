@@ -709,10 +709,12 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 					}).Info("Executing tool during stream")
 					
 					// Process the single tool call
-					toolResult, err := eb.aiService.ProcessToolCalls(ctx, session.ID, []ai.ToolCall{*currentToolCall}, message.AutonomyMode)
+					toolResults, err := eb.aiService.ProcessToolCalls(ctx, session.ID, []ai.ToolCall{*currentToolCall}, message.AutonomyMode)
 					
 					// Create a tool result chunk
 					var resultChunk ai.CompletionChunk
+					var isQueued bool
+					
 					if err != nil {
 						eb.logger.WithError(err).Error("Tool execution failed during stream")
 						resultChunk = ai.CompletionChunk{
@@ -722,9 +724,18 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 							Error: err,
 							Done: false,
 						}
-					} else if len(toolResult) > 0 {
+					} else if len(toolResults) > 0 {
+						// Check if the tool result indicates queued status
+						if toolResults[0].Content != nil {
+							if resultMap, ok := toolResults[0].Content.(map[string]interface{}); ok {
+								if status, ok := resultMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
+									isQueued = true
+								}
+							}
+						}
+						
 						// Convert tool result to JSON for streaming
-						resultJSON, _ := json.Marshal(toolResult[0])
+						resultJSON, _ := json.Marshal(toolResults[0])
 						resultChunk = ai.CompletionChunk{
 							Type: "tool_result",
 							ToolCall: currentToolCall,
@@ -739,9 +750,23 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 						eb.logger.WithFields(logrus.Fields{
 							"tool_name": currentToolCall.Name,
 							"has_error": err != nil,
+							"is_queued": isQueued,
 						}).Debug("Sent tool result chunk")
 					case <-ctx.Done():
 						return
+					}
+					
+					// If the tool result is queued, we should continue the AI stream
+					// to allow it to generate more content or tool calls
+					if isQueued {
+						eb.logger.WithFields(logrus.Fields{
+							"tool_name": currentToolCall.Name,
+							"tool_id":   currentToolCall.ID,
+						}).Info("Tool returned queued status, AI should continue generating")
+						
+						// Note: The AI provider should continue streaming after receiving
+						// the tool result. If it doesn't, we may need to implement a
+						// continuation mechanism here.
 					}
 					
 					// Add to collected tool calls for tracking

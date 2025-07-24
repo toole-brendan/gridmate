@@ -56,12 +56,13 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
                                 </a>
                             ),
                             // Code styles
-                            code({ node, inline, className, children, ...props }) {
+                            code({ node, className, children, ...props }: any) {
                                 const match = /language-(\w+)/.exec(className || '');
-                                return !inline && match ? (
+                                const inline = !className || !match;
+                                return !inline ? (
                                     <div className="my-2">
                                         <SyntaxHighlighter
-                                            style={oneDark}
+                                            style={oneDark as any}
                                             language={match[1]}
                                             PreTag="div"
                                             customStyle={{

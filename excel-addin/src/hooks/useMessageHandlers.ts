@@ -1,14 +1,20 @@
-import { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
+import { flushSync } from 'react-dom';
+import { EnhancedChatMessage, ChatMessage, ToolRequestMessage, ToolResponseMessage, ToolSuggestionMessage } from '../types/chat';
+import { DiffData } from '../types/diff';
+import { StreamChunk, isStreamingMessage, StreamingMessage } from '../types/streaming';
+import { ExcelService } from '../services/excel/ExcelService';
+import { DiffSimulator } from '../services/DiffSimulator';
+import { ContextReference } from '../types/context';
+import { QueuedOperation } from '../types/operations';
 import { useDiffPreview } from './useDiffPreview';
 import { useChatManager } from './useChatManager';
 import { SignalRToolRequest, SignalRAIResponse } from '../types/signalr';
 import { AISuggestedOperation } from '../types/diff';
 import { DiffPreviewMessage } from '../types/enhanced-chat';
 import { AuditLogger } from '../utils/safetyChecks';
-import { ExcelService } from '../services/excel/ExcelService';
 import { BatchExecutor } from '../services/excel/batchExecutor';
 import { clearAppliedOperations } from '../utils/diffSimulator';
-import { StreamingMessage, StreamChunk } from '../types/streaming';
 
 const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
 
@@ -706,6 +712,9 @@ export const useMessageHandlers = (
   // Streaming support
   const currentStreamRef = useRef<EventSource | null>(null);
 
+  // Add a ref to track streaming updates
+  const streamingUpdatesRef = useRef<Map<string, { count: number; content: string }>>(new Map());
+  
   // Add streaming message handler
   const sendStreamingMessage = useCallback(async (content: string, autonomyMode: string) => {
     if (!signalRClientRef.current) {
@@ -801,13 +810,49 @@ export const useMessageHandlers = (
 
   // Handle individual chunks
   const handleStreamChunk = useCallback((messageId: string, chunk: StreamChunk) => {
+    console.log('[handleStreamChunk] Processing chunk:', {
+      messageId,
+      chunkType: chunk.type,
+      hasDelta: !!chunk.delta,
+      hasContent: !!chunk.content,
+      deltaValue: chunk.delta,
+      contentValue: chunk.content
+    });
+    
+    // Track updates
+    const updates = streamingUpdatesRef.current.get(messageId) || { count: 0, content: '' };
+    
     switch (chunk.type) {
       case 'text':
         // Use delta if available, otherwise fall back to content
         const textToAppend = chunk.delta || chunk.content;
+        console.log('[handleStreamChunk] Text to append:', textToAppend);
+        
         if (textToAppend) {
-          chatManager.updateStreamingMessage(messageId, {
-            content: (prev: string) => prev + textToAppend
+          updates.count++;
+          updates.content += textToAppend;
+          streamingUpdatesRef.current.set(messageId, updates);
+          
+          console.log('[handleStreamChunk] Update tracking:', {
+            messageId,
+            updateCount: updates.count,
+            totalContent: updates.content.substring(0, 50) + '...',
+            totalLength: updates.content.length
+          });
+          
+          // Use flushSync to force immediate state update
+          flushSync(() => {
+            chatManager.updateStreamingMessage(messageId, {
+              content: (prev: string) => {
+                const newContent = prev + textToAppend;
+                console.log('[handleStreamChunk] Updating content:', {
+                  prevLength: prev.length,
+                  appendLength: textToAppend.length,
+                  newLength: newContent.length
+                });
+                return newContent;
+              }
+            });
           });
         }
         break;

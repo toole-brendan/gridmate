@@ -33,7 +33,17 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
       } as EnhancedChatMessage;
     }
     
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => {
+      console.log('[ChatManager] Adding message:', { 
+        id: newMessage.id, 
+        type: newMessage.type || 'chat',
+        role: 'role' in newMessage ? newMessage.role : 'unknown',
+        isStreaming: 'isStreaming' in newMessage ? newMessage.isStreaming : false,
+        contentLength: 'content' in newMessage ? newMessage.content?.length : 0
+      });
+      console.log('[ChatManager] Previous messages count:', prev.length);
+      return [...prev, newMessage];
+    });
     return newMessage;
   }, []);
 
@@ -76,28 +86,42 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
   
   // Update streaming message content
   const updateStreamingMessage = useCallback((messageId: string, updates: any) => {
-    setMessages(prev => prev.map(msg => {
-      if (msg.id === messageId) {
-        const updated = { ...msg };
-        
-        // Handle content updates
-        if ('content' in updates) {
-          updated.content = typeof updates.content === 'function' 
-            ? updates.content(msg.content || '') 
-            : updates.content;
-        }
-        
-        // Handle other updates
-        Object.keys(updates).forEach(key => {
-          if (key !== 'content') {
-            (updated as any)[key] = updates[key];
+    setMessages(prev => {
+      console.log('[ChatManager] Updating streaming message:', messageId);
+      console.log('[ChatManager] Current messages:', prev.map(m => ({ id: m.id, content: m.content?.substring(0, 50) })));
+      
+      const updated = prev.map(msg => {
+        if (msg.id === messageId) {
+          const updated = { ...msg };
+          
+          // Handle content updates
+          if ('content' in updates) {
+            const oldContent = msg.content || '';
+            updated.content = typeof updates.content === 'function' 
+              ? updates.content(oldContent) 
+              : updates.content;
+            console.log('[ChatManager] Content update:', { 
+              messageId, 
+              oldLength: oldContent.length, 
+              newLength: updated.content.length,
+              delta: updated.content.length - oldContent.length
+            });
           }
-        });
-        
-        return updated;
-      }
-      return msg;
-    }));
+          
+          // Handle other updates
+          Object.keys(updates).forEach(key => {
+            if (key !== 'content') {
+              (updated as any)[key] = updates[key];
+            }
+          });
+          
+          return updated;
+        }
+        return msg;
+      });
+      
+      return updated;
+    });
   }, []);
 
   // Add tool indicator to streaming message

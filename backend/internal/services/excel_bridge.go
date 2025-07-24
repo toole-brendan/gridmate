@@ -700,14 +700,57 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 				}
 				
 			case "tool_complete":
-				// Tool call is complete, add it to the collection
+				// Tool call is complete, execute it immediately
 				if currentToolCall != nil {
+					// Execute the tool immediately
+					eb.logger.WithFields(logrus.Fields{
+						"tool_name": currentToolCall.Name,
+						"tool_id":   currentToolCall.ID,
+					}).Info("Executing tool during stream")
+					
+					// Process the single tool call
+					toolResult, err := eb.aiService.ProcessToolCalls(ctx, session.ID, []ai.ToolCall{*currentToolCall}, message.AutonomyMode)
+					
+					// Create a tool result chunk
+					var resultChunk ai.CompletionChunk
+					if err != nil {
+						eb.logger.WithError(err).Error("Tool execution failed during stream")
+						resultChunk = ai.CompletionChunk{
+							Type: "tool_result",
+							ToolCall: currentToolCall,
+							Content: fmt.Sprintf("Tool execution failed: %v", err),
+							Error: err,
+							Done: false,
+						}
+					} else if len(toolResult) > 0 {
+						// Convert tool result to JSON for streaming
+						resultJSON, _ := json.Marshal(toolResult[0])
+						resultChunk = ai.CompletionChunk{
+							Type: "tool_result",
+							ToolCall: currentToolCall,
+							Content: string(resultJSON),
+							Done: false,
+						}
+					}
+					
+					// Send the tool result chunk
+					select {
+					case outChan <- resultChunk:
+						eb.logger.WithFields(logrus.Fields{
+							"tool_name": currentToolCall.Name,
+							"has_error": err != nil,
+						}).Debug("Sent tool result chunk")
+					case <-ctx.Done():
+						return
+					}
+					
+					// Add to collected tool calls for tracking
 					collectedToolCalls = append(collectedToolCalls, *currentToolCall)
 					currentToolCall = nil
 				}
 			}
 			
-			// If this is the final chunk, save to history and execute tool calls
+			// If this is the final chunk, save to history
 			if chunk.Done {
 				// Save the complete message to history
 				if fullContent.Len() > 0 {
@@ -720,65 +763,28 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 					"tool_calls_count": len(collectedToolCalls),
 				}).Info("Streaming completed")
 				
-				// Execute collected tool calls if any
+				// Track AI-edited ranges in session context if any tools were executed
 				if len(collectedToolCalls) > 0 {
-					eb.logger.Info("Executing tool calls from streaming response")
-					
-					// Process tool calls
-					toolResults, err := eb.aiService.ProcessToolCalls(ctx, session.ID, collectedToolCalls, message.AutonomyMode)
-					if err != nil {
-						eb.logger.WithError(err).Error("Failed to execute tool calls from streaming")
-						// Send error chunk
-						errorChunk := ai.CompletionChunk{
-							Type:  "error",
-							Error: fmt.Errorf("tool execution failed: %w", err),
-							Done:  true,
-						}
-						select {
-						case outChan <- errorChunk:
-						case <-ctx.Done():
-						}
-						return
-					}
-					
-					// Check if all operations are queued
-					allQueued := true
-					for _, result := range toolResults {
-						if result.Status != "queued" {
-							allQueued = false
-							break
-						}
-					}
-					
-					// Track AI-edited ranges in session context
-					if !allQueued {
-						var editedRanges []string
-						for _, toolCall := range collectedToolCalls {
-							if rangeStr, ok := toolCall.Input["range"].(string); ok {
-								if toolCall.Name == "write_range" || toolCall.Name == "apply_formula" || toolCall.Name == "format_range" {
-									editedRanges = append(editedRanges, rangeStr)
-								}
+					var editedRanges []string
+					for _, toolCall := range collectedToolCalls {
+						if rangeStr, ok := toolCall.Input["range"].(string); ok {
+							if toolCall.Name == "write_range" || toolCall.Name == "apply_formula" || toolCall.Name == "format_range" {
+								editedRanges = append(editedRanges, rangeStr)
 							}
 						}
-						
-						// Update session selection to include all AI-edited ranges
-						if len(editedRanges) > 0 {
-							mergedRange := eb.mergeRanges(editedRanges)
-							session.Selection.SelectedRange = mergedRange
-							
-							eb.logger.WithFields(logrus.Fields{
-								"session_id":    session.ID,
-								"edited_ranges": editedRanges,
-								"merged_range":  mergedRange,
-							}).Info("Updated session selection to union of AI-edited ranges for context expansion")
-						}
 					}
 					
-					eb.logger.WithFields(logrus.Fields{
-						"session_id": session.ID,
-						"tool_count": len(toolResults),
-						"all_queued": allQueued,
-					}).Info("Tool calls from streaming processed")
+					// Update session selection to include all AI-edited ranges
+					if len(editedRanges) > 0 {
+						mergedRange := eb.mergeRanges(editedRanges)
+						session.Selection.SelectedRange = mergedRange
+						
+						eb.logger.WithFields(logrus.Fields{
+							"session_id":    session.ID,
+							"edited_ranges": editedRanges,
+							"merged_range":  mergedRange,
+						}).Info("Updated session selection to union of AI-edited ranges for context expansion")
+					}
 				}
 			}
 		}

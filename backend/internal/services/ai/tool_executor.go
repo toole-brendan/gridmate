@@ -2132,6 +2132,20 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 	// Apply organization changes with error recovery
 	err = te.applyModelOrganizationWithRecovery(ctx, sessionID, organizationPlan, backupData)
 	if err != nil {
+		// Check if operations were queued
+		if err.Error() == "Tool execution queued for user approval" {
+			log.Info().
+				Str("session", sessionID).
+				Msg("Financial model organization operations queued for user approval")
+			return map[string]interface{}{
+				"status":            "queued",
+				"message":           "Financial model organization queued for user approval",
+				"organization_plan": organizationPlan,
+				"sections_created":  len(organizationPlan["sections"].([]interface{})),
+				"layout":            layout,
+				"model_type":        modelType,
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to apply model organization: %w", err)
 	}
 
@@ -2514,6 +2528,8 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 
 	// Track applied changes for rollback
 	appliedChanges := []ChangeRecord{}
+	// Track if any operations were queued
+	operationsQueued := false
 
 	for i, sectionInterface := range sections {
 		section := sectionInterface.(map[string]interface{})
@@ -2543,18 +2559,27 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 
 				err = te.writeWithRetry(ctx, sessionID, headerRange, expandedValues, false, 3)
 				if err != nil {
-					log.Error().Err(err).
-						Str("range", headerRange).
-						Int("section_index", i).
-						Msg("Failed to write header - attempting recovery")
+					// Check if operation was queued
+					if err.Error() == "Tool execution queued for user approval" {
+						operationsQueued = true
+						log.Info().
+							Str("range", headerRange).
+							Msg("Write operation queued for user approval")
+						// Continue with other operations
+					} else {
+						log.Error().Err(err).
+							Str("range", headerRange).
+							Int("section_index", i).
+							Msg("Failed to write header - attempting recovery")
 
-					// Attempt to rollback changes
-					rollbackErr := te.rollbackChanges(ctx, sessionID, appliedChanges, backup)
-					if rollbackErr != nil {
-						log.Error().Err(rollbackErr).Msg("Rollback failed")
-						return fmt.Errorf("failed to write header and rollback failed: %w", err)
+						// Attempt to rollback changes
+						rollbackErr := te.rollbackChanges(ctx, sessionID, appliedChanges, backup)
+						if rollbackErr != nil {
+							log.Error().Err(rollbackErr).Msg("Rollback failed")
+							return fmt.Errorf("failed to write header and rollback failed: %w", err)
+						}
+						return fmt.Errorf("failed to write header, changes rolled back: %w", err)
 					}
-					return fmt.Errorf("failed to write header, changes rolled back: %w", err)
 				}
 				appliedChanges = append(appliedChanges, changeRecord)
 
@@ -2578,10 +2603,18 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 
 					err = te.executeSmartFormatCellsWithRetry(ctx, sessionID, formatInput, 3)
 					if err != nil {
-						log.Error().Err(err).
-							Str("range", headerRange).
-							Msg("Failed to format header - continuing with next section")
-						// Continue with other sections rather than failing completely
+						// Check if operation was queued
+						if err.Error() == "Tool execution queued for user approval" {
+							operationsQueued = true
+							log.Info().
+								Str("range", headerRange).
+								Msg("Format operation queued for user approval")
+						} else {
+							log.Error().Err(err).
+								Str("range", headerRange).
+								Msg("Failed to format header - continuing with next section")
+							// Continue with other sections rather than failing completely
+						}
 					} else {
 						// Record formatting change
 						formatChangeRecord := ChangeRecord{
@@ -2600,7 +2633,13 @@ func (te *ToolExecutor) applyModelOrganizationWithRecovery(ctx context.Context, 
 
 	log.Info().
 		Int("applied_changes", len(appliedChanges)).
-		Msg("Model organization applied successfully")
+		Bool("operations_queued", operationsQueued).
+		Msg("Model organization applied")
+
+	// If any operations were queued, return the special error
+	if operationsQueued {
+		return fmt.Errorf("Tool execution queued for user approval")
+	}
 
 	return nil
 }

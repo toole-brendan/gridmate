@@ -319,6 +319,17 @@ func hasRecentUserSelection(session *ExcelSession) bool {
 	return false
 }
 
+// trackMessage logs message tracking information
+func (eb *ExcelBridge) trackMessage(message ChatMessage) {
+	eb.logger.WithFields(logrus.Fields{
+		"session_id":     message.SessionID,
+		"content_length": len(message.Content),
+		"autonomy_mode":  message.AutonomyMode,
+		"has_context":    message.Context != nil,
+		"message_id":     message.MessageID,
+	}).Info("Processing chat message")
+}
+
 // ProcessChatMessage processes a chat message from a client
 func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) (*ChatResponse, error) {
 	// Track message
@@ -329,22 +340,26 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 	
 	// Build comprehensive context BEFORE adding message to history
 	var financialContext *ai.FinancialContext
+	var msgContext map[string]interface{}
+	
 	if eb.contextBuilder != nil {
 		ctx := context.Background()
 		builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
 		if err != nil {
 			eb.logger.WithError(err).Warn("Failed to build comprehensive context")
 			// Fallback to basic context
-			msgContext := eb.buildContext(session, message.Context)
+			msgContext = eb.buildContext(session, message.Context)
 			financialContext = eb.buildFinancialContext(session, msgContext)
 		} else {
 			financialContext = builtContext
 			// Merge any additional context from the message
 			eb.mergeMessageContext(financialContext, message.Context)
+			// Also build msgContext for later use
+			msgContext = eb.buildContext(session, message.Context)
 		}
 	} else {
 		// Fallback to basic context building
-		msgContext := eb.buildContext(session, message.Context)
+		msgContext = eb.buildContext(session, message.Context)
 		financialContext = eb.buildFinancialContext(session, msgContext)
 	}
 
@@ -662,8 +677,9 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 	}
 	
 	// Initialize in-memory vector store for the session
-	inMemStore := memory.NewInMemoryStore()
-	session.MemoryStore = &inMemStore
+	inMemStore := memory.NewInMemoryStore(1000) // Max 1000 chunks per session
+	var vectorStore memory.VectorStore = inMemStore
+	session.MemoryStore = &vectorStore
 
 	eb.sessions[newSessionID] = session
 	
@@ -676,7 +692,15 @@ func (eb *ExcelBridge) getOrCreateSession(clientID, sessionID string) *ExcelSess
 
 	// If we have a session manager, register it there too
 	if eb.sessionManager != nil {
-		eb.sessionManager.CreateSession(newSessionID, clientID)
+		sessionInfo := &SessionInfo{
+			ID:           newSessionID,
+			Type:         SessionTypeAPI,
+			UserID:       clientID,
+			CreatedAt:    time.Now(),
+			LastActivity: time.Now(),
+			Metadata:     make(map[string]interface{}),
+		}
+		eb.sessionManager.RegisterSession(sessionInfo)
 	}
 
 	return session
@@ -1639,16 +1663,6 @@ func (eb *ExcelBridge) GetRequestIDMapper() *RequestIDMapper {
 	return eb.requestIDMapper
 }
 
-// GetSession returns a session by ID
-func (eb *ExcelBridge) GetSession(sessionID string) *ExcelSession {
-	eb.sessionMutex.RLock()
-	defer eb.sessionMutex.RUnlock()
-	
-	if session, exists := eb.sessions[sessionID]; exists {
-		return session
-	}
-	return nil
-}
 
 // mergeMessageContext merges additional context from the message into the financial context
 func (eb *ExcelBridge) mergeMessageContext(fc *ai.FinancialContext, msgContext map[string]interface{}) {
@@ -1783,29 +1797,20 @@ func (eb *ExcelBridge) IndexWorkbookForSession(sessionID string) error {
 	workbook := &models.Workbook{
 		Name:      fmt.Sprintf("Workbook_%s", sessionID),
 		SessionID: sessionID,
-		Sheets:    []models.Sheet{},
+		Sheets:    []*models.Sheet{},
 	}
 	
 	// Extract sheet data from context if available
 	if sheets, ok := session.Context["sheets"].([]interface{}); ok {
 		for _, sheetData := range sheets {
 			if sheetMap, ok := sheetData.(map[string]interface{}); ok {
-				sheet := models.Sheet{
-					Name: fmt.Sprintf("%v", sheetMap["name"]),
+				sheet := &models.Sheet{
+					Name:     fmt.Sprintf("%v", sheetMap["name"]),
+					IsActive: false, // Set based on actual active sheet
 				}
 				
-				// Add cells if available
-				if cells, ok := sheetMap["cells"].([]interface{}); ok {
-					for _, cellData := range cells {
-						if cellMap, ok := cellData.(map[string]interface{}); ok {
-							sheet.Cells = append(sheet.Cells, models.Cell{
-								Address: fmt.Sprintf("%v", cellMap["address"]),
-								Value:   fmt.Sprintf("%v", cellMap["value"]),
-								Formula: fmt.Sprintf("%v", cellMap["formula"]),
-							})
-						}
-					}
-				}
+				// TODO: Extract and populate sheet data if available
+				// For now, just add the sheet with basic info
 				
 				workbook.Sheets = append(workbook.Sheets, sheet)
 			}

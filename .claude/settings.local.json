@@ -44,7 +44,8 @@
       "Bash(PGPASSWORD='Dunlainge1' psql -h gridmate-db-server.postgres.database.azure.com -U gridmateadmin -d gridmate_db -p 5432 -c \"SELECT version();\" --set=sslmode=require)",
       "Bash(go get:*)",
       "Bash(go doc:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(LOG_LEVEL=debug go run cmd/api/main.go)"
     ],
     "deny": []
   }

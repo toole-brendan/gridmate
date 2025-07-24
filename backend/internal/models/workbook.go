@@ -2,8 +2,9 @@ package models
 
 // Workbook represents a complete Excel workbook
 type Workbook struct {
-	Name   string   `json:"name"`
-	Sheets []*Sheet `json:"sheets"`
+	Name      string   `json:"name"`
+	SessionID string   `json:"session_id,omitempty"`
+	Sheets    []*Sheet `json:"sheets"`
 }
 
 // Sheet represents a single worksheet

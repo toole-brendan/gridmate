@@ -757,3 +757,10 @@ func (b *BridgeImpl) cleanupQueuedResponses() {
 		b.queueMutex.Unlock()
 	}
 }
+
+// GetSession returns a session (placeholder implementation)
+func (b *BridgeImpl) GetSession(sessionID string) *ai.Session {
+	// TODO: Implement actual session retrieval logic
+	// For now, return nil or a basic session
+	return nil
+}

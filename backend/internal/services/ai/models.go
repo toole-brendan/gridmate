@@ -210,9 +210,11 @@ type ColumnDefinition struct {
 // NamedRange represents a named range in Excel
 type NamedRange struct {
 	Name     string
-	Range    string
+	Range    string // Legacy field, use Address instead
+	Address  string // The range address (e.g., "A1:B10")
 	Purpose  string
 	Sheet    string
+	Scope    string // "workbook" or sheet name
 }
 
 // AssumptionInput represents an input assumption

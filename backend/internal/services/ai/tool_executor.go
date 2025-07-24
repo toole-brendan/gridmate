@@ -21,6 +21,11 @@ const (
 	MaxToolResponseSize = 1 * 1024 * 1024
 )
 
+// Session represents a minimal session interface for AI services
+type Session struct {
+	MemoryStore *memory.VectorStore
+}
+
 // ToolExecutor handles the execution of Excel tools
 type ToolExecutor struct {
 	excelBridge      ExcelBridge
@@ -3296,7 +3301,6 @@ func (te *ToolExecutor) executeMemorySearch(ctx context.Context, sessionID strin
 	
 	// Perform search
 	var searchResults []memory.SearchResult
-	var err error
 	
 	if te.embeddingProvider != nil {
 		// Use vector search with embeddings
@@ -3488,11 +3492,6 @@ func (te *ToolExecutor) executeTraceDependents(ctx context.Context, sessionID st
 	includeValues := true
 	if iv, ok := input["include_values"].(bool); ok {
 		includeValues = iv
-	}
-
-	includeFormulas := true
-	if inf, ok := input["include_formulas"].(bool); ok {
-		includeFormulas = inf
 	}
 
 	searchAllSheets := false

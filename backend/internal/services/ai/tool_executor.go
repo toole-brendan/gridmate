@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -363,6 +364,28 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		Str("autonomy_mode", autonomyMode).
 		Msg("Executing Excel tool")
 
+	// Add timeout context
+	toolCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	// Wrap execution with error handling
+	result, err := te.executeWithErrorHandling(toolCtx, sessionID, toolCall, autonomyMode)
+	if err != nil {
+		toolErr := te.categorizeError(err, toolCall)
+		return &ToolResult{
+			Type:      "tool_result",
+			ToolUseID: toolCall.ID,
+			IsError:   true,
+			Content:   toolErr,
+			Status:    "error",
+		}, nil
+	}
+	
+	return result, nil
+}
+
+// executeWithErrorHandling executes the tool with proper error handling
+func (te *ToolExecutor) executeWithErrorHandling(ctx context.Context, sessionID string, toolCall ToolCall, autonomyMode string) (*ToolResult, error) {
 	// Create result structure
 	result := &ToolResult{
 		Type:      "tool_result",
@@ -385,10 +408,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 	case "read_range":
 		content, err := te.executeReadRange(ctx, sessionID, toolCall.Input)
 		if err != nil {
-			result.IsError = true
-			result.Status = "error"
-			result.Content = formatToolError(err)
-			return result, nil
+			return nil, err
 		}
 		result.Status = "success"
 		result.Content = content
@@ -882,6 +902,84 @@ func (te *ToolExecutor) ExecuteParallelTools(ctx context.Context, sessionID stri
 		Msg("Parallel tool execution completed")
 
 	return results, nil
+}
+
+// categorizeError categorizes errors for better handling and retry logic
+func (te *ToolExecutor) categorizeError(err error, toolCall ToolCall) *ToolError {
+	// Check for context deadline exceeded
+	if errors.Is(err, context.DeadlineExceeded) {
+		retryAfter := 5 * time.Second
+		return &ToolError{
+			Type:       ToolErrorTypeTimeout,
+			Message:    "Tool execution timed out",
+			ToolName:   toolCall.Name,
+			ToolID:     toolCall.ID,
+			Retryable:  true,
+			RetryAfter: &retryAfter,
+			Details: map[string]interface{}{
+				"timeout": "30s",
+				"hint":    "The operation took too long. Consider using a smaller range or simpler operation.",
+			},
+		}
+	}
+
+	// Check for permission errors
+	if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "access denied") {
+		return &ToolError{
+			Type:      ToolErrorTypePermission,
+			Message:   "Permission denied for this operation",
+			ToolName:  toolCall.Name,
+			ToolID:    toolCall.ID,
+			Retryable: false,
+			Details: map[string]interface{}{
+				"operation": toolCall.Name,
+				"hint":      "Check that the workbook is not protected or read-only.",
+			},
+		}
+	}
+
+	// Check for rate limit errors
+	if strings.Contains(err.Error(), "rate limit") || strings.Contains(err.Error(), "too many requests") {
+		retryAfter := 10 * time.Second
+		return &ToolError{
+			Type:       ToolErrorTypeRateLimit,
+			Message:    "Rate limit exceeded",
+			ToolName:   toolCall.Name,
+			ToolID:     toolCall.ID,
+			Retryable:  true,
+			RetryAfter: &retryAfter,
+			Details: map[string]interface{}{
+				"hint": "Too many operations in a short time. Please wait before retrying.",
+			},
+		}
+	}
+
+	// Check for invalid input errors
+	if strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "bad request") {
+		return &ToolError{
+			Type:      ToolErrorTypeInvalidInput,
+			Message:   err.Error(),
+			ToolName:  toolCall.Name,
+			ToolID:    toolCall.ID,
+			Retryable: false,
+			Details: map[string]interface{}{
+				"input": toolCall.Input,
+				"hint":  "Check the input parameters for correctness.",
+			},
+		}
+	}
+
+	// Default to execution error
+	return &ToolError{
+		Type:      ToolErrorTypeExecutionError,
+		Message:   err.Error(),
+		ToolName:  toolCall.Name,
+		ToolID:    toolCall.ID,
+		Retryable: true,
+		Details: map[string]interface{}{
+			"original_error": err.Error(),
+		},
+	}
 }
 
 // GatherComprehensiveModelContext gathers full financial model context using parallel operations

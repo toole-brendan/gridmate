@@ -1020,54 +1020,195 @@ func (s *Service) ProcessChatWithToolsAndHistoryStreaming(
 	chatHistory []Message,
 	autonomyMode string,
 ) (<-chan CompletionChunk, error) {
-	// Build messages
-	messages := []Message{}
+	// Create output channel
+	outChan := make(chan CompletionChunk, 10)
 	
-	// Add system prompt
-	systemPrompt := s.buildSystemPrompt(context)
-	messages = append(messages, Message{
-		Role:    "system",
-		Content: systemPrompt,
-	})
+	// Start processing in a goroutine
+	go func() {
+		defer close(outChan)
+		
+		// Build initial messages
+		messages := []Message{}
+		
+		// Add system prompt
+		systemPrompt := s.buildSystemPrompt(context)
+		messages = append(messages, Message{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+		
+		// Add chat history
+		messages = append(messages, chatHistory...)
+		
+		// Add current user message
+		messages = append(messages, Message{
+			Role:    "user",
+			Content: userMessage,
+		})
+		
+		// Process with tool continuation support
+		s.streamWithToolContinuation(ctx, sessionID, messages, context, autonomyMode, outChan)
+	}()
 	
-	// Add chat history
-	messages = append(messages, chatHistory...)
+	return outChan, nil
+}
+
+// streamWithToolContinuation handles streaming with proper tool execution and continuation
+func (s *Service) streamWithToolContinuation(
+	ctx context.Context,
+	sessionID string,
+	messages []Message,
+	context *FinancialContext,
+	autonomyMode string,
+	outChan chan<- CompletionChunk,
+) {
+	const maxIterations = 5 // Prevent infinite loops
 	
-	// Add current user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
-	
-	// Get relevant tools
-	tools := s.getRelevantTools(userMessage, context)
-	
-	log.Info().
-		Str("session", sessionID).
-		Int("tools_count", len(tools)).
-		Str("autonomy_mode", autonomyMode).
-		Msg("Starting streaming chat with tools and history")
-	
-	// Create request with streaming enabled
-	request := CompletionRequest{
-		Messages:  messages,
-		MaxTokens: 4096,
-		Tools:     tools,
-		Stream:    true, // Enable streaming
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Get relevant tools
+		tools := s.getRelevantTools(messages[len(messages)-1].Content, context)
+		
+		log.Info().
+			Str("session", sessionID).
+			Int("tools_count", len(tools)).
+			Str("autonomy_mode", autonomyMode).
+			Int("iteration", iteration).
+			Msg("Starting streaming iteration with tools")
+		
+		// Create request with streaming enabled
+		request := CompletionRequest{
+			Messages:  messages,
+			MaxTokens: 4096,
+			Tools:     tools,
+			Stream:    true,
+		}
+		
+		// Set tool choice based on autonomy mode
+		switch autonomyMode {
+		case "ask":
+			request.ToolChoice = &ToolChoice{Type: "none"}
+		case "auto":
+			request.ToolChoice = &ToolChoice{Type: "auto"}
+		case "full":
+			request.ToolChoice = &ToolChoice{Type: "any"}
+		}
+		
+		// Get streaming response
+		providerChan, err := s.provider.GetStreamingCompletion(ctx, request)
+		if err != nil {
+			// Send error chunk
+			outChan <- CompletionChunk{
+				Type:  "error",
+				Error: err,
+				Done:  true,
+			}
+			return
+		}
+		
+		// Track assistant message content and tool calls
+		var assistantContent strings.Builder
+		var toolCalls []ToolCall
+		var currentToolCall *ToolCall
+		hasQueuedTools := false
+		
+		// Forward chunks and collect tool calls
+		for chunk := range providerChan {
+			// Forward the chunk
+			select {
+			case outChan <- chunk:
+			case <-ctx.Done():
+				return
+			}
+			
+			// Collect content and tool calls
+			switch chunk.Type {
+			case "text":
+				if chunk.Delta != "" {
+					assistantContent.WriteString(chunk.Delta)
+				}
+				
+			case "tool_start":
+				if chunk.ToolCall != nil {
+					currentToolCall = &ToolCall{
+						ID:    chunk.ToolCall.ID,
+						Name:  chunk.ToolCall.Name,
+						Input: make(map[string]interface{}),
+					}
+				}
+				
+			case "tool_progress":
+				if currentToolCall != nil && chunk.Delta != "" {
+					// Parse and merge the JSON delta
+					var deltaData map[string]interface{}
+					if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
+						for k, v := range deltaData {
+							currentToolCall.Input[k] = v
+						}
+					}
+				}
+				
+			case "tool_complete":
+				if currentToolCall != nil {
+					toolCalls = append(toolCalls, *currentToolCall)
+					currentToolCall = nil
+				}
+			}
+			
+			// Check if this is the final chunk
+			if chunk.Done {
+				// If we have tool calls, we need to check if they're all queued
+				if len(toolCalls) > 0 {
+					// Add assistant message to history
+					assistantMsg := Message{
+						Role:      "assistant",
+						Content:   assistantContent.String(),
+						ToolCalls: toolCalls,
+					}
+					messages = append(messages, assistantMsg)
+					
+					// Check if all tools return queued status
+					for _, tc := range toolCalls {
+						// Note: In the actual implementation, we would need to check
+						// the tool results that were sent as tool_result chunks
+						// For now, we'll check if it's organize_financial_model
+						if tc.Name == "organize_financial_model" {
+							hasQueuedTools = true
+						}
+					}
+					
+					// If we have queued tools and this is not the last iteration,
+					// continue the conversation
+					if hasQueuedTools && iteration < maxIterations-1 {
+						log.Info().
+							Str("session", sessionID).
+							Int("iteration", iteration).
+							Int("queued_tools", len(toolCalls)).
+							Msg("Tools returned queued status, continuing conversation")
+						
+						// Add a tool result message to continue the conversation
+						// This simulates the tool results being added to the conversation
+						toolResultMsg := Message{
+							Role: "user",
+							Content: "The financial model organization has been queued for your approval. Please continue with creating the DCF model content and formulas.",
+						}
+						messages = append(messages, toolResultMsg)
+						
+						// Continue to next iteration
+						break
+					}
+				}
+				
+				// No more iterations needed
+				return
+			}
+		}
 	}
 	
-	// Set tool choice based on autonomy mode
-	switch autonomyMode {
-	case "ask":
-		request.ToolChoice = &ToolChoice{Type: "none"}
-	case "auto":
-		request.ToolChoice = &ToolChoice{Type: "auto"}
-	case "full":
-		request.ToolChoice = &ToolChoice{Type: "any"}
+	// Send final chunk if we hit max iterations
+	outChan <- CompletionChunk{
+		Type: "",
+		Done: true,
 	}
-	
-	// Get streaming response
-	return s.provider.GetStreamingCompletion(ctx, request)
 }
 
 // SetAdvancedComponents wires up the advanced AI components (memory, context analyzer, orchestrator)

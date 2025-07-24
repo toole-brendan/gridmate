@@ -281,6 +281,7 @@ export const useMessageHandlers = (
     console.log('[DEBUG] Full tool request received:', JSON.stringify(toolRequest, null, 2));
     console.log('[DEBUG] Preview field:', toolRequest.preview);
     console.log('[DEBUG] Current autonomy mode:', autonomyMode);
+    console.log('[DEBUG] Tool request parameters:', toolRequest.parameters);
     
     // Auto-accept any existing preview before showing new one
     if (pendingPreviewRef.current.size > 0) {

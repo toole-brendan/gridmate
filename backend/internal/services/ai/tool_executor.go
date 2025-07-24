@@ -2057,6 +2057,14 @@ func (te *ToolExecutor) executeOrganizeFinancialModel(ctx context.Context, sessi
 		Str("session", sessionID).
 		Msg("Starting financial model organization")
 
+	// Check if preview mode is requested
+	if previewMode, ok := input["preview_mode"].(bool); ok && previewMode {
+		ctx = context.WithValue(ctx, "preview_mode", true)
+		log.Info().
+			Str("session", sessionID).
+			Msg("Preview mode enabled for organize_financial_model")
+	}
+
 	// Extract parameters with defaults
 	modelType, _ := input["model_type"].(string)
 	sections, _ := input["sections"].([]interface{})

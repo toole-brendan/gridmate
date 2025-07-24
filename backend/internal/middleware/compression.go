@@ -26,6 +26,13 @@ func GzipMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Skip compression for streaming endpoints (SSE)
+		// This is crucial for Server-Sent Events to work properly
+		if strings.Contains(r.URL.Path, "/stream") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Skip compression for small responses or specific content types
 		// that are already compressed
 		contentType := w.Header().Get("Content-Type")

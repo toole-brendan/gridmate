@@ -364,6 +364,9 @@ export const RefactoredChatInterface: React.FC = () => {
       // Clear input immediately
       setInput('');
 
+      // CRITICAL: Reset state for new message
+      await messageHandlers.handleUserMessageSent(messageId);
+
       // Send streaming message
       await messageHandlers.sendStreamingMessage(content, autonomyMode);
       

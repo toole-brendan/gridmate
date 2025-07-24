@@ -248,6 +248,19 @@ export const useMessageHandlers = (
     addDebugLog(`← Received tool_request: ${toolRequest.tool} (${toolRequest.request_id})`);
     addLog('info', `[Message Handler] Received tool request ${toolRequest.request_id} (${toolRequest.tool})`, { parameters: toolRequest });
     
+    // Auto-accept any existing preview before showing new one
+    if (pendingPreviewRef.current.size > 0) {
+      addDebugLog(`Auto-accepting ${pendingPreviewRef.current.size} pending previews before new tool request`, 'info');
+      
+      // Get the first pending preview (should only be one)
+      const [requestId] = Array.from(pendingPreviewRef.current.keys());
+      
+      // Auto-accept it
+      if (handlePreviewAcceptRef.current) {
+        await handlePreviewAcceptRef.current(requestId);
+      }
+    }
+    
     // Send immediate acknowledgment to prevent backend timeout
     await sendAcknowledgment(toolRequest.request_id, toolRequest.tool);
     
@@ -813,6 +826,14 @@ export const useMessageHandlers = (
       deltaValue: chunk.delta,
       contentValue: chunk.content
     });
+    
+    // Verify the streaming message exists
+    const streamingMessage = chatManager.messages.find(m => m.id === messageId);
+    if (!streamingMessage) {
+      console.error('[handleStreamChunk] Streaming message not found:', messageId);
+      console.log('[handleStreamChunk] Current messages:', chatManager.messages.map(m => ({ id: m.id, type: m.type })));
+      return;
+    }
     
     // Track updates
     const updates = streamingUpdatesRef.current.get(messageId) || { count: 0, content: '' };

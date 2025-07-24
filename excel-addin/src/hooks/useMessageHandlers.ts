@@ -759,10 +759,11 @@ export const useMessageHandlers = (
           
           try {
             const chunk: StreamChunk = JSON.parse(data);
-            console.log(`[Stream] Chunk type: ${chunk.type}, has delta: ${!!chunk.delta}`);
+            console.log(`[Stream] Chunk type: ${chunk.type}, has delta: ${!!chunk.delta}, has content: ${!!chunk.content}, delta length: ${chunk.delta?.length || 0}, content length: ${chunk.content?.length || 0}`);
             handleStreamChunk(streamingMessageId, chunk);
           } catch (error) {
             console.error('Failed to parse chunk:', error);
+            console.error('Raw chunk data:', data);
           }
         },
         onComplete: () => {
@@ -802,9 +803,11 @@ export const useMessageHandlers = (
   const handleStreamChunk = useCallback((messageId: string, chunk: StreamChunk) => {
     switch (chunk.type) {
       case 'text':
-        if (chunk.delta) {
+        // Use delta if available, otherwise fall back to content
+        const textToAppend = chunk.delta || chunk.content;
+        if (textToAppend) {
           chatManager.updateStreamingMessage(messageId, {
-            content: (prev: string) => prev + chunk.delta
+            content: (prev: string) => prev + textToAppend
           });
         }
         break;

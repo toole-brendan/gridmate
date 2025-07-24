@@ -1,8 +1,8 @@
 export interface StreamChunk {
     id: string;
     type: 'text' | 'tool_start' | 'tool_progress' | 'tool_complete' | 'done';
-    content?: string;
-    delta?: string;
+    content?: string;  // Full content (used by some backends)
+    delta?: string;    // Incremental content (used for streaming)
     toolCall?: {
         id: string;
         name: string;

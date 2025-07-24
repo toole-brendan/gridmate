@@ -207,6 +207,9 @@ func main() {
 	
 	// Streaming endpoint
 	router.HandleFunc("/api/chat/stream", streamingHandler.HandleChatStream).Methods("GET")
+	
+	// Test streaming endpoint for debugging
+	router.HandleFunc("/api/test/stream", streamingHandler.HandleTestStream).Methods("GET")
 
 	// Metrics endpoints
 	router.HandleFunc("/api/metrics/sessions", metricsHandler.GetSessionMetrics).Methods("GET")

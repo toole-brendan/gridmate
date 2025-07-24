@@ -648,42 +648,50 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 		return nil, err
 	}
 	
-	// Create a new channel to intercept and process chunks
-	processedChunks := make(chan ai.CompletionChunk)
+	// Create a new channel to forward chunks with proper buffering
+	outChan := make(chan ai.CompletionChunk, 1) // Smaller buffer to ensure streaming
 	
 	go func() {
-		defer close(processedChunks)
+		defer close(outChan)
 		
 		var fullContent strings.Builder
-		var hasContent bool
 		
 		for chunk := range chunks {
-			// Forward the chunk
+			// Forward the chunk immediately
 			select {
-			case processedChunks <- chunk:
+			case outChan <- chunk:
+				// Successfully sent
 			case <-ctx.Done():
+				// Context cancelled
 				return
 			}
 			
-			// Accumulate content
-			if chunk.Type == "text" && chunk.Delta != "" {
-				fullContent.WriteString(chunk.Delta)
-				hasContent = true
+			// Accumulate content for history
+			if chunk.Type == "text" && chunk.Content != "" {
+				fullContent.WriteString(chunk.Content)
 			}
 			
-			// When done, save to history
-			if chunk.Done && hasContent {
-				eb.chatHistory.AddMessage(session.ID, "user", message.Content)
-				eb.chatHistory.AddMessage(session.ID, "assistant", fullContent.String())
-				eb.logger.WithFields(logrus.Fields{
-					"session_id": session.ID,
-					"content_length": fullContent.Len(),
-				}).Info("Streaming completed, saved to history")
+			// If this is the final chunk, save to history
+			if chunk.Done {
+				if fullContent.Len() > 0 {
+					// Save the complete message to history
+					eb.chatHistory.AddMessage(session.ID, ChatMessage{
+						Role:      "assistant",
+						Content:   fullContent.String(),
+						Timestamp: time.Now(),
+						SessionID: session.ID,
+					})
+					
+					eb.logger.WithFields(logrus.Fields{
+						"session_id":     session.ID,
+						"content_length": fullContent.Len(),
+					}).Info("Streaming completed, saved to history")
+				}
 			}
 		}
 	}()
 	
-	return processedChunks, nil
+	return outChan, nil
 }
 
 // GetCellValue retrieves a cell value from cache or requests it

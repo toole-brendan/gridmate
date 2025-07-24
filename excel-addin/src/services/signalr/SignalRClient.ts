@@ -399,7 +399,24 @@ export class SignalRClient extends EventEmitter {
   cancelStream(evtSource: EventSource) {
     if (evtSource && evtSource.readyState !== EventSource.CLOSED) {
       evtSource.close();
-      console.log('🛑 Stream cancelled');
+    }
+  }
+  
+  // Test streaming endpoint for debugging
+  async testStreaming(): Promise<void> {
+    if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+      throw new Error('Not connected to SignalR hub');
+    }
+    
+    console.log('🧪 Starting test stream');
+    
+    try {
+      await this.connection.invoke('TestStream');
+    } catch (error) {
+      console.error('Test stream failed:', error);
+      throw error;
     }
   }
 }
+
+export default SignalRClient;

@@ -219,7 +219,12 @@ func (p *AzureOpenAIProvider) CompleteStream(ctx context.Context, request *Compl
 			if len(streamResp.Choices) > 0 {
 				choice := streamResp.Choices[0]
 				if choice.Delta.Content != "" {
-					chunks <- CompletionChunk{Content: choice.Delta.Content}
+					chunks <- CompletionChunk{
+						Type:    "text",
+						Delta:   choice.Delta.Content,
+						Content: choice.Delta.Content, // Keep for compatibility
+						Done:    false,
+					}
 				}
 				if choice.FinishReason != nil && *choice.FinishReason != "" {
 					chunks <- CompletionChunk{Done: true}

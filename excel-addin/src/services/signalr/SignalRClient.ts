@@ -338,4 +338,42 @@ export class SignalRClient extends EventEmitter {
       this.heartbeatInterval = null
     }
   }
+
+  // Streaming methods
+  private baseUrl: string = 'https://localhost:7171';
+
+  async streamChat(message: {
+    content: string;
+    autonomyMode: string;
+    excelContext?: any;
+  }): Promise<EventSource> {
+    const params = new URLSearchParams({
+      sessionId: this.sessionId || '',
+      content: message.content,
+      autonomyMode: message.autonomyMode || 'auto'
+    });
+    
+    const url = `${this.baseUrl}/api/chat/stream?${params}`;
+    console.log('🌊 Starting streaming chat:', url);
+    
+    const evtSource = new EventSource(url, {
+      withCredentials: true
+    });
+    
+    // Set up error handling
+    evtSource.onerror = (error) => {
+      console.error('❌ Streaming error:', error);
+      this.emit('stream_error', error);
+    };
+    
+    return evtSource;
+  }
+
+  // Helper to cancel streaming
+  cancelStream(evtSource: EventSource) {
+    if (evtSource && evtSource.readyState !== EventSource.CLOSED) {
+      evtSource.close();
+      console.log('🛑 Stream cancelled');
+    }
+  }
 }

@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { EnhancedChatMessage } from '../types/enhanced-chat';
 import { v4 as uuidv4 } from 'uuid';
 import { DiffData } from '../store/useDiffSessionStore';
+import { isStreamingMessage, StreamingToolCall } from '../types/streaming';
 
 export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
   const [messages, setMessages] = useState<EnhancedChatMessage[]>(initialMessages);
@@ -71,6 +72,96 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
     );
   }, []);
 
+  // Streaming-specific methods
+  
+  // Update streaming message content
+  const updateStreamingMessage = useCallback((messageId: string, updates: any) => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId) {
+        const updated = { ...msg };
+        
+        // Handle content updates
+        if ('content' in updates) {
+          updated.content = typeof updates.content === 'function' 
+            ? updates.content(msg.content || '') 
+            : updates.content;
+        }
+        
+        // Handle other updates
+        Object.keys(updates).forEach(key => {
+          if (key !== 'content') {
+            (updated as any)[key] = updates[key];
+          }
+        });
+        
+        return updated;
+      }
+      return msg;
+    }));
+  }, []);
+
+  // Add tool indicator to streaming message
+  const addToolIndicator = useCallback((messageId: string, toolCall: StreamingToolCall) => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId && isStreamingMessage(msg)) {
+        const toolCalls = msg.toolCalls || [];
+        return {
+          ...msg,
+          toolCalls: [...toolCalls, toolCall]
+        };
+      }
+      return msg;
+    }));
+  }, []);
+
+  // Update tool progress
+  const updateToolProgress = useCallback((messageId: string, toolId: string, progress: string) => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId && isStreamingMessage(msg) && msg.toolCalls) {
+        return {
+          ...msg,
+          toolCalls: msg.toolCalls.map(tool =>
+            tool.id === toolId 
+              ? { ...tool, progress } 
+              : tool
+          )
+        };
+      }
+      return msg;
+    }));
+  }, []);
+
+  // Complete tool call
+  const completeToolCall = useCallback((messageId: string, toolId: string) => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId && isStreamingMessage(msg) && msg.toolCalls) {
+        return {
+          ...msg,
+          toolCalls: msg.toolCalls.map(tool =>
+            tool.id === toolId 
+              ? { ...tool, status: 'complete' as const, endTime: Date.now() } 
+              : tool
+          )
+        };
+      }
+      return msg;
+    }));
+  }, []);
+
+  // Finalize streaming message
+  const finalizeStreamingMessage = useCallback((messageId: string) => {
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId && isStreamingMessage(msg)) {
+        return {
+          ...msg,
+          isStreaming: false,
+          streamEndTime: Date.now()
+        };
+      }
+      return msg;
+    }));
+  }, []);
+
   return {
     messages,
     setMessages,
@@ -84,5 +175,11 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
     setIsLoading,
     aiIsGenerating,
     setAiIsGenerating,
+    // Streaming methods
+    updateStreamingMessage,
+    addToolIndicator,
+    updateToolProgress,
+    completeToolCall,
+    finalizeStreamingMessage,
   };
 }; 

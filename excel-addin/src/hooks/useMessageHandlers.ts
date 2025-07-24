@@ -8,6 +8,7 @@ import { AuditLogger } from '../utils/safetyChecks';
 import { ExcelService } from '../services/excel/ExcelService';
 import { BatchExecutor } from '../services/excel/batchExecutor';
 import { clearAppliedOperations } from '../utils/diffSimulator';
+import { StreamingMessage, StreamChunk } from '../types/streaming';
 
 const WRITE_TOOLS = new Set(['write_range', 'apply_formula', 'clear_range', 'smart_format_cells', 'format_range']);
 
@@ -702,6 +703,135 @@ export const useMessageHandlers = (
     }, 200);
   }, [sendFinalToolResponse, chatManager, addDebugLog, diffPreview]);
 
+  // Streaming support
+  const currentStreamRef = useRef<EventSource | null>(null);
+
+  // Add streaming message handler
+  const sendStreamingMessage = useCallback(async (content: string, autonomyMode: string) => {
+    if (!signalRClientRef.current) {
+      addDebugLog('Cannot send message: SignalR not connected', 'error');
+      return;
+    }
+    
+    // Cancel any existing stream
+    if (currentStreamRef.current) {
+      signalRClientRef.current.cancelStream(currentStreamRef.current);
+      currentStreamRef.current = null;
+    }
+    
+    // Create streaming message ID
+    const streamingMessageId = `stream_${Date.now()}`;
+    currentMessageIdRef.current = streamingMessageId;
+    
+    // Add initial streaming message
+    const streamingMessage: StreamingMessage = {
+      id: streamingMessageId,
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      streamStartTime: Date.now(),
+      toolCalls: [],
+      chunks: []
+    };
+    
+    chatManager.addMessage(streamingMessage);
+    chatManager.setAiIsGenerating(true);
+    
+    try {
+      // Start streaming
+      const evtSource = await signalRClientRef.current.streamChat({
+        content,
+        autonomyMode,
+        excelContext: {} // Add context if needed
+      });
+      
+      currentStreamRef.current = evtSource;
+      
+      // Handle streaming events
+      evtSource.onmessage = (event) => {
+        if (event.data === '[DONE]') {
+          // Stream complete
+          chatManager.finalizeStreamingMessage(streamingMessageId);
+          chatManager.setAiIsGenerating(false);
+          evtSource.close();
+          currentStreamRef.current = null;
+          return;
+        }
+        
+        try {
+          const chunk: StreamChunk = JSON.parse(event.data);
+          handleStreamChunk(streamingMessageId, chunk);
+        } catch (error) {
+          console.error('Failed to parse chunk:', error);
+        }
+      };
+      
+      evtSource.onerror = (error) => {
+        addDebugLog('Streaming error occurred', 'error');
+        chatManager.finalizeStreamingMessage(streamingMessageId);
+        chatManager.setAiIsGenerating(false);
+        currentStreamRef.current = null;
+      };
+      
+    } catch (error) {
+      console.error('Failed to start streaming:', error);
+      addDebugLog('Failed to start streaming', 'error');
+      chatManager.setAiIsGenerating(false);
+    }
+  }, [chatManager, addDebugLog]);
+
+  // Handle individual chunks
+  const handleStreamChunk = useCallback((messageId: string, chunk: StreamChunk) => {
+    switch (chunk.type) {
+      case 'text':
+        if (chunk.delta) {
+          chatManager.updateStreamingMessage(messageId, {
+            content: (prev: string) => prev + chunk.delta
+          });
+        }
+        break;
+        
+      case 'tool_start':
+        if (chunk.toolCall) {
+          chatManager.addToolIndicator(messageId, {
+            id: chunk.toolCall.id,
+            name: chunk.toolCall.name,
+            status: 'running',
+            startTime: Date.now()
+          });
+          addDebugLog(`Tool started: ${chunk.toolCall.name}`, 'info');
+        }
+        break;
+        
+      case 'tool_progress':
+        if (chunk.toolCall && chunk.delta) {
+          chatManager.updateToolProgress(
+            messageId, 
+            chunk.toolCall.id, 
+            chunk.delta
+          );
+        }
+        break;
+        
+      case 'tool_complete':
+        if (chunk.toolCall) {
+          chatManager.completeToolCall(messageId, chunk.toolCall.id);
+          addDebugLog(`Tool completed: ${chunk.toolCall.name}`, 'success');
+        }
+        break;
+    }
+  }, [chatManager, addDebugLog]);
+
+  // Cancel current stream
+  const cancelCurrentStream = useCallback(() => {
+    if (currentStreamRef.current && signalRClientRef.current) {
+      signalRClientRef.current.cancelStream(currentStreamRef.current);
+      currentStreamRef.current = null;
+      chatManager.setAiIsGenerating(false);
+      addDebugLog('Stream cancelled by user', 'warning');
+    }
+  }, [chatManager, addDebugLog]);
+
   // Assign the refs
   useEffect(() => {
     handlePreviewAcceptRef.current = handlePreviewAccept;
@@ -714,6 +844,9 @@ export const useMessageHandlers = (
     setSignalRClient,
     sendFinalToolResponse,
     handlePreviewAccept,
-    handlePreviewReject
+    handlePreviewReject,
+    sendStreamingMessage,
+    cancelCurrentStream,
+    handleStreamChunk
   };
 }; 

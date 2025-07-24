@@ -23,6 +23,8 @@ import { AutonomyMode } from './AutonomyModeSelector';
 import { MentionItem, ContextItem } from '../chat/mentions';
 import { isToolSuggestion, isBatchOperation, ToolSuggestionMessage, isDiffPreview } from '../../types/enhanced-chat';
 import { StatusMessage } from '../../types/enhanced-chat';
+import { isStreamingMessage } from '../../types/streaming';
+import { StreamingMessage } from './messages/StreamingMessage';
 
 // --- Zustand Store ---
 import { useDiffSessionStore } from '../../store/useDiffSessionStore';
@@ -341,9 +343,16 @@ export const RefactoredChatInterface: React.FC = () => {
     const content = input.trim();
     if (!content || !signalRClient || !isAuthenticated) return;
 
+    // Check if we're already streaming
+    if (chatManager.aiIsGenerating) {
+      addDebugLog('Already generating response', 'warning');
+      return;
+    }
+
     const messageId = uuidv4();
     
     try {
+      // Add user message
       chatManager.addMessage({
         id: messageId,
         role: 'user',
@@ -351,115 +360,20 @@ export const RefactoredChatInterface: React.FC = () => {
         timestamp: new Date(),
         type: 'user',
       });
-      chatManager.setIsLoading(true);
-      setInput(''); // Clear input after sending
+      
+      // Clear input immediately
+      setInput('');
 
-      await messageHandlers.handleUserMessageSent(messageId);
-
-      let excelContext = null;
-      if (isContextEnabled) {
-        try {
-          // Try comprehensive context first
-          excelContext = await ExcelService.getInstance().getComprehensiveContext({ 
-            includeAllSheets: true,
-            maxCellsPerSheet: 10000 
-          });
-          
-          // Use full sheet as selected context if no specific selection
-          if (excelContext?.visibleRangeData && 
-              (!excelContext.selectedData || excelContext.selectedRange === 'A1')) {
-            excelContext.selectedData = excelContext.visibleRangeData;
-            excelContext.selectedRange = excelContext.visibleRangeData.address;
-          }
-        } catch (error) {
-          console.warn('Failed to get comprehensive context, falling back to smart context:', error);
-          addDebugLog('Comprehensive context failed, using smart context fallback', 'warning');
-          // Fallback to smart context
-          excelContext = await ExcelService.getInstance().getSmartContext();
-        }
-      }
+      // Send streaming message
+      await messageHandlers.sendStreamingMessage(content, autonomyMode);
       
-      // Update context summary
-      if (excelContext?.workbookSummary) {
-        const sheets = excelContext.workbookSummary.sheets.length;
-        const totalCells = excelContext.workbookSummary.totalCells;
-        const activeSheet = excelContext.worksheet;
-        const selectedCells = excelContext.selectedData ? 
-          excelContext.selectedData.rowCount * excelContext.selectedData.colCount : 0;
-        
-        setContextSummary(
-          `Context: ${activeSheet} (${selectedCells} cells selected) + ${sheets - 1} other sheets (${totalCells.toLocaleString()} total cells)`
-        );
-      }
-      
-      // Debug logging for context
-      chatLog('DEBUG_INFO', '🔍 [CONTEXT DEBUG] Context Enabled:', isContextEnabled);
-      chatLog('DEBUG_INFO', '🔍 [CONTEXT DEBUG] Raw Excel Context from getComprehensiveContext():', excelContext);
-      
-      if (excelContext) {
-        chatLog('DEBUG_INFO', '🔍 [CONTEXT DEBUG] Breakdown:');
-        chatLog('DEBUG_INFO', '  - Worksheet:', excelContext.worksheet);
-        console.log('  - Workbook:', excelContext.workbook);
-        console.log('  - Selected Range:', excelContext.selectedRange);
-        console.log('  - Selected Data:', excelContext.selectedData);
-        console.log('  - Visible Range Data:', excelContext.visibleRangeData);
-        console.log('  - Workbook Summary:', excelContext.workbookSummary);
-        console.log('  - Nearby Data:', excelContext.nearbyData);
-        
-        // Log cell values if present
-        if (excelContext.selectedData?.values) {
-          chatLog('DEBUG_INFO', '📊 [CONTEXT DEBUG] Selected Cell Values:', 
-            excelContext.selectedData.values.slice(0, 5).map(row => row.slice(0, 5))
-          );
-        }
-        
-        if (excelContext.nearbyData?.values) {
-          chatLog('DEBUG_INFO', '📊 [CONTEXT DEBUG] Nearby Cell Values (first 5x5):', 
-            excelContext.nearbyData.values.slice(0, 5).map(row => row.slice(0, 5))
-          );
-        }
-      }
-      
-      // Build the message payload
-      const messagePayload = {
-        type: 'chat_message',
-        data: {
-          messageId,
-          content,
-          excelContext: {
-            workbook: excelContext?.workbook,
-            worksheet: excelContext?.worksheet,
-            selectedRange: excelContext?.selectedRange,
-            selectedData: excelContext?.selectedData,
-            visibleRangeData: excelContext?.visibleRangeData,     // ADD: full active sheet data
-            workbookSummary: excelContext?.workbookSummary,       // ADD: workbook summary
-            nearbyData: excelContext?.nearbyData,
-            fullSheetData: excelContext?.fullSheetData,           // KEEP: existing field
-            recentEdits: excelContext?.recentEdits,               // KEEP: recent edits tracking
-            activeContext: activeContext.map(c => ({ type: c.type, value: c.value }))
-          },
-          autonomyMode,
-        },
-      };
-      
-      chatLog('SIGNALR_MESSAGES', '📤 [CONTEXT DEBUG] Full Message Payload to SignalR:', JSON.stringify(messagePayload, null, 2));
-      chatLog('SIGNALR_MESSAGES', '📤 [CONTEXT DEBUG] What AI will receive - Excel Context:', messagePayload.data.excelContext);
-      
-      await signalRClient.send(messagePayload);
     } catch (error) {
       console.error('Failed to send message:', error);
       chatManager.setIsLoading(false);
       chatManager.setAiIsGenerating(false);
-      // Add error message to chat
-      chatManager.addMessage({
-        id: `error_${Date.now()}`,
-        role: 'system',
-        content: '❌ Failed to send message. Please check your connection and try again.',
-        timestamp: new Date(),
-        type: 'error',
-      });
+      addDebugLog('Failed to send message', 'error');
     }
-  }, [input, signalRClient, isAuthenticated, chatManager, messageHandlers, isContextEnabled, activeContext, autonomyMode]);
+  }, [input, signalRClient, isAuthenticated, chatManager, messageHandlers, autonomyMode, addDebugLog]);
 
   // --- UI Actions ---
   const handleAutonomyModeChange = (mode: AutonomyMode) => {
@@ -886,6 +800,8 @@ ${auditLogs || 'No audit logs.'}
           onAcceptAll={handleAcceptAll}
           onRejectAll={handleRejectAll}
           isProcessingBulkAction={pendingTools.isProcessingBulk}
+          // Add streaming control
+          onCancelStream={messageHandlers.cancelCurrentStream}
         />
       </div>
 

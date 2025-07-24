@@ -4,6 +4,9 @@ import { SpatialSerializer } from '../representation/SpatialSerializer'
 import { RegionDetector } from '../semantic/RegionDetector'
 import { PatternAnalyzer } from '../semantic/PatternAnalyzer'
 import { FormulaAnalyzer } from '../formula/FormulaAnalyzer'
+import { GridSerializer } from '../serialization/GridSerializer'
+import { FormulaTypeDetector } from '../formula/FormulaTypeDetector'
+import { FormulaDescriber } from '../formula/FormulaDescriber'
 
 export type RepresentationMode = 
   | 'spatial'      // ASCII art and grid visualization
@@ -392,7 +395,9 @@ export class MultiModalSpreadsheetContext {
   ): Promise<string> {
     switch (mode) {
       case 'spatial':
-        return this.toAsciiArt(data)
+        // Use GridSerializer for better spatial representation
+        const spatialResult = await this.buildGridSerializerRepresentation(data, 'spatial', classification)
+        return spatialResult || this.toAsciiArt(data)
         
       case 'structured':
         return JSON.stringify(this.toStructuredJson(data), null, 2)
@@ -694,5 +699,94 @@ interface StructuredGrid {
     leafCells: string[]
     maxDepth: number
     circularRefs: string[][]
+  }
+}
+
+  /**
+   * Build representation using GridSerializer
+   */
+  private async buildGridSerializerRepresentation(
+    data: RangeData,
+    mode: RepresentationMode,
+    classification: QueryClassification
+  ): Promise<string | null> {
+    try {
+      // Create a mock Excel.Range object for GridSerializer
+      const mockRange = {
+        address: data.address,
+        worksheet: { name: 'Sheet1' }
+      } as Excel.Range
+      
+      // Map representation mode to GridSerializer format
+      let format: 'markdown' | 'sparse' | 'compressed' | 'hybrid' = 'hybrid'
+      
+      switch (mode) {
+        case 'spatial':
+          format = 'markdown'
+          break
+        case 'compact':
+          format = 'compressed'
+          break
+        case 'detailed':
+          format = 'hybrid'
+          break
+      }
+      
+      const result = GridSerializer.toLLMFormat(
+        mockRange,
+        data.values,
+        data.formulas || [],
+        {
+          maxTokens: classification.tokenBudget,
+          format,
+          includeFormulas: true,
+          semanticRegions: RegionDetector.detectRegions(data)
+        }
+      )
+      
+      return result.content
+    } catch (error) {
+      console.error('GridSerializer error:', error)
+      return null
+    }
+  }
+  
+  /**
+   * Enhance formulas with type detection and descriptions
+   */
+  private enhanceFormulas(data: RangeData): Map<string, any> {
+    const enhancedFormulas = new Map<string, any>()
+    
+    if (data.formulas) {
+      for (let row = 0; row < data.formulas.length; row++) {
+        for (let col = 0; col < data.formulas[row].length; col++) {
+          const formula = data.formulas[row][col]
+          if (formula && formula.startsWith('=')) {
+            const cellAddress = `${String.fromCharCode(65 + col)}${row + 1}`
+            
+            // Get formula type
+            const typeInfo = FormulaTypeDetector.detectFormulaType(formula)
+            
+            // Get formula description
+            const description = FormulaDescriber.describeFormula(formula, {
+              cellAddress,
+              sheetName: 'Sheet1'
+            })
+            
+            enhancedFormulas.set(cellAddress, {
+              formula,
+              type: typeInfo.type,
+              complexity: typeInfo.complexity,
+              description: description.summary,
+              purpose: description.purpose,
+              warnings: description.warnings,
+              suggestions: description.suggestions
+            })
+          }
+        }
+      }
+    }
+    
+    return enhancedFormulas
   }
 }

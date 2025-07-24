@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/gridmate/backend/internal/services/ai"
+	"github.com/gridmate/backend/internal/services/spreadsheet"
 )
 
 // ContextBuilder builds comprehensive Excel context for AI processing
@@ -23,6 +24,10 @@ type ContextBuilder struct {
 	trackerMutex      sync.RWMutex
 	// Pattern detector for enhanced context
 	patternDetector   *PatternDetector
+	// New components
+	representationCache *RepresentationCache
+	representationBuilder *spreadsheet.RepresentationBuilder
+	semanticAnalyzer *spreadsheet.SemanticAnalyzer
 }
 
 // CellChangeInfo tracks changes to individual cells
@@ -41,6 +46,9 @@ func NewContextBuilder(bridge ai.ExcelBridge) *ContextBuilder {
 		maxRanges:         10,   // Default max ranges to analyze
 		cellChangeTracker: make(map[string]*CellChangeInfo),
 		patternDetector:   NewPatternDetector(),
+		representationCache: NewRepresentationCache(time.Hour, 100),
+		representationBuilder: spreadsheet.NewRepresentationBuilder(),
+		semanticAnalyzer: spreadsheet.NewSemanticAnalyzer(),
 	}
 }
 

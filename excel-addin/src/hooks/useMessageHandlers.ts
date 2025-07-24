@@ -739,10 +739,18 @@ export const useMessageHandlers = (
     
     try {
       // Set up streaming handlers first
+      let chunkCount = 0;
+      const startTime = Date.now();
+      
       signalRClientRef.current.setupStreamingHandlers({
         onChunk: (data: string) => {
+          chunkCount++;
+          const elapsed = Date.now() - startTime;
+          console.log(`[Stream] Chunk #${chunkCount} received at ${elapsed}ms, length: ${data.length}`);
+          
           if (data === '[DONE]') {
             // Stream complete
+            console.log(`[Stream] Completed. Total chunks: ${chunkCount}, Duration: ${elapsed}ms`);
             chatManager.finalizeStreamingMessage(streamingMessageId);
             chatManager.setAiIsGenerating(false);
             currentStreamRef.current = null;
@@ -751,13 +759,15 @@ export const useMessageHandlers = (
           
           try {
             const chunk: StreamChunk = JSON.parse(data);
+            console.log(`[Stream] Chunk type: ${chunk.type}, has delta: ${!!chunk.delta}`);
             handleStreamChunk(streamingMessageId, chunk);
           } catch (error) {
             console.error('Failed to parse chunk:', error);
           }
         },
         onComplete: () => {
-          addDebugLog('Streaming completed', 'info');
+          const totalTime = Date.now() - startTime;
+          addDebugLog(`Streaming completed in ${totalTime}ms with ${chunkCount} chunks`, 'info');
           chatManager.finalizeStreamingMessage(streamingMessageId);
           chatManager.setAiIsGenerating(false);
           currentStreamRef.current = null;

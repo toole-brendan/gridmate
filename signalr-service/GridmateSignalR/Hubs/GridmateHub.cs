@@ -383,6 +383,8 @@ namespace GridmateSignalR.Hubs
                 
                 var buffer = new List<string>();
                 string line;
+                int chunkCount = 0;
+                var startTime = DateTime.UtcNow;
                 
                 while ((line = await reader.ReadLineAsync()) != null)
                 {
@@ -391,8 +393,19 @@ namespace GridmateSignalR.Hubs
                         var data = line.Substring(6);
                         if (!string.IsNullOrWhiteSpace(data))
                         {
+                            chunkCount++;
+                            var elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                            
+                            _logger.LogDebug("[HUB] Forwarding chunk #{ChunkNumber} at {ElapsedMs}ms: {DataLength} chars", 
+                                chunkCount, elapsed, data.Length);
+                            
                             await Clients.Caller.SendAsync("streamChunk", data);
-                            _logger.LogDebug("[HUB] Sent chunk: {Data}", data.Length > 100 ? data.Substring(0, 100) + "..." : data);
+                            
+                            // Add a small delay to ensure chunks are sent separately
+                            if (chunkCount > 1)
+                            {
+                                await Task.Delay(10); // 10ms delay between chunks
+                            }
                         }
                     }
                     else if (string.IsNullOrWhiteSpace(line) && buffer.Count > 0)
@@ -402,11 +415,16 @@ namespace GridmateSignalR.Hubs
                     }
                 }
                 
-                _logger.LogInformation("[HUB] Streaming completed for session {SessionId}", sessionId);
+                var totalElapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogInformation("[HUB] Streaming completed for session {SessionId}. Total chunks: {ChunkCount}, Duration: {DurationMs}ms", 
+                    sessionId, chunkCount, totalElapsed);
+                    
                 await Clients.Caller.SendAsync("streamComplete", new
                 {
                     sessionId,
-                    timestamp = DateTime.UtcNow
+                    timestamp = DateTime.UtcNow,
+                    totalChunks = chunkCount,
+                    durationMs = totalElapsed
                 });
             }
             catch (Exception ex)
@@ -416,6 +434,89 @@ namespace GridmateSignalR.Hubs
                 {
                     error = ex.Message,
                     sessionId,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+        
+        // Test streaming endpoint for debugging
+        public async Task TestStream()
+        {
+            _logger.LogInformation("[HUB] TestStream request received");
+            
+            try
+            {
+                var httpClient = _httpClientFactory.CreateClient("GoBackend");
+                var streamUrl = "/api/test/stream";
+                
+                _logger.LogInformation("[HUB] Starting test streaming request");
+                
+                var request = new HttpRequestMessage(HttpMethod.Get, streamUrl);
+                request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
+                
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    var error = await response.Content.ReadAsStringAsync();
+                    _logger.LogError("[HUB] Test streaming request failed: {StatusCode} - {Error}", response.StatusCode, error);
+                    await Clients.Caller.SendAsync("streamError", new
+                    {
+                        error = $"Test stream error: {response.StatusCode}",
+                        details = error,
+                        timestamp = DateTime.UtcNow
+                    });
+                    return;
+                }
+                
+                // Read the SSE stream
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var reader = new StreamReader(stream);
+                
+                string line;
+                int chunkCount = 0;
+                var startTime = DateTime.UtcNow;
+                
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    if (line.StartsWith("data: "))
+                    {
+                        var data = line.Substring(6);
+                        if (!string.IsNullOrWhiteSpace(data))
+                        {
+                            chunkCount++;
+                            var elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                            
+                            _logger.LogInformation("[HUB TEST] Forwarding chunk #{ChunkNumber} at {ElapsedMs}ms: {Data}", 
+                                chunkCount, elapsed, data);
+                            
+                            await Clients.Caller.SendAsync("streamChunk", data);
+                            
+                            // Ensure chunks are sent separately
+                            await Task.Delay(5);
+                        }
+                    }
+                }
+                
+                var totalElapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogInformation("[HUB TEST] Test streaming completed. Total chunks: {ChunkCount}, Duration: {DurationMs}ms", 
+                    chunkCount, totalElapsed);
+                    
+                await Clients.Caller.SendAsync("streamComplete", new
+                {
+                    test = true,
+                    timestamp = DateTime.UtcNow,
+                    totalChunks = chunkCount,
+                    durationMs = totalElapsed
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HUB] Test streaming failed");
+                await Clients.Caller.SendAsync("streamError", new
+                {
+                    error = ex.Message,
+                    test = true,
                     timestamp = DateTime.UtcNow
                 });
             }

@@ -4,6 +4,8 @@ import (
     "encoding/json"
     "fmt"
     "net/http"
+    "strings"
+    "time"
     
     "github.com/gridmate/backend/internal/services"
     "github.com/sirupsen/logrus"
@@ -88,17 +90,30 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
         // Continue anyway - the response will be buffered but should still work
     }
     
+    chunkCount := 0
+    startTime := time.Now()
+    
     for chunk := range chunks {
         select {
         case <-ctx.Done():
             h.logger.Info("Client disconnected, stopping stream")
             return
         default:
+            chunkCount++
+            
             data, err := json.Marshal(chunk)
             if err != nil {
                 h.logger.WithError(err).Error("Failed to marshal chunk")
                 continue
             }
+            
+            h.logger.WithFields(logrus.Fields{
+                "chunk_number": chunkCount,
+                "chunk_type": chunk.Type,
+                "has_delta": chunk.Delta != "",
+                "is_done": chunk.Done,
+                "elapsed_ms": time.Since(startTime).Milliseconds(),
+            }).Debug("Sending chunk")
             
             fmt.Fprintf(w, "data: %s\n\n", data)
             if flusher != nil {
@@ -110,9 +125,60 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
                 if flusher != nil {
                     flusher.Flush()
                 }
-                h.logger.Info("Streaming completed successfully")
+                h.logger.WithFields(logrus.Fields{
+                    "total_chunks": chunkCount,
+                    "duration_ms": time.Since(startTime).Milliseconds(),
+                }).Info("Streaming completed successfully")
                 return
             }
         }
     }
+}
+
+// HandleTestStream provides a test endpoint for debugging streaming
+func (h *StreamingHandler) HandleTestStream(w http.ResponseWriter, r *http.Request) {
+    // Set SSE headers
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+    
+    flusher, ok := w.(http.Flusher)
+    if !ok {
+        h.logger.Warn("ResponseWriter does not support flushing")
+        fmt.Fprintf(w, "data: {\"error\": \"Streaming not supported\"}\n\n")
+        return
+    }
+    
+    h.logger.Info("Starting test stream")
+    
+    // Send test chunks with delays
+    testMessage := "This is a test streaming response to verify that the streaming pipeline is working correctly. Each word should appear separately."
+    words := strings.Split(testMessage, " ")
+    
+    for i, word := range words {
+        chunk := map[string]interface{}{
+            "type":  "text",
+            "delta": word + " ",
+            "done":  false,
+        }
+        
+        data, _ := json.Marshal(chunk)
+        fmt.Fprintf(w, "data: %s\n\n", data)
+        flusher.Flush()
+        
+        h.logger.WithFields(logrus.Fields{
+            "chunk_number": i + 1,
+            "word":         word,
+        }).Debug("Sent test chunk")
+        
+        // Add delay between chunks
+        time.Sleep(200 * time.Millisecond)
+    }
+    
+    // Send completion
+    fmt.Fprintf(w, "data: {\"done\":true}\n\n")
+    fmt.Fprintf(w, "data: [DONE]\n\n")
+    flusher.Flush()
+    
+    h.logger.Info("Test stream completed")
 }

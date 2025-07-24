@@ -667,41 +667,7 @@ export class MultiModalSpreadsheetContext {
     }
     return letter
   }
-}
-
-// Type definitions for structured grid
-
-interface StructuredGrid {
-  metadata: {
-    range: string
-    dimensions: { rows: number; cols: number }
-    cellCount: number
-    nonEmptyCount: number
-  }
-  regions: Array<{
-    type: string
-    bounds: {
-      start: { row: number; col: number }
-      end: { row: number; col: number }
-    }
-    characteristics?: any
-  }>
-  patterns: {
-    formulas: Array<{
-      type: string
-      count: number
-      example?: string
-    }>
-    data: any[]
-  }
-  dependencies: {
-    rootCells: string[]
-    leafCells: string[]
-    maxDepth: number
-    circularRefs: string[][]
-  }
-}
-
+  
   /**
    * Build representation using GridSerializer
    */
@@ -788,5 +754,38 @@ interface StructuredGrid {
     }
     
     return enhancedFormulas
+  }
+}
+
+// Type definitions for structured grid
+
+interface StructuredGrid {
+  metadata: {
+    range: string
+    dimensions: { rows: number; cols: number }
+    cellCount: number
+    nonEmptyCount: number
+  }
+  regions: Array<{
+    type: string
+    bounds: {
+      start: { row: number; col: number }
+      end: { row: number; col: number }
+    }
+    characteristics?: any
+  }>
+  patterns: {
+    formulas: Array<{
+      type: string
+      count: number
+      example?: string
+    }>
+    data: any[]
+  }
+  dependencies: {
+    rootCells: string[]
+    leafCells: string[]
+    maxDepth: number
+    circularRefs: string[][]
   }
 }

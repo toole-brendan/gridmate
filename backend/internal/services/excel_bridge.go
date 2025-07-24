@@ -582,29 +582,40 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 // ProcessChatMessageStreaming processes a chat message with streaming response
 func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID string, message ChatMessage) (<-chan ai.CompletionChunk, error) {
-	session, err := eb.getOrCreateSession(clientID, message.SessionID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session: %w", err)
-	}
+	session := eb.getOrCreateSession(clientID, message.SessionID)
 	
 	// Build financial context from Excel state
 	financialContext := &ai.FinancialContext{
 		CellValues:        make(map[string]interface{}),
-		NamedRanges:       make(map[string]string),
-		CurrentWorksheet:  "",
+		NamedRanges:       make(map[string]ai.NamedRangeInfo),
+		Formulas:          make(map[string]string),
 		WorkbookName:      "",
-		AvailableSheets:   []string{},
-		RecentEdits:       []ai.EditInfo{},
-		ActiveFormulas:    make(map[string]string),
-		ConditionalFormats: []ai.ConditionalFormat{},
+		WorksheetName:     "",
+		SelectedRange:     "",
+		ModelType:         "",
+		RecentChanges:     []ai.CellChange{},
+		DocumentContext:   []string{},
 	}
 	
-	// Populate context from session
-	if excelCtx, ok := message.ExcelContext.(map[string]interface{}); ok {
-		eb.populateFinancialContext(financialContext, excelCtx)
-	} else if session.Context != nil {
-		// Use session context if no explicit context provided
-		eb.populateFinancialContext(financialContext, session.Context)
+	// Populate context from message or session
+	if message.Context != nil {
+		// Extract relevant data from message context
+		if worksheetName, ok := message.Context["worksheet"].(string); ok {
+			financialContext.WorksheetName = worksheetName
+		}
+		if workbookName, ok := message.Context["workbook"].(string); ok {
+			financialContext.WorkbookName = workbookName
+		}
+		if selectedRange, ok := message.Context["selectedRange"].(string); ok {
+			financialContext.SelectedRange = selectedRange
+		}
+		if modelType, ok := message.Context["modelType"].(string); ok {
+			financialContext.ModelType = modelType
+		}
+		// Extract cell values if available
+		if cellData, ok := message.Context["cells"].(map[string]interface{}); ok {
+			financialContext.CellValues = cellData
+		}
 	}
 	
 	// Get chat history

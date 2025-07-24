@@ -1,130 +1,55 @@
-[Warning] 610 console messages are not shown.
-[Log] [info] [Message Handler] Batch request: c559e7b7-30f6-42b6-a1cb-4f6164c72f88 for range: A1:Z50 – undefined (useMessageHandlers.ts, line 13)
-[Log] [ExcelService] Batch reading 2 ranges (logging.ts, line 40)
-[Log] [ExcelService] Processing range Sheet1!A1:AZ1000 for request 0260a84e-670d-40b9-bc5f-e98505ccc655 (logging.ts, line 40)
-[Log] [ExcelService] Processing range Sheet1!A1:Z50 for request c559e7b7-30f6-42b6-a1cb-4f6164c72f88 (logging.ts, line 40)
-[Log] [3:43:42 PM] [INFO] Sending tool_response for 0260a84e-670d-40b9-bc5f-e98505ccc655 - Data size: 384 bytes (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Tool response data size: 384 bytes – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:42 PM] [INFO] Sending tool_response for c559e7b7-30f6-42b6-a1cb-4f6164c72f88 - Data size: 381 bytes (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Tool response data size: 381 bytes – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:42 PM] [SUCCESS] Batch processing complete for 2 requests (RefactoredChatInterface.tsx, line 56)
-[Log] 📥 Received tool request: – Object (SignalRClient.ts, line 86)
-Object
-[Log] [3:43:44 PM] [INFO] SignalR raw message: {"type":"tool_request","data":{"include_formatting":false,"include_formulas":false,"range":"A1:Z50","request_id":"9c3e1460-6621-4bf3-8dd6-b35331f95130","tool":"read_range"}} (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [3:43:44 PM] [INFO] ← Received tool_request: read_range (9c3e1460-6621-4bf3-8dd6-b35331f95130) (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received tool request 9c3e1460-6621-4bf3-8dd6-b35331f95130 (read_range) – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:44 PM] [INFO] Tool read_range is read-only. Adding to batch queue. (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Adding read_range request to batch queue – undefined (useMessageHandlers.ts, line 13)
-[Log] 📥 Received tool request: – Object (SignalRClient.ts, line 86)
-Object
-[Log] [3:43:45 PM] [INFO] SignalR raw message: {"type":"tool_request","data":{"include_formatting":false,"include_formulas":false,"range":"A1:AZ1000","request_id":"35c93aac-3947-4f14-a0ab-829d851de17d","tool":"read_range"}} (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [3:43:45 PM] [INFO] ← Received tool_request: read_range (35c93aac-3947-4f14-a0ab-829d851de17d) (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received tool request 35c93aac-3947-4f14-a0ab-829d851de17d (read_range) – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:45 PM] [INFO] Tool read_range is read-only. Adding to batch queue. (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Adding read_range request to batch queue – undefined (useMessageHandlers.ts, line 13)
-[Log] 📥 Received tool request: – Object (SignalRClient.ts, line 86)
-Object
-[Log] [3:43:45 PM] [INFO] SignalR raw message: {"type":"tool_request","data":{"include_formatting":false,"include_formulas":false,"range":"A1:Z50","request_id":"c9abb0dc-6de3-47c5-8976-cd4a76c212c7","tool":"read_range"}} (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [3:43:45 PM] [INFO] ← Received tool_request: read_range (c9abb0dc-6de3-47c5-8976-cd4a76c212c7) (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received tool request c9abb0dc-6de3-47c5-8976-cd4a76c212c7 (read_range) – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:45 PM] [INFO] Tool read_range is read-only. Adding to batch queue. (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Adding read_range request to batch queue – undefined (useMessageHandlers.ts, line 13)
-[Log] [3:43:45 PM] [INFO] Processing batch of 3 read requests (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Processing batch of 3 read requests – undefined (useMessageHandlers.ts, line 13)
-[Log] [info] [Message Handler] Batch request: 9c3e1460-6621-4bf3-8dd6-b35331f95130 for range: A1:Z50 – undefined (useMessageHandlers.ts, line 13)
-[Log] [info] [Message Handler] Batch request: 35c93aac-3947-4f14-a0ab-829d851de17d for range: A1:AZ1000 – undefined (useMessageHandlers.ts, line 13)
-[Log] [info] [Message Handler] Batch request: c9abb0dc-6de3-47c5-8976-cd4a76c212c7 for range: A1:Z50 – undefined (useMessageHandlers.ts, line 13)
-[Log] [ExcelService] Batch reading 3 ranges (logging.ts, line 40)
-[Log] [ExcelService] Processing range Sheet1!A1:Z50 for request 9c3e1460-6621-4bf3-8dd6-b35331f95130 (logging.ts, line 40)
-[Log] [ExcelService] Processing range Sheet1!A1:AZ1000 for request 35c93aac-3947-4f14-a0ab-829d851de17d (logging.ts, line 40)
-[Log] [ExcelService] Processing range Sheet1!A1:Z50 for request c9abb0dc-6de3-47c5-8976-cd4a76c212c7 (logging.ts, line 40)
-[Log] [3:43:45 PM] [INFO] Sending tool_response for 9c3e1460-6621-4bf3-8dd6-b35331f95130 - Data size: 381 bytes (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Tool response data size: 381 bytes – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:45 PM] [INFO] Sending tool_response for 35c93aac-3947-4f14-a0ab-829d851de17d - Data size: 384 bytes (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Tool response data size: 384 bytes – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:45 PM] [INFO] Sending tool_response for c9abb0dc-6de3-47c5-8976-cd4a76c212c7 - Data size: 381 bytes (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Tool response data size: 381 bytes – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [Message Handler] Sending final tool response: – Object (useMessageHandlers.ts, line 27)
-Object
-[Log] 📤 Sending SignalR message: – Object (SignalRClient.ts, line 125)
-Object
-[Log] 📤 Sending tool response: – Object (SignalRClient.ts, line 165)
-Object
-[Log] ✅ Tool response sent successfully (SignalRClient.ts, line 182)
-[Log] ✅ Message sent successfully (SignalRClient.ts, line 199)
-[Log] [3:43:45 PM] [SUCCESS] Batch processing complete for 3 requests (RefactoredChatInterface.tsx, line 56)
-[Log] 📥 Received AI response: – Object (SignalRClient.ts, line 91)
-Object
-[Log] [3:43:45 PM] [INFO] SignalR raw message: {"type":"ai_response","data":{"actions":null,"content":"I encountered an error processing your request. Please try again.","isComplete":false,"messageId":"d72f7273-413a-4968-9ca8-eaf958bf31c7","tokenUsage":null}} (RefactoredChatInterface.tsx, line 56)
-[Log] [info] [Message Handler] Received raw SignalR message – Object (useMessageHandlers.ts, line 13)
-Object
-[Log] [3:43:45 PM] [INFO] AI response received: I encountered an error processing your request. Pl... (RefactoredChatInterface.tsx, line 56)
-[Log] [3:43:45 PM] [ERROR] AI response error (RefactoredChatInterface.tsx, line 56)
-[Log] [3:43:45 PM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 56)
-[Log] [Context] Merge detection currently disabled - using placeholder implementation (ExcelService.ts, line 383)
-[Log] [3:43:45 PM] [INFO] Tracked user selection: Sheet1!A1:K1 (RefactoredChatInterface.tsx, line 56)
-[Log] 💓 Heartbeat sent (SignalRClient.ts, line 260)
+[Debug] [vite] connecting... (client, line 495)
+[Debug] [vite] connected. (client, line 618)
+[Log] 🚀 app.tsx loaded (app.tsx, line 22)
+[Log] 🔍 Office object: – "Available" (app.tsx, line 23)
+[Log] 🔍 Document ready state: – "interactive" (app.tsx, line 24)
+[Log] 📌 Office is defined, calling Office.onReady (app.tsx, line 35)
+[Log] ✅ Office.onReady fired! – {host: "Excel", platform: "Mac", addin: null} (app.tsx, line 37)
+[Log] 📋 Office info: – "{↵  \"host\": \"Excel\",↵  \"platform\": \"Mac\",↵  \"addin\": null↵}" (app.tsx, line 38)
+"{
+  \"host\": \"Excel\",
+  \"platform\": \"Mac\",
+  \"addin\": null
+}"
+[Log] 🎯 Root element: –  (app.tsx, line 41)
+<div id="root">…</div>
+
+<div id="root">…</div>
+[Log] 🌳 React root created (app.tsx, line 47)
+[Log] ✅ React render called (app.tsx, line 53)
+[Log] 🎨 MainApp rendering (app.tsx, line 26)
+[Log] 🎨 EnhancedChatInterfaceWrapper rendering with REFACTORED component (EnhancedChatInterfaceWrapper.tsx, line 19)
+[Log] [ExcelService] Creating new instance (ExcelService.ts, line 28)
+[Log] [ExcelService] Excel object is available (ExcelService.ts, line 32)
+[Log] [10:50:37 AM] [INFO] Initiating SignalR connection... (RefactoredChatInterface.tsx, line 56)
+[Log] 🔌 Creating SignalR connection to: https://localhost:7171/hub?access_token=dev-token-123 (SignalRClient.ts, line 19)
+[Log] [10:50:37 AM] [INFO] Initializing selection change listener... (RefactoredChatInterface.tsx, line 56)
+[Log] [10:50:37 AM] [INFO] Initializing context and mentions on load... (RefactoredChatInterface.tsx, line 56)
+[Log] [10:50:37 AM] [SUCCESS] Selection change listener registered. (RefactoredChatInterface.tsx, line 56)
+[Log] [Context] Merge detection currently disabled - using placeholder implementation (ExcelService.ts, line 384)
+[Info] [2025-07-24T14:50:37.749Z] Information: WebSocket connected to wss://localhost:7171/hub?access_token=dev-token-123&id=WYpbyVD9uTT5z7S5j45WXg. (@microsoft_signalr.js, line 299)
+[Info] [2025-07-24T14:50:37.749Z] Information: Using HubProtocol 'json'. (@microsoft_signalr.js, line 299)
+[Log] ✅ SignalR connected successfully! (SignalRClient.ts, line 33)
+[Log] ✅ Connection state: – "Connected" (SignalRClient.ts, line 34)
+[Log] [10:50:37 AM] [SUCCESS] SignalR connected successfully (RefactoredChatInterface.tsx, line 56)
+[Log] 📥 Received connected event: – {connectionId: "lMOC6ev58UQ7JBnnqQbtbQ", timestamp: "2025-07-24T14:50:37.749733Z"} (SignalRClient.ts, line 67)
+[Log] [10:50:37 AM] [INFO] SignalR raw message: {"type":"notification","data":{"connectionId":"lMOC6ev58UQ7JBnnqQbtbQ","timestamp":"2025-07-24T14:50:37.749733Z"}} (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received raw SignalR message – {rawMessage: {type: "notification", data: {connectionId: "lMOC6ev58UQ7JBnnqQbtbQ", timestamp: "2025-07-24T14:50:37.749733Z"}}} (useMessageHandlers.ts, line 13)
+[Log] [10:50:37 AM] [INFO] Backend connected. Connection ID: lMOC6ev58UQ7JBnnqQbtbQ (RefactoredChatInterface.tsx, line 56)
+[Log] 🔐 Authenticating after connection... (SignalRClient.ts, line 69)
+[Log] 📥 Received authSuccess: – {sessionId: "session_638889654377510570", userId: "user_dev-token-123", timestamp: "2025-07-24T14:50:37.751064Z"} (SignalRClient.ts, line 75)
+[Log] [10:50:37 AM] [SUCCESS] SignalR authenticated successfully. Session: session_638889654377510570 (RefactoredChatInterface.tsx, line 56)
+[Log] [10:50:37 AM] [INFO] SignalR raw message: {"type":"auth_success","data":{"sessionId":"session_638889654377510570","userId":"user_dev-token-123","timestamp":"2025-07-24T14:50:37.751064Z"}} (RefactoredChatInterface.tsx, line 56)
+[Log] [info] [Message Handler] Received raw SignalR message – {rawMessage: {type: "auth_success", data: {sessionId: "session_638889654377510570", userId: "user_dev-token-123", timestamp: "2025-07-24T14:50:37.751064Z"}}} (useMessageHandlers.ts, line 13)
+[Log] [10:50:37 AM] [SUCCESS] Authentication successful. Session ID: session_638889654377510570 (RefactoredChatInterface.tsx, line 56)
+[Log] 🔐 Authentication request sent (SignalRClient.ts, line 112)
+[Log] [10:50:38 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 56)
+[Log] [Context] Merge detection currently disabled - using placeholder implementation (ExcelService.ts, line 384)
+[Log] [10:50:38 AM] [INFO] Tracked user selection: Sheet1!A1 (RefactoredChatInterface.tsx, line 56)
+[Log] 🌊 Starting streaming chat: – "https://localhost:7171/api/chat/stream?sessionId=session_638889654377510570&content=Please+make+DCF+model+in+this+sheet%2C+use+mock+data&aut…" (SignalRClient.ts, line 282)
+"https://localhost:7171/api/chat/stream?sessionId=session_638889654377510570&content=Please+make+DCF+model+in+this+sheet%2C+use+mock+data&autonomyMode=agent-default"
+[Log] [10:51:19 AM] [ERROR] Streaming error occurred (RefactoredChatInterface.tsx, line 56)
+[Log] [10:51:20 AM] [INFO] Updating available mentions... (RefactoredChatInterface.tsx, line 56)
+[Log] [Context] Merge detection currently disabled - using placeholder implementation (ExcelService.ts, line 384)
+[Log] [10:51:20 AM] [INFO] Tracked user selection: Sheet1!A1 (RefactoredChatInterface.tsx, line 56)
+[Log] 💓 Heartbeat sent (SignalRClient.ts, line 260, x2)

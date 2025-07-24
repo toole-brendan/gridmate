@@ -1067,7 +1067,7 @@ func (s *Service) ProcessChatWithToolsAndHistoryStreaming(
 	}
 	
 	// Get streaming response
-	return s.provider.GetCompletionStreaming(ctx, request)
+	return s.provider.GetStreamingCompletion(ctx, request)
 }
 
 // SetAdvancedComponents wires up the advanced AI components (memory, context analyzer, orchestrator)
@@ -1196,6 +1196,27 @@ func (s *Service) ProcessIntelligentChatMessage(ctx context.Context, sessionID s
 // GetMemoryService returns the financial memory service
 func (s *Service) GetMemoryService() *FinancialMemoryService {
 	return s.memoryService
+}
+
+// buildSystemPrompt builds the system prompt based on the financial context
+func (s *Service) buildSystemPrompt(context *FinancialContext) string {
+	if s.promptBuilder != nil && context != nil {
+		// Use the prompt builder to generate a context-aware system prompt
+		messages := s.promptBuilder.BuildChatPrompt("", context)
+		if len(messages) > 0 && messages[0].Role == "system" {
+			return messages[0].Content
+		}
+	}
+	
+	// Default system prompt
+	return "You are a financial modeling assistant helping with spreadsheet analysis and calculations. Provide accurate financial insights and calculations."
+}
+
+// getRelevantTools returns tools relevant to the user message and context
+func (s *Service) getRelevantTools(userMessage string, context *FinancialContext) []ExcelTool {
+	// For now, return all available Excel tools
+	// TODO: Implement intelligent tool selection based on message content and context
+	return GetExcelTools()
 }
 
 // GetContextAnalyzer returns the context analyzer

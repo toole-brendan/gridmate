@@ -91,7 +91,6 @@ func (cc *CellClassifier) ClassifyCell(
 // classifyFormula classifies cells containing formulas
 func (cc *CellClassifier) classifyFormula(formula string, value interface{}, context CellContext) CellClassification {
 	formulaLower := strings.ToLower(formula)
-	attributes := make(map[string]interface{})
 	
 	// Check for total formulas
 	if strings.Contains(formulaLower, "sum(") {

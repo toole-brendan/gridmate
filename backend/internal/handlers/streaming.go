@@ -1,14 +1,11 @@
 package handlers
 
 import (
-    "context"
     "encoding/json"
     "fmt"
     "net/http"
-    "strings"
     
     "github.com/gridmate/backend/internal/services"
-    "github.com/gridmate/backend/internal/services/ai"
     "github.com/sirupsen/logrus"
 )
 
@@ -51,8 +48,9 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
     // Create chat message
     chatMsg := services.ChatMessage{
         Content:      content,
+        SessionID:    sessionID,
         AutonomyMode: autonomyMode,
-        ExcelContext: make(map[string]interface{}), // Will be populated from session
+        Context:      make(map[string]interface{}), // Will be populated from session
     }
     
     // Get streaming response

@@ -250,7 +250,7 @@ func (ev *EditValidator) validateCellReferences(formula, targetCell string, cont
 	
 	for _, ref := range refs {
 		// Check if reference is within sheet bounds
-		if context != nil && context.ActiveRange != nil {
+		if context != nil {
 			// Simple validation - can be enhanced
 			if !ev.isWithinBounds(ref, context) {
 				result.Warnings = append(result.Warnings, ValidationWarning{
@@ -322,13 +322,10 @@ func (ev *EditValidator) isValidRange(address string) bool {
 
 func (ev *EditValidator) isFormulaCell(address string, context *FinancialContext) bool {
 	// Check if the cell contains a formula in the current context
-	if context.ActiveRange != nil && context.ActiveRange.Formulas != nil {
-		for _, row := range context.ActiveRange.Formulas {
-			for _, formula := range row {
-				if formula != "" && formula != nil {
-					return true
-				}
-			}
+	// Check if the address has a formula in the context
+	if context.Formulas != nil {
+		if formula, exists := context.Formulas[address]; exists && formula != "" {
+			return true
 		}
 	}
 	return false
@@ -337,7 +334,8 @@ func (ev *EditValidator) isFormulaCell(address string, context *FinancialContext
 func (ev *EditValidator) isWithinBounds(cellRef string, context *FinancialContext) bool {
 	// Simple bounds checking - can be enhanced
 	// For now, just return true if we have an active range
-	return context.ActiveRange != nil
+	// For now, always return true as we don't have sheet bounds info
+	return true
 }
 
 func (ev *EditValidator) requiresArguments(functionName string) bool {

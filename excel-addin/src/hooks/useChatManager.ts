@@ -10,7 +10,10 @@ export const useChatManager = (initialMessages: EnhancedChatMessage[] = []) => {
   const [aiIsGenerating, setAiIsGenerating] = useState(false);
 
   const addMessage = useCallback((message: Partial<EnhancedChatMessage> & { role?: 'user' | 'assistant' | 'system'; content?: string; type?: string }) => {
-    const messageId = uuidv4();
+    // Preserve IDs for special message types
+    const preserveIdTypes = ['diff-preview', 'tool-suggestion', 'batch-operation'];
+    const shouldPreserveId = message.type && preserveIdTypes.includes(message.type) && message.id;
+    const messageId = shouldPreserveId ? message.id : (message.id || uuidv4());
     
     // Create a new message based on whether it has a type field or not
     let newMessage: EnhancedChatMessage;

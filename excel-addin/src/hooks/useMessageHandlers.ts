@@ -248,6 +248,19 @@ export const useMessageHandlers = (
     addDebugLog(`← Received tool_request: ${toolRequest.tool} (${toolRequest.request_id})`);
     addLog('info', `[Message Handler] Received tool request ${toolRequest.request_id} (${toolRequest.tool})`, { parameters: toolRequest });
     
+    // Auto-accept any existing preview before showing new one
+    if (pendingPreviewRef.current.size > 0) {
+      addDebugLog(`Auto-accepting ${pendingPreviewRef.current.size} pending previews before new tool request`, 'info');
+      
+      // Get the first pending preview (should only be one)
+      const [requestId] = Array.from(pendingPreviewRef.current.keys());
+      
+      // Auto-accept it
+      if (handlePreviewAcceptRef.current) {
+        await handlePreviewAcceptRef.current(requestId);
+      }
+    }
+    
     // Send immediate acknowledgment to prevent backend timeout
     await sendAcknowledgment(toolRequest.request_id, toolRequest.tool);
     
@@ -706,9 +719,10 @@ export const useMessageHandlers = (
 
   // Streaming support
   const currentStreamRef = useRef<EventSource | null>(null);
+  const streamHealthCheckRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add a ref to track streaming updates
-  const streamingUpdatesRef = useRef<Map<string, { count: number; content: string }>>(new Map());
+  const streamingUpdatesRef = useRef<Map<string, { count: number; content: string; lastUpdate: number }>>(new Map());
   
   // Add streaming message handler
   const sendStreamingMessage = useCallback(async (content: string, autonomyMode: string) => {
@@ -741,10 +755,39 @@ export const useMessageHandlers = (
     chatManager.addMessage(streamingMessage);
     chatManager.setAiIsGenerating(true);
     
+    // Set up health check for streaming
+    const setupStreamHealthCheck = () => {
+      if (streamHealthCheckRef.current) {
+        clearInterval(streamHealthCheckRef.current);
+      }
+      
+      streamHealthCheckRef.current = setInterval(() => {
+        const updates = streamingUpdatesRef.current.get(streamingMessageId);
+        if (updates) {
+          const timeSinceLastUpdate = Date.now() - updates.lastUpdate;
+          if (timeSinceLastUpdate > 10000) { // 10 seconds without update
+            addDebugLog(`Stream health check: No updates for ${timeSinceLastUpdate}ms, possible stream stall`, 'warning');
+            
+            // Clean up stalled stream
+            if (currentStreamRef.current) {
+              signalRClientRef.current?.cancelStream(currentStreamRef.current);
+              currentStreamRef.current = null;
+            }
+            chatManager.finalizeStreamingMessage(streamingMessageId);
+            chatManager.setAiIsGenerating(false);
+            clearInterval(streamHealthCheckRef.current!);
+            streamHealthCheckRef.current = null;
+          }
+        }
+      }, 2000); // Check every 2 seconds
+    };
+    
     try {
       // Set up streaming handlers first
       let chunkCount = 0;
       const startTime = Date.now();
+      
+      setupStreamHealthCheck();
       
       signalRClientRef.current.setupStreamingHandlers({
         onChunk: (data: string) => {
@@ -758,6 +801,15 @@ export const useMessageHandlers = (
             chatManager.finalizeStreamingMessage(streamingMessageId);
             chatManager.setAiIsGenerating(false);
             currentStreamRef.current = null;
+            
+            // Clean up health check
+            if (streamHealthCheckRef.current) {
+              clearInterval(streamHealthCheckRef.current);
+              streamHealthCheckRef.current = null;
+            }
+            
+            // Clean up tracking
+            streamingUpdatesRef.current.delete(streamingMessageId);
             return;
           }
           
@@ -776,6 +828,15 @@ export const useMessageHandlers = (
           chatManager.finalizeStreamingMessage(streamingMessageId);
           chatManager.setAiIsGenerating(false);
           currentStreamRef.current = null;
+          
+          // Clean up health check
+          if (streamHealthCheckRef.current) {
+            clearInterval(streamHealthCheckRef.current);
+            streamHealthCheckRef.current = null;
+          }
+          
+          // Clean up tracking
+          streamingUpdatesRef.current.delete(streamingMessageId);
         },
         onError: (error) => {
           addDebugLog('Streaming error occurred', 'error');
@@ -783,6 +844,15 @@ export const useMessageHandlers = (
           chatManager.finalizeStreamingMessage(streamingMessageId);
           chatManager.setAiIsGenerating(false);
           currentStreamRef.current = null;
+          
+          // Clean up health check
+          if (streamHealthCheckRef.current) {
+            clearInterval(streamHealthCheckRef.current);
+            streamHealthCheckRef.current = null;
+          }
+          
+          // Clean up tracking
+          streamingUpdatesRef.current.delete(streamingMessageId);
         }
       });
       
@@ -814,8 +884,16 @@ export const useMessageHandlers = (
       contentValue: chunk.content
     });
     
+    // Verify the streaming message exists
+    const streamingMessage = chatManager.messages.find(m => m.id === messageId);
+    if (!streamingMessage) {
+      console.error('[handleStreamChunk] Streaming message not found:', messageId);
+      console.log('[handleStreamChunk] Current messages:', chatManager.messages.map(m => ({ id: m.id, type: m.type })));
+      return;
+    }
+    
     // Track updates
-    const updates = streamingUpdatesRef.current.get(messageId) || { count: 0, content: '' };
+    const updates = streamingUpdatesRef.current.get(messageId) || { count: 0, content: '', lastUpdate: Date.now() };
     
     switch (chunk.type) {
       case 'text':
@@ -826,6 +904,7 @@ export const useMessageHandlers = (
         if (textToAppend) {
           updates.count++;
           updates.content += textToAppend;
+          updates.lastUpdate = Date.now();
           streamingUpdatesRef.current.set(messageId, updates);
           
           console.log('[handleStreamChunk] Update tracking:', {
@@ -835,20 +914,39 @@ export const useMessageHandlers = (
             totalLength: updates.content.length
           });
           
-          // Use flushSync to force immediate state update
-          flushSync(() => {
-            chatManager.updateStreamingMessage(messageId, {
-              content: (prev: string) => {
-                const newContent = prev + textToAppend;
-                console.log('[handleStreamChunk] Updating content:', {
-                  prevLength: prev.length,
-                  appendLength: textToAppend.length,
-                  newLength: newContent.length
+          // Use flushSync to force immediate state update with retry logic
+          const MAX_RETRIES = 3;
+          let retryCount = 0;
+          
+          const updateWithRetry = () => {
+            try {
+              flushSync(() => {
+                chatManager.updateStreamingMessage(messageId, {
+                  content: (prev: string) => {
+                    const newContent = prev + textToAppend;
+                    console.log('[handleStreamChunk] Updating content:', {
+                      prevLength: prev.length,
+                      appendLength: textToAppend.length,
+                      newLength: newContent.length,
+                      retryCount
+                    });
+                    return newContent;
+                  }
                 });
-                return newContent;
+              });
+            } catch (error) {
+              retryCount++;
+              if (retryCount < MAX_RETRIES) {
+                console.warn(`[handleStreamChunk] Retry ${retryCount} for chunk update`, error);
+                setTimeout(updateWithRetry, 10);
+              } else {
+                console.error('[handleStreamChunk] Failed after retries:', error);
+                addDebugLog(`Failed to update streaming message after ${MAX_RETRIES} retries`, 'error');
               }
-            });
-          });
+            }
+          };
+          
+          updateWithRetry();
         }
         break;
         
@@ -893,6 +991,35 @@ export const useMessageHandlers = (
     }
   }, [chatManager, addDebugLog]);
 
+  // Clear all pending previews
+  const clearAllPreviews = useCallback(async () => {
+    const pendingCount = pendingPreviewRef.current.size;
+    if (pendingCount === 0) {
+      addDebugLog('No pending previews to clear', 'info');
+      return;
+    }
+    
+    addDebugLog(`Clearing ${pendingCount} pending previews`, 'info');
+    
+    // Auto-reject all pending previews
+    const requestIds = Array.from(pendingPreviewRef.current.keys());
+    for (const requestId of requestIds) {
+      if (handlePreviewRejectRef.current) {
+        await handlePreviewRejectRef.current(requestId);
+      }
+    }
+    
+    // Clear all refs
+    pendingPreviewRef.current.clear();
+    operationQueueRef.current = [];
+    processedRequestsRef.current.clear();
+    isProcessingQueueRef.current = false;
+    currentOperationIndexRef.current = 0;
+    totalOperationsRef.current = 0;
+    
+    addDebugLog('All previews cleared', 'success');
+  }, [addDebugLog]);
+
   // Assign the refs
   useEffect(() => {
     handlePreviewAcceptRef.current = handlePreviewAccept;
@@ -908,6 +1035,7 @@ export const useMessageHandlers = (
     handlePreviewReject,
     sendStreamingMessage,
     cancelCurrentStream,
-    handleStreamChunk
+    handleStreamChunk,
+    clearAllPreviews
   };
 }; 

@@ -8,12 +8,16 @@ import (
 // PromptBuilder builds context-aware prompts for financial modeling
 type PromptBuilder struct {
 	systemPrompt string
+	representationSelector *RepresentationSelector
+	editValidator *EditValidator
 }
 
 // NewPromptBuilder creates a new prompt builder
 func NewPromptBuilder() *PromptBuilder {
 	return &PromptBuilder{
 		systemPrompt: getFinancialModelingSystemPrompt(),
+		representationSelector: NewRepresentationSelector(),
+		editValidator: NewEditValidator(),
 	}
 }
 

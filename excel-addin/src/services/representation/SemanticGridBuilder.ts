@@ -2,8 +2,11 @@ import { RangeData, ExcelService } from '../excel/ExcelService'
 import { RegionDetector, SemanticRegion } from '../semantic/RegionDetector'
 import { PatternAnalyzer, FormulaPattern, DataPattern } from '../semantic/PatternAnalyzer'
 import { FormulaAnalyzer, FormulaDependencyGraph } from '../formula/FormulaAnalyzer'
+import { FormulaTypeDetector } from '../formula/FormulaTypeDetector'
+import { FormulaDescriber } from '../formula/FormulaDescriber'
 import { SpatialSerializer } from './SpatialSerializer'
 import { CompressedGridBuilder, TokenOptimizationOptions } from './CompressedGridBuilder'
+import { GridSerializer } from '../serialization/GridSerializer'
 
 export interface LLMContext {
   query?: string

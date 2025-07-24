@@ -92,6 +92,7 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
     
     chunkCount := 0
     startTime := time.Now()
+    firstChunkSent := false
     
     for chunk := range chunks {
         select {
@@ -105,6 +106,15 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
             if err != nil {
                 h.logger.WithError(err).Error("Failed to marshal chunk")
                 continue
+            }
+            
+            // Special logging for first chunk
+            if !firstChunkSent {
+                firstChunkSent = true
+                h.logger.WithFields(logrus.Fields{
+                    "first_chunk_delay_ms": time.Since(startTime).Milliseconds(),
+                    "chunk_type": chunk.Type,
+                }).Info("First chunk being sent - streaming is active")
             }
             
             h.logger.WithFields(logrus.Fields{
@@ -125,10 +135,18 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
                 if flusher != nil {
                     flusher.Flush()
                 }
+                
+                // Warn if we only sent one chunk for a non-trivial response
+                logLevel := logrus.InfoLevel
+                if chunkCount == 1 && len(content) > 20 {
+                    logLevel = logrus.WarnLevel
+                }
+                
                 h.logger.WithFields(logrus.Fields{
                     "total_chunks": chunkCount,
                     "duration_ms": time.Since(startTime).Milliseconds(),
-                }).Info("Streaming completed successfully")
+                    "avg_chunk_time_ms": time.Since(startTime).Milliseconds() / int64(chunkCount),
+                }).Log(logLevel, "Streaming completed")
                 return
             }
         }

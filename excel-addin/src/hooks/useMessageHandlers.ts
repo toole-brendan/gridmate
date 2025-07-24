@@ -992,6 +992,37 @@ export const useMessageHandlers = (
           addDebugLog(`Tool completed: ${chunk.toolCall.name}`, 'success');
         }
         break;
+        
+      case 'tool_result':
+        // Handle tool execution result
+        if (chunk.content && chunk.toolCall) {
+          try {
+            // Parse the tool result from content
+            const toolResult = JSON.parse(chunk.content);
+            
+            // Log the tool result
+            addDebugLog(`Tool result received for ${chunk.toolCall.name}: ${toolResult.status || 'unknown'}`, 
+              chunk.error ? 'error' : 'info');
+            
+            // If it's an error, update the tool status
+            if (chunk.error || toolResult.isError) {
+              // Mark the tool as complete but with error
+              chatManager.completeToolCall(messageId, chunk.toolCall.id);
+              // Add error message to chat
+              addDebugLog(`Tool ${chunk.toolCall.name} failed: ${chunk.error?.toString() || toolResult.content}`, 'error');
+            }
+            
+            // For queued operations, add to preview panel
+            if (toolResult.status === 'queued' || toolResult.status === 'queued_for_preview') {
+              // This will be handled by the existing preview system
+              addDebugLog(`Tool ${chunk.toolCall.name} queued for preview`, 'info');
+            }
+          } catch (error) {
+            console.error('Failed to parse tool result:', error);
+            addDebugLog(`Failed to parse tool result: ${error}`, 'error');
+          }
+        }
+        break;
     }
   }, [chatManager, addDebugLog]);
 

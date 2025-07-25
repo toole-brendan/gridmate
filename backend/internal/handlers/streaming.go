@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -162,6 +163,9 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 
 	// Get streaming response
 	ctx := r.Context()
+	// Add streaming mode to context
+	ctx = context.WithValue(ctx, "streaming_mode", true)
+	
 	deadline, hasDeadline := ctx.Deadline()
 	h.logger.WithFields(logrus.Fields{
 		"session_id": sessionID,

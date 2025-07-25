@@ -7,12 +7,30 @@ This plan addresses critical issues in GridMate's streaming chat implementation 
 
 1. **Missing Context**: Streaming mode skips context building, causing unnecessary tool calls
 2. **Empty Tool Parameters**: Tool calls are sent with empty parameters, causing execution failures
-3. **No Excel Updates**: Tool executions don't actually update the spreadsheet
-4. **Poor UX**: No persistent tool cards, status indicators, or professional polish
+3. **No Excel Updates**: Tool executions don't actually update the spreadsheet due to parameter issues
+4. **Poor UX**: Diff preview cards disappear after acceptance instead of persisting with status
 
-This enhanced plan incorporates Cursor's UX patterns to create a professional financial modeling assistant.
+**Important**: Analysis reveals that GridMate already has a sophisticated diff preview system with color-coded highlights, italicized preview text, and execution infrastructure. The main issues are empty tool parameters and UI persistence, not missing functionality.
 
 ## Current State Analysis
+
+### Existing Infrastructure (Working Well)
+1. **GridVisualizer** (`/excel-addin/src/services/diff/GridVisualizer.ts`)
+   - ✅ Color-coded highlights for different change types
+   - ✅ Italicized preview text
+   - ✅ Border indicators and visual feedback
+   - ✅ Original state tracking for restoration
+
+2. **Diff Preview System** (`/excel-addin/src/hooks/useDiffPreview.ts`)
+   - ✅ Snapshot creation and diff calculation
+   - ✅ Two-phase preview (highlights + values)
+   - ✅ Actual Excel execution via `executeToolRequest()`
+   - ✅ Batch operation support
+
+3. **Excel Service** (`/excel-addin/src/services/excel/ExcelService.ts`)
+   - ✅ Tool execution infrastructure
+   - ✅ Batch execution for performance
+   - ✅ All tool implementations (write_range, format_range, etc.)
 
 ### Phase 0 Implementation Issues
 
@@ -39,22 +57,134 @@ if streamingMode {
 
 **Impact**: All tool executions fail with "undefined is not an object" errors.
 
-#### 3. No Real Excel Integration
-The streaming pipeline doesn't wait for or incorporate actual tool results before continuing the response generation.
-
-**Impact**: Zero actual changes to the Excel spreadsheet despite successful AI responses.
+#### 3. UI Persistence Issue
+The `ChatMessageDiffPreview` component disappears after accept/reject instead of persisting with status indicators like Cursor does.
 
 ## Proposed Solution Architecture
 
-### Phase 1: Smart Context Injection & Tool Parameter Fix (Immediate Priority)
+### Phase 1: Fix Core Issues (Immediate Priority)
 
-#### 1.1 Lightweight Context Provider
-Create a cached, non-blocking context system that provides essential information without tool calls.
+#### 1.1 Fix Tool Parameter Extraction
+The empty tool parameters are the root cause of Excel updates not working.
 
 **Files to modify:**
+- `/backend/internal/services/ai/anthropic.go`
+- `/backend/internal/services/excel_bridge.go`
+
+**Implementation**:
+```go
+// File: /backend/internal/services/ai/anthropic.go (enhance line ~590)
+case "content_block_delta":
+    if event.Delta != nil {
+        if currentToolCall != nil && event.Delta.Type == "input_json_delta" {
+            // Accumulate tool input JSON
+            toolInputBuffer.WriteString(event.Delta.Text)
+            
+            // CRITICAL: Log the accumulated buffer for debugging
+            log.Debug().
+                Str("tool_id", currentToolCall.ID).
+                Str("delta_text", event.Delta.Text).
+                Int("buffer_size", toolInputBuffer.Len()).
+                Str("buffer_content", toolInputBuffer.String()).
+                Msg("[Anthropic] Accumulating tool input")
+            
+            // Only send progress chunk if we have actual content
+            if event.Delta.Text != "" {
+                ch <- CompletionChunk{
+                    ID:       messageID,
+                    Type:     "tool_progress",
+                    ToolCall: currentToolCall,
+                    Delta:    event.Delta.Text,
+                    Done:     false,
+                }
+            }
+        }
+    }
+
+// File: /backend/internal/services/excel_bridge.go (enhance line ~1000)
+case "tool_complete":
+    if currentToolCall != nil {
+        // Try to parse from buffer first
+        if toolInputBuffer.Len() > 0 {
+            var inputData map[string]interface{}
+            if err := json.Unmarshal([]byte(toolInputBuffer.String()), &inputData); err == nil {
+                currentToolCall.Input = inputData
+            } else {
+                // Log the parsing error with buffer content
+                eb.logger.WithFields(logrus.Fields{
+                    "tool_id": currentToolCall.ID,
+                    "buffer": toolInputBuffer.String(),
+                    "error": err.Error(),
+                }).Error("Failed to parse tool input JSON")
+            }
+        }
+        
+        // If still empty, try to infer from context
+        if len(currentToolCall.Input) == 0 {
+            currentToolCall.Input = inferToolParameters(currentToolCall.Name, streamingState.Context)
+        }
+        
+        // CRITICAL: Ensure parameters are at the correct level
+        toolRequest := map[string]interface{}{
+            "request_id": currentToolCall.ID,
+            "tool":       currentToolCall.Name,
+            "streaming_mode": true,
+            "autonomy_mode": autonomyMode,
+        }
+        
+        // Flatten the input parameters at the top level for Excel bridge
+        for k, v := range currentToolCall.Input {
+            toolRequest[k] = v
+        }
+    }
+```
+
+**Add parameter inference helper**:
+```go
+// File: /backend/internal/services/excel_bridge.go (new function)
+func inferToolParameters(toolName string, context *ai.FinancialContext) map[string]interface{} {
+    params := make(map[string]interface{})
+    
+    switch toolName {
+    case "write_range":
+        // Use selected range from context if available
+        if context != nil && context.SelectedRange != "" {
+            params["range"] = context.SelectedRange
+        } else {
+            params["range"] = "A1" // Default
+        }
+        params["values"] = [][]interface{}{} // Empty default
+        
+    case "format_range":
+        if context != nil && context.SelectedRange != "" {
+            params["range"] = context.SelectedRange
+        } else {
+            params["range"] = "A1"
+        }
+        params["format"] = map[string]interface{}{} // Empty format object
+        
+    case "apply_formula":
+        if context != nil && context.SelectedRange != "" {
+            params["range"] = context.SelectedRange
+        }
+        params["formula"] = "" // Empty formula
+    }
+    
+    eb.logger.WithFields(logrus.Fields{
+        "tool": toolName,
+        "inferred_params": params,
+    }).Warn("Inferred tool parameters due to empty input")
+    
+    return params
+}
+```
+
+#### 1.2 Lightweight Context Provider
+Create a cached, non-blocking context system that provides essential information without tool calls.
+
+**Files to create/modify:**
 - `/backend/internal/services/excel/context_provider.go` (new file)
 - `/backend/internal/services/excel/context_builder.go`
-- `/backend/internal/services/ai/service.go`
 
 **Implementation**:
 ```go
@@ -102,15 +232,17 @@ func (cp *CachedContextProvider) GetContext(sessionID string) *LightweightContex
     if !exists || time.Since(ctx.CachedAt) > cp.ttl {
         return &LightweightContext{
             SessionID: sessionID,
-            IsEmpty:   true,
+            IsEmpty:   false, // Assume not empty to avoid unnecessary checks
             SheetName: "Sheet1",
+            ActiveRange: "A1:Z100", // Default range
             CachedAt:  time.Now(),
         }
     }
     return ctx
 }
 
-func (cp *CachedContextProvider) UpdateContext(sessionID string, updates func(*LightweightContext)) {
+// Update context when Excel operations happen
+func (cp *CachedContextProvider) UpdateFromToolResult(sessionID string, tool string, result interface{}) {
     cp.mu.Lock()
     defer cp.mu.Unlock()
     
@@ -119,302 +251,186 @@ func (cp *CachedContextProvider) UpdateContext(sessionID string, updates func(*L
         ctx = &LightweightContext{SessionID: sessionID}
     }
     
-    updates(ctx)
+    // Update context based on tool results
+    switch tool {
+    case "write_range":
+        ctx.IsEmpty = false
+        ctx.LastModified = time.Now()
+    case "read_range":
+        // Parse result to update row/column counts
+        if data, ok := result.(map[string]interface{}); ok {
+            if values, ok := data["values"].([][]interface{}); ok {
+                ctx.RowCount = len(values)
+                if len(values) > 0 {
+                    ctx.ColumnCount = len(values[0])
+                }
+            }
+        }
+    }
+    
     ctx.CachedAt = time.Now()
     cp.cache[sessionID] = ctx
 }
 ```
 
-**Benefits**:
-- No blocking tool calls during streaming initialization
-- AI knows basic sheet state (empty/populated)
-- Reduces unnecessary read_range calls
+### Phase 2: Enhance UI Persistence & Status
 
-#### 1.2 Fix Tool Parameter Extraction
-Fix the empty tool parameters issue in the streaming pipeline.
+#### 2.1 Make Diff Preview Cards Persistent
+Enhance the existing `ChatMessageDiffPreview` to persist after accept/reject.
 
 **Files to modify:**
-- `/backend/internal/services/ai/anthropic.go`
-- `/backend/internal/services/excel_bridge.go`
+- `/excel-addin/src/components/chat/ChatMessageDiffPreview.tsx`
+- `/excel-addin/src/components/chat/messages/ToolSuggestionCard.tsx`
 
 **Implementation**:
-```go
-// File: /backend/internal/services/ai/anthropic.go (enhance line ~590)
-case "content_block_delta":
-    if event.Delta != nil {
-        if currentToolCall != nil && event.Delta.Type == "input_json_delta" {
-            // Accumulate tool input JSON
-            toolInputBuffer.WriteString(event.Delta.Text)
-            
-            // Log what we're accumulating for debugging
-            log.Debug().
-                Str("tool_id", currentToolCall.ID).
-                Str("delta_text", event.Delta.Text).
-                Int("buffer_size", toolInputBuffer.Len()).
-                Str("buffer_content", toolInputBuffer.String()).
-                Msg("[Anthropic] Accumulating tool input")
-            
-            // Only send progress chunk if we have actual content
-            if event.Delta.Text != "" {
-                ch <- CompletionChunk{
-                    ID:       messageID,
-                    Type:     "tool_progress",
-                    ToolCall: currentToolCall,
-                    Delta:    event.Delta.Text,
-                    Done:     false,
-                }
-            }
-        }
-    }
-
-// File: /backend/internal/services/excel_bridge.go (enhance line ~1000)
-case "tool_complete":
-    if currentToolCall != nil {
-        // Try to parse from buffer first
-        if toolInputBuffer.Len() > 0 {
-            var inputData map[string]interface{}
-            if err := json.Unmarshal([]byte(toolInputBuffer.String()), &inputData); err == nil {
-                currentToolCall.Input = inputData
-            }
-        }
-        
-        // If still empty, try to infer from context
-        if len(currentToolCall.Input) == 0 {
-            currentToolCall.Input = inferToolParameters(currentToolCall.Name, streamingState.Context)
-        }
-        
-        // Validate before sending
-        if err := validateToolParameters(currentToolCall); err != nil {
-            eb.logger.WithError(err).Error("Invalid tool parameters")
-            // Send error chunk
-            outChan <- ai.CompletionChunk{
-                Type:     "error",
-                Content:  fmt.Sprintf("Tool parameter error: %v", err),
-                Done:     false,
-            }
-            continue
-        }
-    }
-```
-
-#### 1.3 Context Building Enhancement
-Modify the context builder to support streaming-friendly operations.
-
-**Files to modify:**
-- `/backend/internal/services/excel/context_builder.go`
-
-```go
-// File: /backend/internal/services/excel/context_builder.go (modify BuildContextWithRange)
-func (cb *ContextBuilder) BuildStreamingContext(ctx context.Context, sessionID string) (*ai.FinancialContext, error) {
-    // Get cached lightweight context
-    lightCtx := cb.cachedProvider.GetContext(sessionID)
-    
-    context := &ai.FinancialContext{
-        ModelType: "Streaming",
-        IsEmpty: lightCtx.IsEmpty,
-        DocumentContext: []string{
-            fmt.Sprintf("Sheet: %s", lightCtx.SheetName),
-            fmt.Sprintf("Status: %s", getSheetStatus(lightCtx)),
-            fmt.Sprintf("Active Range: %s", lightCtx.ActiveRange),
-        },
-        WorksheetName: lightCtx.SheetName,
-        SelectedRange: lightCtx.ActiveRange,
-    }
-    
-    // Add cached metrics if available
-    if !lightCtx.IsEmpty {
-        context.DocumentContext = append(context.DocumentContext,
-            fmt.Sprintf("Size: %d rows x %d columns", lightCtx.RowCount, lightCtx.ColumnCount))
-        if lightCtx.ModelType != "" {
-            context.ModelType = lightCtx.ModelType
-        }
-    }
-    
-    return context, nil
-}
-```
-
-### Phase 2: Tool Result Integration & Persistent Cards
-
-#### 2.1 Streaming State Manager
-Implement proper state management for tool execution during streaming.
-
-**Files to create/modify:**
-- `/backend/internal/services/streaming/state_manager.go` (new file)
-- `/backend/internal/services/excel_bridge.go`
-
-```go
-// File: /backend/internal/services/streaming/state_manager.go
-package streaming
-
-import (
-    "sync"
-    "time"
-    "github.com/gridmate/backend/internal/services/ai"
-)
-
-type StreamingStateManager struct {
-    mu             sync.RWMutex
-    pendingTools   map[string]*PendingToolExecution
-    toolResults    map[string]*ToolResult
-    continuation   chan ContinuationSignal
-}
-
-type PendingToolExecution struct {
-    ToolCall      ai.ToolCall
-    RequestTime   time.Time
-    ResultChannel chan ToolResult
-    Status        ToolStatus
-}
-
-type ToolStatus string
-
-const (
-    ToolStatusPending   ToolStatus = "pending"
-    ToolStatusExecuting ToolStatus = "executing"
-    ToolStatusComplete  ToolStatus = "complete"
-    ToolStatusFailed    ToolStatus = "failed"
-)
-
-type ToolResult struct {
-    ToolID      string
-    ToolName    string
-    Success     bool
-    Result      interface{}
-    Error       error
-    ExecutionMs int64
-}
-
-func (sm *StreamingStateManager) RegisterTool(toolCall ai.ToolCall) chan ToolResult {
-    sm.mu.Lock()
-    defer sm.mu.Unlock()
-    
-    resultChan := make(chan ToolResult, 1)
-    sm.pendingTools[toolCall.ID] = &PendingToolExecution{
-        ToolCall:      toolCall,
-        RequestTime:   time.Now(),
-        ResultChannel: resultChan,
-        Status:        ToolStatusPending,
-    }
-    
-    return resultChan
-}
-
-func (sm *StreamingStateManager) UpdateToolStatus(toolID string, status ToolStatus) {
-    sm.mu.Lock()
-    defer sm.mu.Unlock()
-    
-    if tool, exists := sm.pendingTools[toolID]; exists {
-        tool.Status = status
-    }
-}
-```
-
-#### 2.2 Persistent Tool Card Implementation
-Implement tool cards that persist in chat with status updates.
-
-**Files to modify:**
-- `/excel-addin/src/types/chat.ts`
-- `/excel-addin/src/components/chat/messages/ToolCard.tsx` (new file)
-- `/excel-addin/src/components/chat/RefactoredChatInterface.tsx`
-
 ```typescript
-// File: /excel-addin/src/types/chat.ts
-export interface ToolCard {
-  id: string;
-  toolCall: ToolCall;
-  status: 'pending' | 'executing' | 'awaiting_approval' | 'accepted' | 'rejected' | 'failed';
-  result?: ToolResult;
-  error?: string;
-  appliedAt?: Date;
-  collapsed: boolean;
-  affectedCells?: number;
-  executionTime?: number;
-}
+// File: /excel-addin/src/components/chat/ChatMessageDiffPreview.tsx
+export const ChatMessageDiffPreview: React.FC<ChatMessageDiffPreviewProps> = ({
+  messageId,
+  hunks,
+  onAccept,
+  onReject,
+  status
+}) => {
+  const [isProcessing, setIsProcessing] = React.useState(false);
+  const [isCollapsed, setIsCollapsed] = React.useState(status !== 'previewing');
+  
+  // Calculate summary statistics
+  const stats = hunks.reduce((acc, hunk) => {
+    if (hunk.kind === 'Added') acc.added++;
+    else if (hunk.kind === 'Deleted') acc.removed++;
+    else acc.modified++;
+    return acc;
+  }, { added: 0, removed: 0, modified: 0 });
 
-export interface ChatMessage {
-  // ... existing fields ...
-  toolCard?: ToolCard;
-  persistentCard?: boolean; // Flag to keep card after action
-}
+  const summaryParts = [];
+  if (stats.added > 0) summaryParts.push(`+${stats.added} cells`);
+  if (stats.removed > 0) summaryParts.push(`-${stats.removed} cells`);
+  if (stats.modified > 0) summaryParts.push(`~${stats.modified} changes`);
+  const summary = summaryParts.join(', ');
 
-// File: /excel-addin/src/components/chat/messages/ToolCard.tsx
-import React, { useState } from 'react';
-import { CheckCircle, XCircle, Clock, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
-
-export const ToolCard: React.FC<{
-  card: ToolCard;
-  onAccept: () => void;
-  onReject: () => void;
-  onRetry?: () => void;
-}> = ({ card, onAccept, onReject, onRetry }) => {
-  const [collapsed, setCollapsed] = useState(card.collapsed);
-
+  // Get status-specific styling
   const getStatusIcon = () => {
-    switch (card.status) {
+    switch (status) {
       case 'accepted':
-        return <CheckCircle className="text-green-500" size={20} />;
+        return <CheckCircle className="w-4 h-4 text-green-600" />;
       case 'rejected':
-        return <XCircle className="text-red-500" size={20} />;
-      case 'executing':
-        return <Clock className="text-blue-500 animate-spin" size={20} />;
-      case 'failed':
-        return <AlertCircle className="text-red-500" size={20} />;
+        return <XCircle className="w-4 h-4 text-red-600" />;
+      case 'applying':
+        return <Loader className="w-4 h-4 text-blue-600 animate-spin" />;
       default:
-        return <Clock className="text-gray-400" size={20} />;
+        return null;
     }
   };
 
   const getStatusText = () => {
-    switch (card.status) {
+    switch (status) {
+      case 'previewing':
+        return 'Preview:';
+      case 'applying':
+        return 'Applying...';
       case 'accepted':
-        return `Changes applied ${card.appliedAt ? new Date(card.appliedAt).toLocaleTimeString() : ''}`;
+        return 'Changes Applied:';
       case 'rejected':
-        return 'Changes rejected';
-      case 'executing':
-        return 'Executing...';
-      case 'failed':
-        return `Failed: ${card.error || 'Unknown error'}`;
-      case 'awaiting_approval':
-        return 'Awaiting your approval';
+        return 'Changes Rejected:';
       default:
-        return 'Pending';
+        return 'Changes:';
     }
   };
 
   return (
-    <div className={`tool-card ${card.status} ${collapsed ? 'collapsed' : ''}`}>
-      <div className="tool-card-header" onClick={() => setCollapsed(!collapsed)}>
-        <div className="tool-info">
+    <div className={`mt-2 ml-8 p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 shadow-sm font-mono text-xs ${status}`}>
+      <div 
+        className="flex items-center justify-between cursor-pointer"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex items-center space-x-2">
           {getStatusIcon()}
-          <span className="tool-name">{card.toolCall.name}</span>
-          <span className="status-text">{getStatusText()}</span>
-          {card.affectedCells && (
-            <span className="affected-cells">{card.affectedCells} cells</span>
+          <span className="font-medium text-gray-800 dark:text-gray-300">
+            {getStatusText()} {summary}
+          </span>
+          {status === 'accepted' && (
+            <span className="text-xs text-gray-500">
+              {new Date().toLocaleTimeString()}
+            </span>
           )}
         </div>
-        <button className="collapse-toggle">
-          {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-        </button>
+        
+        <div className="flex items-center space-x-2">
+          {status === 'previewing' && onAccept && onReject && (
+            <>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (isProcessing) return;
+                  setIsProcessing(true);
+                  try {
+                    await onAccept();
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
+                disabled={isProcessing}
+                className="inline-flex items-center gap-1 px-2 py-0.5 font-caption text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded transition-colors"
+              >
+                <CheckIcon className="w-3 h-3" />
+                {isProcessing ? 'Accepting...' : 'Accept'}
+              </button>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (isProcessing) return;
+                  setIsProcessing(true);
+                  try {
+                    await onReject();
+                  } finally {
+                    setIsProcessing(false);
+                  }
+                }}
+                disabled={isProcessing}
+                className="inline-flex items-center gap-1 px-2 py-0.5 font-caption text-gray-700 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:text-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 rounded transition-colors"
+              >
+                <XMarkIcon className="w-3 h-3" />
+                {isProcessing ? 'Rejecting...' : 'Reject'}
+              </button>
+            </>
+          )}
+          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-180'}`} />
+        </div>
       </div>
 
-      {!collapsed && (
-        <div className="tool-card-content">
-          {/* Tool details, parameters, preview */}
-          {card.status === 'awaiting_approval' && (
-            <div className="action-buttons">
-              <button onClick={onAccept} className="accept-btn">
-                Accept Changes
-              </button>
-              <button onClick={onReject} className="reject-btn">
-                Reject
-              </button>
+      {/* Collapsible diff details */}
+      {!isCollapsed && hunks.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-1">
+          {hunks.slice(0, 5).map((hunk, index) => {
+            const cellAddr = `${hunk.key.sheet}!${String.fromCharCode(65 + hunk.key.col)}${hunk.key.row + 1}`;
+            return (
+              <div key={index} className="flex items-start space-x-1 text-xs">
+                <span className={`font-medium w-3 text-center ${
+                  hunk.kind === 'Added' ? 'text-green-600' : 
+                  hunk.kind === 'Deleted' ? 'text-red-600' : 
+                  'text-yellow-600'
+                }`}>
+                  {hunk.kind === 'Added' ? '+' : hunk.kind === 'Deleted' ? '-' : '~'}
+                </span>
+                <span className="font-medium text-gray-800 dark:text-gray-300 min-w-[4rem]">{cellAddr}</span>
+                <span className="text-gray-500 dark:text-gray-400 flex-1 truncate">
+                  {/* Show value preview */}
+                  {hunk.kind === 'Deleted' ? (
+                    '(deleted)'
+                  ) : hunk.after?.f ? (
+                    `=${hunk.after.f}`
+                  ) : (
+                    hunk.after?.v || 'new value'
+                  )}
+                </span>
+              </div>
+            );
+          })}
+          {hunks.length > 5 && (
+            <div className="text-gray-500 dark:text-gray-400 pl-5">
+              ...and {hunks.length - 5} more change{hunks.length > 6 ? 's' : ''}
             </div>
-          )}
-          {card.status === 'failed' && onRetry && (
-            <button onClick={onRetry} className="retry-btn">
-              Retry
-            </button>
           )}
         </div>
       )}
@@ -423,63 +439,55 @@ export const ToolCard: React.FC<{
 };
 ```
 
-#### 2.3 Excel Execution Bridge
-Ensure tool executions actually update the spreadsheet.
+#### 2.2 Enhance GridVisualizer for Status Overlays
+Add status indicators to the existing color-coded highlights.
 
 **Files to modify:**
-- `/excel-addin/src/services/ExcelService.ts`
-- `/backend/internal/services/excel_bridge.go`
+- `/excel-addin/src/services/diff/GridVisualizer.ts`
 
+**Implementation**:
 ```typescript
-// File: /excel-addin/src/services/ExcelService.ts (enhance executeToolRequest)
-public async applyToolResult(toolCard: ToolCard): Promise<void> {
-  try {
-    await Excel.run(async (context) => {
-      // Start a batch operation for undo support
-      context.runtime.enableEvents = false;
-      
+// File: /excel-addin/src/services/diff/GridVisualizer.ts (add to existing class)
+/**
+ * Apply status overlay to previously highlighted cells
+ */
+static async applyStatusOverlay(hunks: DiffHunk[], status: 'accepted' | 'rejected', addLog?: LogFunction): Promise<void> {
+  const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+  
+  if (!hunks || hunks.length === 0) return;
+  
+  log('info', `[Visualizer] Applying ${status} status overlay to ${hunks.length} cells`);
+  
+  return Excel.run(async (context: any) => {
+    const workbook = context.workbook;
+    const hunksBySheet = this.groupHunksBySheet(hunks);
+    
+    for (const [sheetName, sheetHunks] of hunksBySheet) {
       try {
-        // Execute the tool
-        const result = await this.executeToolRequest(
-          toolCard.toolCall.name,
-          toolCard.toolCall.parameters
-        );
+        const worksheet = workbook.worksheets.getItem(sheetName);
         
-        // Update the card with success
-        toolCard.status = 'accepted';
-        toolCard.appliedAt = new Date();
-        toolCard.result = result;
-        
-        // Track for undo
-        this.trackOperation({
-          type: 'ai_tool_execution',
-          toolId: toolCard.id,
-          timestamp: new Date(),
-          canUndo: true
-        });
-        
-      } finally {
-        context.runtime.enableEvents = true;
-        await context.sync();
+        for (const hunk of sheetHunks) {
+          const range = worksheet.getCell(hunk.key.row, hunk.key.col);
+          
+          if (status === 'accepted') {
+            // Add subtle green checkmark icon or border
+            range.format.borders.getItem('EdgeRight').style = 'Continuous';
+            range.format.borders.getItem('EdgeRight').color = '#00B050';
+            range.format.borders.getItem('EdgeRight').weight = 'Thick';
+          } else if (status === 'rejected') {
+            // Add subtle red X or border
+            range.format.borders.getItem('EdgeLeft').style = 'Continuous';
+            range.format.borders.getItem('EdgeLeft').color = '#FF0000';
+            range.format.borders.getItem('EdgeLeft').weight = 'Thick';
+          }
+        }
+      } catch (error) {
+        log('error', `[Visualizer] Error applying status overlay to sheet ${sheetName}:`, error);
       }
-    });
-  } catch (error) {
-    toolCard.status = 'failed';
-    toolCard.error = error.message;
-    throw error;
-  }
-}
-
-// Add undo support
-public async undoLastAIOperation(): Promise<void> {
-  const lastOp = this.operationHistory.findLast(op => op.type === 'ai_tool_execution');
-  if (lastOp) {
-    await Excel.run(async (context) => {
-      // Implement undo logic
-      context.workbook.undoHistory.undo();
-      await context.sync();
-    });
-  }
+    }
+    
+    await context.sync();
+  });
 }
 ```
 
@@ -488,10 +496,10 @@ public async undoLastAIOperation(): Promise<void> {
 #### 3.1 Streaming Status Bar
 Show real-time status of what the AI is doing.
 
-**Files to create/modify:**
+**Files to create:**
 - `/excel-addin/src/components/chat/StreamingStatusBar.tsx` (new file)
-- `/excel-addin/src/components/chat/RefactoredChatInterface.tsx`
 
+**Implementation**:
 ```typescript
 // File: /excel-addin/src/components/chat/StreamingStatusBar.tsx
 import React from 'react';
@@ -517,25 +525,29 @@ export const StreamingStatusBar: React.FC<StreamingStatusBarProps> = ({
 }) => {
   if (phase === 'initial') {
     return (
-      <div className="streaming-status-bar initial">
-        <Loader className="animate-spin" size={16} />
-        <span>Analyzing your request...</span>
+      <div className="streaming-status-bar initial p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg flex items-center space-x-2">
+        <Loader className="animate-spin text-blue-600" size={16} />
+        <span className="text-sm text-blue-700 dark:text-blue-300">Analyzing your request...</span>
       </div>
     );
   }
 
   if (phase === 'tool_execution' && tasks.length > 0) {
     return (
-      <div className="streaming-status-bar tool-execution">
-        <div className="task-list">
+      <div className="streaming-status-bar tool-execution p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="task-list space-y-1">
           {tasks.map(task => (
-            <div key={task.id} className={`task-item ${task.status}`}>
-              {task.status === 'complete' && <CheckCircle size={14} />}
-              {task.status === 'active' && <Loader className="animate-spin" size={14} />}
-              {task.status === 'pending' && <Circle size={14} />}
-              <span className="task-description">
+            <div key={task.id} className={`task-item flex items-center space-x-2 text-sm ${task.status}`}>
+              {task.status === 'complete' && <CheckCircle className="text-green-500" size={14} />}
+              {task.status === 'active' && <Loader className="text-blue-500 animate-spin" size={14} />}
+              {task.status === 'pending' && <Circle className="text-gray-400" size={14} />}
+              <span className={`task-description ${
+                task.status === 'complete' ? 'text-gray-600 dark:text-gray-400 line-through' :
+                task.status === 'active' ? 'text-gray-900 dark:text-gray-100 font-medium' :
+                'text-gray-500 dark:text-gray-400'
+              }`}>
                 {task.description}
-                {task.progress && <span className="progress"> ({task.progress})</span>}
+                {task.progress && <span className="text-xs text-gray-500 ml-1">({task.progress})</span>}
               </span>
             </div>
           ))}
@@ -549,15 +561,17 @@ export const StreamingStatusBar: React.FC<StreamingStatusBarProps> = ({
 ```
 
 #### 3.2 Context Pills with Warnings
-Show what context the AI has access to.
+Enhance existing context display to show warnings.
 
 **Files to modify:**
-- `/excel-addin/src/components/chat/ContextPills.tsx` (enhance existing)
+- `/excel-addin/src/components/chat/ContextPills.tsx` (if exists, otherwise create)
 
+**Implementation**:
 ```typescript
 // File: /excel-addin/src/components/chat/ContextPills.tsx
 import React from 'react';
 import { FileSpreadsheet, AlertTriangle, Grid3x3 } from 'lucide-react';
+import { ExcelService } from '../../services/excel/ExcelService';
 
 interface ContextPill {
   type: 'sheet' | 'range' | 'workbook';
@@ -568,6 +582,20 @@ interface ContextPill {
 }
 
 export const ContextPill: React.FC<{ pill: ContextPill }> = ({ pill }) => {
+  const excelService = ExcelService.getInstance();
+  
+  const handleClick = async () => {
+    if (pill.onClick) {
+      pill.onClick();
+    } else if (pill.type === 'range') {
+      // Navigate to range
+      await excelService.navigateToRange(pill.value);
+    } else if (pill.type === 'sheet') {
+      // Navigate to sheet
+      await excelService.navigateToSheet(pill.value);
+    }
+  };
+
   const getIcon = () => {
     switch (pill.type) {
       case 'sheet':
@@ -581,185 +609,172 @@ export const ContextPill: React.FC<{ pill: ContextPill }> = ({ pill }) => {
 
   return (
     <button
-      className={`context-pill ${pill.type} ${pill.truncated ? 'truncated' : ''}`}
-      onClick={pill.onClick}
+      className={`context-pill inline-flex items-center space-x-1 px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors ${
+        pill.truncated ? 'border border-yellow-400' : ''
+      }`}
+      onClick={handleClick}
       title={pill.warning}
     >
       {getIcon()}
       <span>{pill.value}</span>
       {pill.truncated && (
-        <AlertTriangle size={12} className="warning-icon" />
+        <AlertTriangle size={12} className="text-yellow-500" />
       )}
     </button>
   );
 };
 ```
 
-#### 3.3 Progressive Response Streaming
-Stream partial responses while tools execute.
+### Phase 4: Professional Polish
 
-**Files to modify:**
-- `/backend/internal/services/ai/service.go`
+#### 4.1 Full Diff Review Modal
+Enhance the existing `ExcelDiffRenderer` for comprehensive diff review.
 
-```go
-// File: /backend/internal/services/ai/service.go (enhance processStreamingWithContinuation)
-func (s *Service) streamProgressiveResponse(session *StreamingSession, outChan chan<- CompletionChunk) {
-    // Stream initial explanation
-    s.streamTokens("I'll create a DCF model for you. Let me first check the current sheet structure...", outChan)
-    
-    // Create task list for status bar
-    tasks := []StreamingTask{
-        {ID: "analyze", Description: "Analyzing sheet structure", Status: "active"},
-        {ID: "headers", Description: "Creating headers and labels", Status: "pending"},
-        {ID: "formulas", Description: "Building financial formulas", Status: "pending"},
-        {ID: "format", Description: "Applying professional formatting", Status: "pending"},
-    }
-    
-    // Send task list
-    outChan <- CompletionChunk{
-        Type: "status_update",
-        Content: marshalTasks(tasks),
-    }
-    
-    // Execute tool in background
-    go func() {
-        result := s.executeToolAsync(toolCall)
-        s.injectToolResult(session, result)
-        
-        // Update task status
-        tasks[0].Status = "complete"
-        outChan <- CompletionChunk{
-            Type: "status_update",
-            Content: marshalTasks(tasks),
-        }
-    }()
-    
-    // Continue streaming while tool executes
-    s.streamTokens("Setting up the model structure with the following sections:\n- Revenue projections\n- Cost analysis\n- Cash flow calculations", outChan)
-}
-```
+**Files to create:**
+- `/excel-addin/src/components/diff/FullDiffModal.tsx`
 
-### Phase 4: Professional Polish & Advanced Features
-
-#### 4.1 Full Diff Review
-Implement comprehensive diff viewing for large changes.
-
-**Files to create/modify:**
-- `/excel-addin/src/components/diff/FullDiffModal.tsx` (new file)
-- `/excel-addin/src/components/chat/messages/ChatMessageDiffPreview.tsx`
-
+**Implementation**:
 ```typescript
 // File: /excel-addin/src/components/diff/FullDiffModal.tsx
 import React, { useState } from 'react';
-import { DiffHunk, CellChange } from '../../types/diff';
+import { ExcelDiffRenderer } from '../chat/diff/ExcelDiffRenderer';
+import { DiffHunk } from '../../types/diff';
+import { Modal } from '../ui/Modal';
 
 interface FullDiffModalProps {
-  changes: CellChange[];
-  onAccept: (changeIds: string[]) => void;
+  isOpen: boolean;
+  onClose: () => void;
+  hunks: DiffHunk[];
+  onAccept: (selectedHunks: DiffHunk[]) => void;
   onReject: () => void;
-  onPartialAccept: (changeIds: string[]) => void;
 }
 
 export const FullDiffModal: React.FC<FullDiffModalProps> = ({
-  changes,
+  isOpen,
+  onClose,
+  hunks,
   onAccept,
-  onReject,
-  onPartialAccept
+  onReject
 }) => {
-  const [selectedChanges, setSelectedChanges] = useState<Set<string>>(
-    new Set(changes.map(c => c.id))
+  const [selectedHunks, setSelectedHunks] = useState<Set<string>>(
+    new Set(hunks.map(h => `${h.key.sheet}!${h.key.row}:${h.key.col}`))
   );
 
-  const toggleChange = (changeId: string) => {
-    const newSelected = new Set(selectedChanges);
-    if (newSelected.has(changeId)) {
-      newSelected.delete(changeId);
+  const toggleHunk = (hunkId: string) => {
+    const newSelected = new Set(selectedHunks);
+    if (newSelected.has(hunkId)) {
+      newSelected.delete(hunkId);
     } else {
-      newSelected.add(changeId);
+      newSelected.add(hunkId);
     }
-    setSelectedChanges(newSelected);
+    setSelectedHunks(newSelected);
   };
 
+  const handleAcceptSelected = () => {
+    const selected = hunks.filter(h => 
+      selectedHunks.has(`${h.key.sheet}!${h.key.row}:${h.key.col}`)
+    );
+    onAccept(selected);
+  };
+
+  // Group hunks by type for better organization
+  const hunksByType = hunks.reduce((acc, hunk) => {
+    const type = hunk.kind;
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(hunk);
+    return acc;
+  }, {} as Record<string, DiffHunk[]>);
+
   return (
-    <div className="full-diff-modal">
-      <div className="diff-header">
-        <h3>Review Changes ({changes.length} cells affected)</h3>
-        <div className="diff-legend">
-          <span className="added">Added</span>
-          <span className="modified">Modified</span>
-          <span className="removed">Removed</span>
+    <Modal isOpen={isOpen} onClose={onClose} size="xl">
+      <div className="full-diff-modal">
+        <div className="modal-header p-4 border-b">
+          <h2 className="text-xl font-semibold">Review All Changes</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {hunks.length} total changes across {Object.keys(hunksByType).length} types
+          </p>
+        </div>
+
+        <div className="modal-body p-4 max-h-[60vh] overflow-y-auto">
+          {Object.entries(hunksByType).map(([type, typeHunks]) => (
+            <div key={type} className="mb-6">
+              <h3 className="text-lg font-medium mb-3 flex items-center">
+                <span className={`inline-block w-3 h-3 rounded-full mr-2 ${
+                  type === 'Added' ? 'bg-green-500' :
+                  type === 'Deleted' ? 'bg-red-500' :
+                  type === 'ValueChanged' ? 'bg-yellow-500' :
+                  type === 'FormulaChanged' ? 'bg-blue-500' :
+                  'bg-purple-500'
+                }`} />
+                {type} ({typeHunks.length})
+              </h3>
+              
+              <div className="space-y-2">
+                {typeHunks.map((hunk, idx) => {
+                  const hunkId = `${hunk.key.sheet}!${hunk.key.row}:${hunk.key.col}`;
+                  const cellAddr = `${hunk.key.sheet}!${String.fromCharCode(65 + hunk.key.col)}${hunk.key.row + 1}`;
+                  
+                  return (
+                    <div key={idx} className="flex items-start space-x-3 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <input
+                        type="checkbox"
+                        checked={selectedHunks.has(hunkId)}
+                        onChange={() => toggleHunk(hunkId)}
+                        className="mt-1"
+                      />
+                      <div className="flex-1">
+                        <div className="font-mono text-sm">{cellAddr}</div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400">
+                          {hunk.before && (
+                            <span className="line-through">{JSON.stringify(hunk.before)}</span>
+                          )}
+                          {hunk.before && hunk.after && ' → '}
+                          {hunk.after && (
+                            <span className="text-gray-900 dark:text-gray-100">{JSON.stringify(hunk.after)}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="modal-footer p-4 border-t flex justify-between">
+          <div className="text-sm text-gray-600">
+            {selectedHunks.size} of {hunks.length} changes selected
+          </div>
+          <div className="space-x-2">
+            <button
+              onClick={onReject}
+              className="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
+            >
+              Reject All
+            </button>
+            <button
+              onClick={handleAcceptSelected}
+              disabled={selectedHunks.size === 0}
+              className="px-4 py-2 text-white bg-blue-600 rounded hover:bg-blue-700 disabled:bg-gray-400"
+            >
+              Accept Selected ({selectedHunks.size})
+            </button>
+          </div>
         </div>
       </div>
-      
-      <div className="diff-grid">
-        <table>
-          <thead>
-            <tr>
-              <th>
-                <input
-                  type="checkbox"
-                  checked={selectedChanges.size === changes.length}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedChanges(new Set(changes.map(c => c.id)));
-                    } else {
-                      setSelectedChanges(new Set());
-                    }
-                  }}
-                />
-              </th>
-              <th>Cell</th>
-              <th>Current</th>
-              <th>Proposed</th>
-              <th>Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            {changes.map(change => (
-              <tr key={change.id} className={`change-row ${change.type}`}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selectedChanges.has(change.id)}
-                    onChange={() => toggleChange(change.id)}
-                  />
-                </td>
-                <td>{change.cell}</td>
-                <td className="current-value">{change.oldValue}</td>
-                <td className="new-value">{change.newValue}</td>
-                <td>{change.type}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      
-      <div className="diff-actions">
-        <button 
-          onClick={() => onPartialAccept(Array.from(selectedChanges))}
-          disabled={selectedChanges.size === 0}
-        >
-          Apply Selected ({selectedChanges.size})
-        </button>
-        <button onClick={() => onAccept(changes.map(c => c.id))}>
-          Apply All
-        </button>
-        <button onClick={onReject}>
-          Reject All
-        </button>
-      </div>
-    </div>
+    </Modal>
   );
 };
 ```
 
-#### 4.2 Footer Utilities
-Add model info, token usage, and export capabilities.
+#### 4.2 Footer with Model Info & Costs
+Add footer showing AI model and token usage.
 
-**Files to create/modify:**
-- `/excel-addin/src/components/chat/ChatFooter.tsx` (new file)
-- `/excel-addin/src/components/chat/RefactoredChatInterface.tsx`
+**Files to create:**
+- `/excel-addin/src/components/chat/ChatFooter.tsx`
 
+**Implementation**:
 ```typescript
 // File: /excel-addin/src/components/chat/ChatFooter.tsx
 import React from 'react';
@@ -781,10 +796,10 @@ export const ChatFooter: React.FC<ChatFooterProps> = ({
   onDuplicate
 }) => {
   return (
-    <div className="chat-footer">
-      <div className="footer-info">
+    <div className="chat-footer flex items-center justify-between px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="footer-info flex items-center space-x-4 text-xs text-gray-600 dark:text-gray-400">
         {modelName && (
-          <div className="model-info">
+          <div className="model-info flex items-center space-x-1">
             <Cpu size={14} />
             <span>{modelName}</span>
           </div>
@@ -794,24 +809,27 @@ export const ChatFooter: React.FC<ChatFooterProps> = ({
             <span>{tokenCount.toLocaleString()} tokens</span>
           </div>
         )}
-        {estimatedCost && (
-          <div className="cost-info">
+        {estimatedCost !== undefined && (
+          <div className="cost-info flex items-center space-x-1">
             <DollarSign size={14} />
             <span>${estimatedCost.toFixed(4)}</span>
           </div>
         )}
       </div>
       
-      <div className="footer-actions">
-        <button onClick={() => onExport('markdown')} title="Export to Markdown">
+      <div className="footer-actions flex items-center space-x-2">
+        <button 
+          onClick={() => onExport('markdown')} 
+          title="Export to Markdown"
+          className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+        >
           <Download size={16} />
-          MD
         </button>
-        <button onClick={() => onExport('pdf')} title="Export to PDF">
-          <Download size={16} />
-          PDF
-        </button>
-        <button onClick={onDuplicate} title="Duplicate Chat">
+        <button 
+          onClick={onDuplicate} 
+          title="Duplicate Chat"
+          className="p-1.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+        >
           <Copy size={16} />
         </button>
       </div>
@@ -820,287 +838,130 @@ export const ChatFooter: React.FC<ChatFooterProps> = ({
 };
 ```
 
-#### 4.3 Queue Management
-Handle multiple prompts gracefully.
-
-**Files to create/modify:**
-- `/excel-addin/src/hooks/usePromptQueue.ts` (new file)
-- `/excel-addin/src/components/chat/QueuedPromptIndicator.tsx` (new file)
-
-```typescript
-// File: /excel-addin/src/hooks/usePromptQueue.ts
-import { useState, useCallback } from 'react';
-
-interface QueuedPrompt {
-  id: string;
-  content: string;
-  position: number;
-  status: 'queued' | 'processing' | 'complete';
-}
-
-export const usePromptQueue = () => {
-  const [queue, setQueue] = useState<QueuedPrompt[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const addToQueue = useCallback((content: string) => {
-    const newPrompt: QueuedPrompt = {
-      id: `prompt_${Date.now()}`,
-      content,
-      position: queue.length + 1,
-      status: 'queued'
-    };
-    
-    setQueue(prev => [...prev, newPrompt]);
-    return newPrompt.id;
-  }, [queue.length]);
-
-  const processNext = useCallback(async () => {
-    if (isProcessing || queue.length === 0) return;
-    
-    const next = queue[0];
-    setIsProcessing(true);
-    setQueue(prev => prev.map(p => 
-      p.id === next.id ? { ...p, status: 'processing' } : p
-    ));
-    
-    // Process the prompt
-    try {
-      // ... actual processing
-    } finally {
-      setQueue(prev => prev.filter(p => p.id !== next.id));
-      setIsProcessing(false);
-    }
-  }, [queue, isProcessing]);
-
-  return {
-    queue,
-    addToQueue,
-    processNext,
-    isProcessing,
-    queueLength: queue.length
-  };
-};
-
-// File: /excel-addin/src/components/chat/QueuedPromptIndicator.tsx
-export const QueuedPromptIndicator: React.FC<{ queue: QueuedPrompt[] }> = ({ queue }) => {
-  if (queue.length === 0) return null;
-  
-  return (
-    <div className="queued-prompts">
-      {queue.map(prompt => (
-        <div key={prompt.id} className="queued-prompt">
-          <span className="queue-position">#{prompt.position} in queue</span>
-          <span className="prompt-preview">{prompt.content.slice(0, 50)}...</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-```
-
-#### 4.4 Error Recovery & Safety
-Implement robust error handling with retry capabilities.
-
-**Files to modify:**
-- `/excel-addin/src/components/chat/messages/ToolCard.tsx`
-- `/backend/internal/services/excel_bridge.go`
-
-```go
-// File: /backend/internal/services/excel_bridge.go (add retry logic)
-func (eb *ExcelBridge) executeToolWithRetry(ctx context.Context, toolCall ai.ToolCall, maxRetries int) (*ToolResult, error) {
-    var lastErr error
-    
-    for attempt := 0; attempt <= maxRetries; attempt++ {
-        if attempt > 0 {
-            // Exponential backoff
-            backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-            select {
-            case <-ctx.Done():
-                return nil, ctx.Err()
-            case <-time.After(backoff):
-            }
-        }
-        
-        result, err := eb.executeToolRequest(ctx, toolCall)
-        if err == nil {
-            return result, nil
-        }
-        
-        lastErr = err
-        eb.logger.WithFields(logrus.Fields{
-            "tool_id": toolCall.ID,
-            "attempt": attempt + 1,
-            "error": err.Error(),
-        }).Warn("Tool execution failed, retrying")
-    }
-    
-    return nil, fmt.Errorf("tool execution failed after %d attempts: %w", maxRetries+1, lastErr)
-}
-```
-
 ## Implementation Roadmap
 
-### Week 1: Core Fixes & Context System
-**Priority: Fix broken functionality**
+### Week 1: Fix Core Issues
+**Priority: Make existing functionality work properly**
 
 1. **Day 1-2**: Fix Tool Parameter Extraction
-   - Debug Anthropic streaming to understand why parameters are empty
-   - Implement parameter inference/validation
-   - Add comprehensive logging
+   - Debug Anthropic streaming to identify why parameters are empty
+   - Add comprehensive logging to trace parameter flow
+   - Implement parameter inference as fallback
+   - Test with simple tool calls (write_range with hardcoded values)
 
-2. **Day 3-4**: Implement CachedContextProvider
-   - Create cache structure with TTL
-   - Add update hooks to Excel operations
-   - Integrate with streaming context builder
+2. **Day 3-4**: Implement Lightweight Context
+   - Create CachedContextProvider
+   - Update context builder to use cache in streaming mode
+   - Hook into tool results to update cache
+   - Test that AI receives basic context without tool calls
 
-3. **Day 5**: Excel Execution Bridge
-   - Ensure "Accept" actually applies changes
-   - Implement batch operations for undo support
-   - Add execution confirmation
+3. **Day 5**: Fix UI Persistence
+   - Update ChatMessageDiffPreview to remain visible after accept/reject
+   - Add status indicators and timestamps
+   - Ensure diff details are collapsible
+   - Test full flow from preview to accepted state
 
-### Week 2: Tool Cards & State Management
-**Priority: Professional UX for tool execution**
-
-1. **Day 1-2**: Persistent Tool Cards
-   - Implement ToolCard component with status states
-   - Add collapse/expand functionality
-   - Integrate with chat message flow
-
-2. **Day 3-4**: StreamingStateManager
-   - Implement tool tracking and status updates
-   - Add result injection into streaming
-   - Create timeout handling
-
-3. **Day 5**: Testing & Polish
-   - End-to-end tool execution testing
-   - UI state persistence
-   - Performance optimization
-
-### Week 3: Streaming UX & Status
-**Priority: Real-time feedback and transparency**
+### Week 2: Enhance UX
+**Priority: Professional streaming experience**
 
 1. **Day 1-2**: Streaming Status Bar
-   - Implement task list with progress
-   - Add phase indicators
-   - Integrate with streaming events
+   - Implement StreamingStatusBar component
+   - Hook into streaming phases from backend
+   - Show task progress for multi-step operations
+   - Test with DCF model creation (multiple tools)
 
 2. **Day 3-4**: Context Pills & Warnings
-   - Enhance context pill component
-   - Add truncation warnings
-   - Implement click actions
+   - Create/enhance ContextPills component
+   - Add click navigation to ranges/sheets
+   - Show truncation warnings
+   - Test with large spreadsheets
 
-3. **Day 5**: Progressive Streaming
-   - Implement content buffering
-   - Add smooth transitions
-   - Test with complex operations
+3. **Day 5**: GridVisualizer Enhancements
+   - Add status overlay functionality
+   - Ensure highlights persist appropriately
+   - Test visual feedback for accepted/rejected changes
 
-### Week 4: Professional Polish
+### Week 3: Polish & Advanced Features
 **Priority: Enterprise-ready features**
 
-1. **Day 1-2**: Full Diff Review
-   - Implement comprehensive diff modal
-   - Add partial accept/reject
-   - Integrate with Excel grid
+1. **Day 1-2**: Full Diff Modal
+   - Create FullDiffModal using existing components
+   - Add partial selection capability
+   - Group changes by type
+   - Test with large change sets
 
-2. **Day 3-4**: Footer Utilities & Queue
-   - Add model/token/cost display
-   - Implement export functionality
-   - Create prompt queue system
+2. **Day 3-4**: Footer & Export
+   - Implement ChatFooter with model/cost info
+   - Add export to Markdown functionality
+   - Hook up token counting from backend
+   - Test cost calculations
 
-3. **Day 5**: Error Handling & Safety
-   - Add retry mechanisms
-   - Implement graceful degradation
-   - Final testing and polish
+3. **Day 5**: Final Integration
+   - End-to-end testing of complete flow
+   - Performance optimization
+   - Documentation updates
 
 ## Success Metrics
 
 ### Technical Metrics
 - **Tool Parameter Success Rate**: > 95% (from current 0%)
 - **Excel Execution Rate**: 100% on Accept (from current 0%)
-- **Context Availability**: 100% in streaming mode
-- **Streaming Latency**: < 500ms to first token
-- **Tool Round-trip Time**: < 2s average
+- **Context Cache Hit Rate**: > 80% in streaming mode
+- **UI Persistence**: 100% of diff previews remain visible after action
 
 ### User Experience Metrics
-- **Tool Card Persistence**: 100% retention in chat
-- **Status Visibility**: Real-time updates during execution
-- **Error Recovery Rate**: > 90% successful retries
-- **Undo Success Rate**: 100% for AI operations
+- **Time to First Token**: < 500ms
+- **Tool Execution Visibility**: Real-time status updates
+- **Diff Review Time**: < 10s for 100 cell changes
+- **Error Recovery**: Clear error messages with retry options
 
 ## Testing Strategy
 
 ### Unit Tests
-```go
-// File: /backend/internal/services/excel/context_provider_test.go
-func TestCachedContextProvider(t *testing.T) {
-    // Test cache hit/miss
-    // Test TTL expiration
-    // Test concurrent access
-}
-
-// File: /backend/internal/services/streaming/state_manager_test.go
-func TestStreamingStateManager(t *testing.T) {
-    // Test tool registration
-    // Test status updates
-    // Test result injection
-}
-```
-
-### Integration Tests
 ```typescript
-// File: /excel-addin/src/tests/integration/streaming.test.ts
-describe('Streaming Integration', () => {
-  it('should apply tool results to Excel', async () => {
-    // Test full flow from AI response to Excel update
+// Test tool parameter extraction
+describe('Tool Parameter Extraction', () => {
+  it('should parse tool parameters from streaming chunks', () => {
+    // Test with sample Anthropic streaming data
   });
   
-  it('should persist tool cards after execution', async () => {
-    // Test card state persistence
+  it('should infer parameters when empty', () => {
+    // Test parameter inference logic
+  });
+});
+
+// Test UI persistence
+describe('ChatMessageDiffPreview', () => {
+  it('should remain visible after acceptance', () => {
+    // Test that component doesn't unmount
+  });
+  
+  it('should show correct status indicators', () => {
+    // Test status-based rendering
   });
 });
 ```
 
-### E2E Tests
-- Full DCF model creation flow
-- Multi-tool execution sequences
-- Error recovery scenarios
-- Concurrent user sessions
+### Integration Tests
+- Full streaming flow with tool execution
+- Context caching and updates
+- Diff preview to Excel execution
+- Multi-tool operation sequences
 
-## Monitoring & Observability
+## Key Differences from Original Plan
 
-### Key Metrics to Track
-```go
-// File: /backend/internal/metrics/streaming_metrics.go
-type StreamingMetrics struct {
-    ToolParameterErrors   prometheus.Counter
-    ToolExecutionSuccess  prometheus.Counter
-    ToolExecutionFailure  prometheus.Counter
-    StreamingLatency      prometheus.Histogram
-    ContextCacheHitRate   prometheus.Gauge
-    ActiveStreamingSessions prometheus.Gauge
-}
-```
-
-### Structured Logging
-```go
-// Enhanced logging for debugging
-log.Info().
-    Str("session_id", session.ID).
-    Str("phase", phase).
-    Int("context_size", len(context)).
-    Bool("has_tools", len(tools) > 0).
-    Dur("latency", latency).
-    Interface("tool_params", toolCall.Input).
-    Msg("[STREAMING] Phase transition with parameters")
-```
+1. **Leverage Existing Infrastructure**: Don't rebuild GridVisualizer, ExcelService, or diff calculation - they work well
+2. **Focus on Root Causes**: Empty tool parameters and UI persistence are the main issues
+3. **Enhance, Don't Replace**: Add features to existing components rather than creating new ones
+4. **Simpler Implementation**: Many "new" components can be small enhancements to existing ones
 
 ## Conclusion
 
-This enhanced plan transforms GridMate from a proof-of-concept into a professional "Cursor for Financial Modeling" tool by:
+This updated plan focuses on fixing the actual issues (empty tool parameters and UI persistence) while leveraging GridMate's already sophisticated diff preview system. By enhancing existing components rather than rebuilding, we can achieve the Cursor-like UX more quickly and with less risk. The main priorities are:
 
-1. **Fixing Core Issues**: Tool parameters and Excel execution
-2. **Professional UX**: Persistent cards, status indicators, and polish
-3. **Safety & Control**: Undo support, error recovery, and transparency
-4. **Enterprise Features**: Export, history, and cost tracking
+1. **Fix tool parameters** - Without this, nothing works
+2. **Make UI persistent** - Cards should stay visible with status
+3. **Add streaming feedback** - Status bar and context pills
+4. **Polish the experience** - Full diff review and professional touches
 
-The phased approach ensures each improvement is tested and validated before moving forward, minimizing risk while delivering incremental value. With these enhancements, GridMate will provide the same level of polish and user control that makes Cursor so effective, but tailored specifically for financial modeling in Excel.
+With these focused improvements, GridMate will provide the same polished, transparent experience as Cursor, but optimized for Excel financial modeling.

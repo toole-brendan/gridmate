@@ -606,8 +606,132 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 		}
 	}
 	
-	// Process with AI service - ensure streaming context is propagated
-	return eb.aiService.ProcessChatMessageStreaming(ctx, clientID, message.Content, financialContext, aiHistory, message.AutonomyMode, "")
+	// Create output channel
+	outChan := make(chan ai.CompletionChunk, 10)
+	
+	// Process in a goroutine to handle tool execution
+	go func() {
+		defer close(outChan)
+		
+		// Get streaming chunks from AI service
+		chunks, err := eb.aiService.ProcessChatMessageStreaming(ctx, clientID, message.Content, financialContext, aiHistory, message.AutonomyMode, "")
+		if err != nil {
+			outChan <- ai.CompletionChunk{
+				Type:  "error",
+				Error: err,
+				Done:  true,
+			}
+			return
+		}
+		
+		// Process chunks and handle tool execution
+		eb.processStreamingChunksWithTools(ctx, clientID, chunks, outChan, message.AutonomyMode)
+	}()
+	
+	return outChan, nil
+}
+
+// processStreamingChunksWithTools handles streaming chunks and executes tools through SignalR
+func (eb *ExcelBridge) processStreamingChunksWithTools(
+	ctx context.Context,
+	sessionID string,
+	inChan <-chan ai.CompletionChunk,
+	outChan chan<- ai.CompletionChunk,
+	autonomyMode string,
+) {
+	var currentToolCall *ai.ToolCall
+	var pendingToolCalls []ai.ToolCall
+	
+	for chunk := range inChan {
+		// Forward most chunks immediately
+		select {
+		case outChan <- chunk:
+		case <-ctx.Done():
+			return
+		}
+		
+		// Handle tool-related chunks
+		switch chunk.Type {
+		case "tool_start":
+			if chunk.ToolCall != nil {
+				currentToolCall = &ai.ToolCall{
+					ID:    chunk.ToolCall.ID,
+					Name:  chunk.ToolCall.Name,
+					Input: make(map[string]interface{}),
+				}
+			}
+			
+		case "tool_progress":
+			if currentToolCall != nil && chunk.Delta != "" {
+				// Parse and merge the JSON delta
+				var deltaData map[string]interface{}
+				if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
+					for k, v := range deltaData {
+						currentToolCall.Input[k] = v
+					}
+				}
+			}
+			
+		case "tool_complete":
+			if currentToolCall != nil {
+				// Add to pending tools
+				pendingToolCalls = append(pendingToolCalls, *currentToolCall)
+				
+				// Execute the tool through SignalR
+				eb.logger.WithFields(logrus.Fields{
+					"tool_name": currentToolCall.Name,
+					"tool_id":   currentToolCall.ID,
+					"streaming": true,
+				}).Info("Sending tool request through SignalR during streaming")
+				
+				// Create tool request
+				toolRequest := map[string]interface{}{
+					"request_id": currentToolCall.ID,
+					"tool":       currentToolCall.Name,
+					"parameters": currentToolCall.Input,
+					"streaming_mode": true, // Mark as streaming
+				}
+				
+				// Add all input fields to the request
+				for k, v := range currentToolCall.Input {
+					toolRequest[k] = v
+				}
+				
+				// Send through SignalR bridge
+				if eb.signalRBridge != nil {
+					err := eb.signalRBridge.SendToolRequest(sessionID, toolRequest)
+					if err != nil {
+						eb.logger.WithError(err).Error("Failed to send tool request through SignalR")
+						// Send error chunk
+						outChan <- ai.CompletionChunk{
+							Type:     "tool_result",
+							ToolCall: currentToolCall,
+							Content:  fmt.Sprintf(`{"error": "Failed to send tool request: %v"}`, err),
+							Done:     false,
+						}
+					} else {
+						// Send a tool_result chunk indicating the tool was sent for execution
+						outChan <- ai.CompletionChunk{
+							Type:     "tool_result", 
+							ToolCall: currentToolCall,
+							Content:  fmt.Sprintf(`{"status": "sent_to_client", "tool_use_id": "%s"}`, currentToolCall.ID),
+							Done:     false,
+						}
+					}
+				}
+				
+				currentToolCall = nil
+			}
+			
+		case "":
+			// Done chunk - check if we have pending tools
+			if chunk.Done && len(pendingToolCalls) > 0 {
+				eb.logger.WithFields(logrus.Fields{
+					"pending_tools": len(pendingToolCalls),
+				}).Info("Stream completed with pending tool executions")
+			}
+		}
+	}
 }
 
 // GetCellValue retrieves a cell value from cache or requests it

@@ -30,7 +30,8 @@ export const useMessageHandlers = (
   const sendFinalToolResponse = useCallback(async (
     requestId: string, 
     result: any, 
-    error: string | null
+    error: string | null,
+    isStreamingMode: boolean = false
   ) => {
     const responseData = {
       sessionId: signalRClientRef.current?.sessionId || '',
@@ -38,7 +39,9 @@ export const useMessageHandlers = (
       result: result,
       error: error || '',
       errorDetails: error || '',
-      metadata: {},
+      metadata: {
+        streaming_mode: isStreamingMode
+      },
       timestamp: new Date().toISOString(),
       queued: false,
       acknowledged: false
@@ -253,7 +256,8 @@ export const useMessageHandlers = (
         await sendFinalToolResponse(
           request.request_id,
           result || null,
-          result ? null : 'Failed to read range'
+          result ? null : 'Failed to read range',
+          false // Batch reads are not in streaming mode
         );
       }
       
@@ -267,7 +271,8 @@ export const useMessageHandlers = (
         await sendFinalToolResponse(
           request.request_id,
           null,
-          error instanceof Error ? error.message : 'Batch processing failed'
+          error instanceof Error ? error.message : 'Batch processing failed',
+          false // Batch reads are not in streaming mode
         );
       }
     }
@@ -308,7 +313,7 @@ export const useMessageHandlers = (
     if (!toolRequest || typeof toolRequest !== 'object' || !toolRequest.tool) {
       const errorMsg = `Invalid tool request structure`;
       addDebugLog(errorMsg, 'error');
-      await sendFinalToolResponse(toolRequest.request_id, null, errorMsg);
+      await sendFinalToolResponse(toolRequest.request_id, null, errorMsg, isStreamingMode);
       return;
     }
     
@@ -375,10 +380,10 @@ export const useMessageHandlers = (
             }
           }
           
-          await sendFinalToolResponse(toolRequest.request_id, result, null);
+          await sendFinalToolResponse(toolRequest.request_id, result, null, isStreamingMode);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Operation failed';
-          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
+          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage, isStreamingMode);
         }
       }
     } else if (toolRequest.tool === 'read_range') {
@@ -387,10 +392,10 @@ export const useMessageHandlers = (
         addDebugLog(`Tool ${toolRequest.tool} executing immediately in streaming mode`);
         try {
           const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
-          await sendFinalToolResponse(toolRequest.request_id, result, null);
+          await sendFinalToolResponse(toolRequest.request_id, result, null, isStreamingMode);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Read operation failed';
-          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
+          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage, isStreamingMode);
         }
       } else {
         // Batch read_range requests for performance in non-streaming mode
@@ -429,7 +434,7 @@ export const useMessageHandlers = (
         });
 
         // Send the final result back to the backend
-        await sendFinalToolResponse(toolRequest.request_id, result, null);
+        await sendFinalToolResponse(toolRequest.request_id, result, null, isStreamingMode);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during tool execution.';
@@ -446,7 +451,7 @@ export const useMessageHandlers = (
         });
 
         // Send error response
-        await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
+        await sendFinalToolResponse(toolRequest.request_id, null, errorMessage, isStreamingMode);
       }
     }
   }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch, startProcessingQueue, chatManager]);
@@ -720,7 +725,7 @@ export const useMessageHandlers = (
       }
       
       // Send final response to backend
-      await sendFinalToolResponse(requestId, result, null);
+      await sendFinalToolResponse(requestId, result, null, false); // Previews are not in streaming mode
       
       // Remove from pending
       pendingPreviewRef.current.delete(requestId);
@@ -741,7 +746,7 @@ export const useMessageHandlers = (
       }, 200);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Operation failed';
-      await sendFinalToolResponse(requestId, null, errorMessage);
+      await sendFinalToolResponse(requestId, null, errorMessage, false); // Previews are not in streaming mode
       pendingPreviewRef.current.delete(requestId);
       chatManager.removeMessage(`preview_${requestId}`);
       operationQueueRef.current.shift();
@@ -785,7 +790,7 @@ export const useMessageHandlers = (
     await diffPreview.rejectCurrentPreview();
     
     // Send rejection response to backend
-    await sendFinalToolResponse(requestId, null, 'Operation rejected by user');
+    await sendFinalToolResponse(requestId, null, 'Operation rejected by user', false); // Previews are not in streaming mode
     
     // Remove from pending
     pendingPreviewRef.current.delete(requestId);

@@ -1009,6 +1009,11 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 					"input_count": len(currentToolCall.Input),
 				}).Info("Sending tool request through SignalR during streaming")
 				
+				// If tool input is empty, try to infer parameters
+				if len(currentToolCall.Input) == 0 {
+					currentToolCall.Input = eb.inferToolParameters(currentToolCall.Name, streamingState.Context)
+				}
+				
 				// Create tool request
 				toolRequest := map[string]interface{}{
 					"request_id": currentToolCall.ID,
@@ -2338,4 +2343,50 @@ func (eb *ExcelBridge) IndexWorkbookForSession(sessionID string) error {
 	return nil
 }
 
-// SetIndexingService sets the indexing service for the Excel bridge
+// inferToolParameters attempts to infer tool parameters when they are empty
+func (eb *ExcelBridge) inferToolParameters(toolName string, context *ai.FinancialContext) map[string]interface{} {
+	params := make(map[string]interface{})
+	
+	switch toolName {
+	case "write_range":
+		// Use selected range from context if available
+		if context != nil && context.SelectedRange != "" {
+			params["range"] = context.SelectedRange
+		} else {
+			params["range"] = "A1" // Default
+		}
+		params["values"] = [][]interface{}{} // Empty default
+		
+	case "format_range":
+		if context != nil && context.SelectedRange != "" {
+			params["range"] = context.SelectedRange
+		} else {
+			params["range"] = "A1"
+		}
+		params["format"] = map[string]interface{}{} // Empty format object
+		
+	case "apply_formula":
+		if context != nil && context.SelectedRange != "" {
+			params["range"] = context.SelectedRange
+		}
+		params["formula"] = "" // Empty formula
+		
+	case "read_range":
+		if context != nil && context.SelectedRange != "" {
+			params["range"] = context.SelectedRange
+		} else {
+			params["range"] = "A1:Z100" // Default read range
+		}
+		
+	case "apply_layout":
+		params["layout_type"] = "default"
+		params["options"] = map[string]interface{}{}
+	}
+	
+	eb.logger.WithFields(logrus.Fields{
+		"tool": toolName,
+		"inferred_params": params,
+	}).Warn("Inferred tool parameters due to empty input")
+	
+	return params
+}

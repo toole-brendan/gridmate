@@ -14,6 +14,7 @@ echo -e "${RED}🔪 Killing previous processes...${NC}"
 pkill -f "node.*vite" 2>/dev/null
 pkill -f "dotnet.*GridmateSignalR" 2>/dev/null
 pkill -f "go run cmd/api/main.go" 2>/dev/null
+pkill -f "gridmate-backend" 2>/dev/null
 pkill -f "npm.*sideload" 2>/dev/null
 sleep 1
 
@@ -34,10 +35,17 @@ end tell
 EOD
 
 # 2. Start Go Backend
-echo -e "${YELLOW}2️⃣  Starting Go backend service in a new terminal...${NC}"
+echo -e "${YELLOW}2️⃣  Building and starting Go backend service...${NC}"
+# Build the backend first to ensure latest changes are included
+cd "${PROJECT_ROOT}/backend"
+go build -o gridmate-backend ./cmd/api
+cd "${PROJECT_ROOT}"
+
+echo -e "${GREEN}✅ Backend built with latest changes${NC}"
+
 osascript <<EOD
 tell application "Terminal"
-    do script "cd '${PROJECT_ROOT}/backend' && echo '--- Go Backend Service ---' && LOG_LEVEL=debug go run cmd/api/main.go"
+    do script "cd '${PROJECT_ROOT}/backend' && echo '--- Go Backend Service ---' && LOG_LEVEL=debug ./gridmate-backend"
 end tell
 EOD
 

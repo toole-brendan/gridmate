@@ -67,6 +67,13 @@ func (cb *ContextBuilder) BuildContext(ctx context.Context, sessionID string) (*
 
 // getWorksheetUsedRange attempts to determine the actual used range of the worksheet
 func (cb *ContextBuilder) getWorksheetUsedRange(ctx context.Context, sessionID string) (string, error) {
+	// PHASE 0 FIX: Don't trigger tool requests during context building for streaming
+	// Check if we're in streaming mode
+	if streamingMode, ok := ctx.Value("streaming_mode").(bool); ok && streamingMode {
+		// Return a default range without triggering a tool request
+		return "A1:Z100", nil
+	}
+	
 	// First, try to scan for the last used cell by checking a reasonable area
 	// Start with a larger scan area to find data boundaries
 	scanRange := "A1:AZ1000"
@@ -107,6 +114,13 @@ func (cb *ContextBuilder) getWorksheetUsedRange(ctx context.Context, sessionID s
 
 // isWorksheetEmpty checks if the worksheet has no data
 func (cb *ContextBuilder) isWorksheetEmpty(ctx context.Context, sessionID string) (bool, error) {
+	// PHASE 0 FIX: Don't trigger tool requests during context building for streaming
+	// Check if we're in streaming mode
+	if streamingMode, ok := ctx.Value("streaming_mode").(bool); ok && streamingMode {
+		// Assume worksheet is not empty to avoid triggering a tool request
+		return false, nil
+	}
+	
 	// Check a reasonable initial area for any data
 	initialRange := "A1:Z50"
 
@@ -129,11 +143,25 @@ func (cb *ContextBuilder) isWorksheetEmpty(ctx context.Context, sessionID string
 
 // BuildContextWithRange builds comprehensive context from the current Excel state with specific range
 func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID string, selectedRange string) (*ai.FinancialContext, error) {
+	// PHASE 0 DEBUG: Log when BuildContextWithRange is called
+	streamingMode, hasStreamingMode := ctx.Value("streaming_mode").(bool)
+	fmt.Printf("[STREAMING] BuildContextWithRange called - session_id: %s, selected_range: %s, has_streaming_mode: %v, streaming_mode: %v\n",
+		sessionID, selectedRange, hasStreamingMode, streamingMode)
+	
 	context := &ai.FinancialContext{
 		SelectedRange: selectedRange,
 		CellValues:    make(map[string]interface{}),
 		Formulas:      make(map[string]string),
 		RecentChanges: []ai.CellChange{},
+	}
+	
+	// PHASE 0 FIX: Skip all context building during streaming to avoid tool requests
+	if streamingMode {
+		fmt.Printf("[STREAMING] Skipping full context building due to streaming_mode\n")
+		context.ModelType = "Streaming"
+		context.DocumentContext = append(context.DocumentContext, 
+			"Context building skipped during streaming response.")
+		return context, nil
 	}
 
 	// Parse the selected range
@@ -203,6 +231,13 @@ func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID s
 
 // addSelectedRangeData adds data from the selected range
 func (cb *ContextBuilder) addSelectedRangeData(ctx context.Context, sessionID string, rangeInfo *RangeInfo, context *ai.FinancialContext) error {
+	// PHASE 0 FIX: Don't trigger tool requests during streaming
+	if streamingMode, ok := ctx.Value("streaming_mode").(bool); ok && streamingMode {
+		// Skip reading data during streaming to avoid tool requests
+		fmt.Printf("[STREAMING] Skipping addSelectedRangeData due to streaming_mode\n")
+		return nil
+	}
+	
 	// Read the selected range
 	data, err := cb.bridge.ReadRange(ctx, sessionID, rangeInfo.Address, true, false)
 	if err != nil {

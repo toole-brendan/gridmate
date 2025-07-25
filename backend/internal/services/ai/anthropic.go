@@ -538,6 +538,17 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 			continue
 		}
 
+		// Debug log event details for tool-related events
+		if event.Type == "content_block_start" || event.Type == "content_block_delta" || event.Type == "content_block_stop" {
+			log.Debug().
+				Str("event_type", event.Type).
+				Interface("delta", event.Delta).
+				Interface("content_block", event.ContentBlock).
+				Bool("has_current_tool", currentToolCall != nil).
+				Int("buffer_size", toolInputBuffer.Len()).
+				Msg("[Anthropic] Processing streaming event")
+		}
+
 		switch event.Type {
 		case "message_start":
 			if event.Message != nil {
@@ -563,6 +574,11 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 				if currentToolCall != nil && event.Delta.Type == "input_json_delta" {
 					// Accumulate tool input JSON
 					toolInputBuffer.WriteString(event.Delta.Text)
+					log.Debug().
+						Str("tool_id", currentToolCall.ID).
+						Str("delta_text", event.Delta.Text).
+						Int("buffer_size", toolInputBuffer.Len()).
+						Msg("[Anthropic] Sending tool_progress chunk with delta")
 					ch <- CompletionChunk{
 						ID:       messageID,
 						Type:     "tool_progress",

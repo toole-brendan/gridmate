@@ -206,6 +206,24 @@ func (s *Service) ProcessChatMessageStreaming(ctx context.Context, sessionID str
 	// Start streaming in a goroutine
 	go func() {
 		defer close(outChan)
+		
+		// IMMEDIATE FIX: Always send initial acknowledgment
+		initialText := s.generateInitialAcknowledgment(userMessage)
+		initialChunk := CompletionChunk{
+			Type:    "text",
+			Content: initialText,
+			Done:    false,
+		}
+		select {
+		case outChan <- initialChunk:
+			log.Info().
+				Str("session_id", sessionID).
+				Str("initial_text", initialText).
+				Msg("Sent initial acknowledgment chunk")
+		case <-ctx.Done():
+			return
+		}
+		
 		s.processStreamingWithContinuation(session, outChan)
 	}()
 
@@ -393,17 +411,28 @@ func (s *Service) processStreamingChunks(chunks <-chan CompletionChunk, outChan 
 
 		case "tool_progress":
 			if currentToolCall != nil && chunk.Delta != "" {
-				// Parse and merge the JSON delta
-				var deltaData map[string]interface{}
-				if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
-					for k, v := range deltaData {
-						currentToolCall.Input[k] = v
-					}
-				}
+				// Note: The delta here is a JSON fragment, not a complete object
+				// The provider should accumulate and parse the complete JSON
+				// For now, we'll rely on the provider to set chunk.ToolCall.Input
+				// when the tool input is complete
+				log.Debug().
+					Str("tool_id", currentToolCall.ID).
+					Str("delta_preview", chunk.Delta).
+					Msg("[STREAMING] Received tool progress delta (accumulating in provider)")
 			}
 
 		case "tool_complete":
 			if currentToolCall != nil {
+				// If the chunk contains the complete tool call with parsed input, use it
+				if chunk.ToolCall != nil && len(chunk.ToolCall.Input) > 0 {
+					currentToolCall.Input = chunk.ToolCall.Input
+				}
+				log.Info().
+					Str("tool_id", currentToolCall.ID).
+					Str("tool_name", currentToolCall.Name).
+					Int("input_params", len(currentToolCall.Input)).
+					Interface("input", currentToolCall.Input).
+					Msg("[STREAMING] Tool complete - adding to toolCalls")
 				toolCalls = append(toolCalls, *currentToolCall)
 				currentToolCall = nil
 			}
@@ -1661,4 +1690,50 @@ func (s *Service) detectSpecificToolRequest(userMessage string) string {
 	}
 
 	return ""
+}
+
+// generateInitialAcknowledgment generates context-aware initial acknowledgment text
+func (s *Service) generateInitialAcknowledgment(userMessage string) string {
+	msgLower := strings.ToLower(userMessage)
+	
+	// DCF-specific acknowledgments
+	if strings.Contains(msgLower, "dcf") || strings.Contains(msgLower, "discounted cash flow") {
+		return "I'll help you create a DCF model. Let me set up the structure...\n\n"
+	}
+	
+	// LBO-specific acknowledgments
+	if strings.Contains(msgLower, "lbo") || strings.Contains(msgLower, "leveraged buyout") {
+		return "I'll help you build an LBO model. Let me prepare the framework...\n\n"
+	}
+	
+	// Formula-specific acknowledgments
+	if strings.Contains(msgLower, "formula") {
+		if strings.Contains(msgLower, "create") || strings.Contains(msgLower, "write") {
+			return "I'll help you create that formula. Let me analyze the requirements...\n\n"
+		}
+		return "I'll help you with that formula. Let me examine it...\n\n"
+	}
+	
+	// Analysis requests
+	if strings.Contains(msgLower, "analyze") || strings.Contains(msgLower, "analysis") {
+		return "I'll analyze that for you. Let me examine the data...\n\n"
+	}
+	
+	// Chart/visualization requests
+	if strings.Contains(msgLower, "chart") || strings.Contains(msgLower, "graph") || strings.Contains(msgLower, "visuali") {
+		return "I'll help you create that visualization. Let me prepare the chart...\n\n"
+	}
+	
+	// Read/check requests
+	if strings.Contains(msgLower, "what") || strings.Contains(msgLower, "show") || strings.Contains(msgLower, "tell") {
+		return "Let me check that for you...\n\n"
+	}
+	
+	// Create/build requests
+	if strings.Contains(msgLower, "create") || strings.Contains(msgLower, "build") || strings.Contains(msgLower, "make") {
+		return "I'll help you create that. Let me set it up...\n\n"
+	}
+	
+	// Default acknowledgment
+	return "I'll help you with that. Let me analyze your spreadsheet...\n\n"
 }

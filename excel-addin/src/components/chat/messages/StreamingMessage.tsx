@@ -13,9 +13,12 @@ interface Props {
 export const StreamingMessage: React.FC<Props> = ({ message }) => {
     // Use local state for displayed content
     const [displayContent, setDisplayContent] = useState('');
+    const [hasReceivedContent, setHasReceivedContent] = useState(false);
+    const [showToolIndicator, setShowToolIndicator] = useState(false);
     const rendererRef = useRef<ChunkedRenderer | null>(null);
     const contentRef = useRef(''); // Track accumulated content
     const processedChunksRef = useRef<Set<string>>(new Set()); // Track processed chunks
+    const emptyMessageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     
     // Logging helper
     const log = (action: string, data?: any) => {
@@ -47,6 +50,10 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
                 });
                 
                 setDisplayContent(contentRef.current);
+                // Mark that we've received content
+                if (content.trim().length > 0) {
+                    setHasReceivedContent(true);
+                }
             },
             flushInterval: 50, // Faster update rate for smoother streaming
             maxBufferSize: 300  // Smaller buffer for more frequent updates
@@ -61,6 +68,9 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
             log('Unmounting component - destroying renderer');
             // Cleanup on unmount
             rendererRef.current?.destroy();
+            if (emptyMessageTimeoutRef.current) {
+                clearTimeout(emptyMessageTimeoutRef.current);
+            }
         };
     }, []);
     
@@ -128,8 +138,47 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
             contentRef.current = '';
             setDisplayContent('');
             processedChunksRef.current.clear();
+            setHasReceivedContent(false);
+            setShowToolIndicator(false);
         }
     }, [message.id]);
+    
+    // Empty message detection
+    useEffect(() => {
+        // Only check for empty messages if we're streaming
+        if (message.isStreaming && !hasReceivedContent) {
+            // Clear any existing timeout
+            if (emptyMessageTimeoutRef.current) {
+                clearTimeout(emptyMessageTimeoutRef.current);
+            }
+            
+            // Set timeout to show fallback text
+            emptyMessageTimeoutRef.current = setTimeout(() => {
+                if (!hasReceivedContent && message.isStreaming) {
+                    log('No content received after 1s - showing fallback');
+                    setDisplayContent("Working on your request...");
+                    setShowToolIndicator(true);
+                }
+            }, 1000); // 1 second timeout
+        } else if (!message.isStreaming && !hasReceivedContent && message.toolCalls && message.toolCalls.length > 0) {
+            // If streaming ended but no content was received and there were tool calls
+            log('Streaming ended with no content but with tool calls');
+            setDisplayContent("I've completed the operations on your spreadsheet.");
+        }
+        
+        // Clear timeout when we receive content or stop streaming
+        if (hasReceivedContent || !message.isStreaming) {
+            if (emptyMessageTimeoutRef.current) {
+                clearTimeout(emptyMessageTimeoutRef.current);
+            }
+        }
+        
+        return () => {
+            if (emptyMessageTimeoutRef.current) {
+                clearTimeout(emptyMessageTimeoutRef.current);
+            }
+        };
+    }, [message.isStreaming, hasReceivedContent, message.toolCalls]);
     
     return (
         <div className="flex items-start space-x-3 p-4 animate-fadeIn">
@@ -233,6 +282,17 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
                         <span className="inline-block ml-1">
                             <span className="animate-pulse text-blue-500">▊</span>
                         </span>
+                    )}
+                    
+                    {/* Tool operation indicator for empty messages */}
+                    {showToolIndicator && !hasReceivedContent && (
+                        <div className="mt-2 flex items-center space-x-2 text-sm text-text-secondary">
+                            <svg className="animate-spin h-4 w-4 text-accent-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Processing your request...</span>
+                        </div>
                     )}
                 </div>
                 

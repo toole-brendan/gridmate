@@ -154,9 +154,12 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 	}).Debug("[STREAMING] Session ready for streaming")
 
 	// Create chat message
+	// Generate a message ID for tracking
+	messageID := fmt.Sprintf("stream_%d", time.Now().UnixNano()/1e6)
 	chatMsg := services.ChatMessage{
 		Content:      content,
 		SessionID:    sessionID,
+		MessageID:    messageID,
 		AutonomyMode: autonomyMode,
 		Context:      make(map[string]interface{}), // Will be populated from session
 	}
@@ -169,9 +172,10 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 	deadline, hasDeadline := ctx.Deadline()
 	h.logger.WithFields(logrus.Fields{
 		"session_id": sessionID,
+		"message_id": messageID,
 		"has_deadline": hasDeadline,
 		"deadline": deadline,
-	}).Debug("[STREAMING] Calling ProcessChatMessageStreaming")
+	}).Debug("[STREAMING] Calling ProcessChatMessageStreaming with message ID")
 	
 	chunks, err := h.excelBridge.ProcessChatMessageStreaming(ctx, sessionID, chatMsg)
 	if err != nil {

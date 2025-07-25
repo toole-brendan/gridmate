@@ -768,6 +768,14 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 	
 	// Try to use the context builder if available
 	if eb.contextBuilder != nil {
+		// Log streaming mode status
+		streamingMode, hasStreamingMode := ctx.Value("streaming_mode").(bool)
+		eb.logger.WithFields(logrus.Fields{
+			"has_streaming_mode": hasStreamingMode,
+			"streaming_mode": streamingMode,
+			"context_type": fmt.Sprintf("%T", ctx),
+		}).Debug("[STREAMING] Context status before BuildContext")
+		
 		builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
 		if err != nil {
 			eb.logger.WithError(err).Warn("Failed to build comprehensive context")
@@ -816,7 +824,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 			"history_count": len(aiHistory),
 		}).Info("[STREAMING] Calling AI service ProcessChatMessageStreaming")
 		
-		chunks, err := eb.aiService.ProcessChatMessageStreaming(ctx, clientID, message.Content, financialContext, aiHistory, message.AutonomyMode, "")
+		chunks, err := eb.aiService.ProcessChatMessageStreaming(ctx, clientID, message.Content, financialContext, aiHistory, message.AutonomyMode, message.MessageID)
 		if err != nil {
 			eb.logger.WithError(err).Error("[STREAMING] Failed to get streaming chunks from AI service")
 			outChan <- ai.CompletionChunk{
@@ -858,6 +866,7 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 ) {
 	var currentToolCall *ai.ToolCall
 	var pendingToolCalls []ai.ToolCall
+	var toolInputBuffer strings.Builder // Buffer to accumulate JSON fragments
 	toolResponseChannels := make(map[string]chan interface{})
 	
 	// Create streaming state
@@ -944,21 +953,44 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 					Name:  chunk.ToolCall.Name,
 					Input: make(map[string]interface{}),
 				}
+				toolInputBuffer.Reset() // Reset buffer for new tool
 			}
 			
 		case "tool_progress":
 			if currentToolCall != nil && chunk.Delta != "" {
-				// Parse and merge the JSON delta
-				var deltaData map[string]interface{}
-				if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
-					for k, v := range deltaData {
-						currentToolCall.Input[k] = v
-					}
-				}
+				// Accumulate the JSON fragment
+				toolInputBuffer.WriteString(chunk.Delta)
+				eb.logger.WithFields(logrus.Fields{
+					"tool_id": currentToolCall.ID,
+					"delta": chunk.Delta,
+					"buffer_size": toolInputBuffer.Len(),
+				}).Debug("[STREAMING] Accumulating tool progress delta")
 			}
 			
 		case "tool_complete":
 			if currentToolCall != nil {
+				// Parse accumulated JSON if we have any
+				if toolInputBuffer.Len() > 0 {
+					var inputData map[string]interface{}
+					if err := json.Unmarshal([]byte(toolInputBuffer.String()), &inputData); err == nil {
+						currentToolCall.Input = inputData
+						eb.logger.WithFields(logrus.Fields{
+							"tool_id": currentToolCall.ID,
+							"parsed_params": inputData,
+						}).Debug("[STREAMING] Successfully parsed accumulated tool input")
+					} else {
+						eb.logger.WithFields(logrus.Fields{
+							"tool_id": currentToolCall.ID,
+							"buffer_content": toolInputBuffer.String(),
+							"error": err.Error(),
+						}).Warn("[STREAMING] Failed to parse accumulated tool input")
+					}
+				}
+				
+				// If the chunk contains complete tool call with parsed input, use it preferentially
+				if chunk.ToolCall != nil && len(chunk.ToolCall.Input) > 0 {
+					currentToolCall.Input = chunk.ToolCall.Input
+				}
 				// Add to pending tools
 				pendingToolCalls = append(pendingToolCalls, *currentToolCall)
 				streamingState.PendingTools = append(streamingState.PendingTools, *currentToolCall)
@@ -973,6 +1005,8 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 					"tool_id":   currentToolCall.ID,
 					"streaming": true,
 					"autonomy_mode": autonomyMode,
+					"input_params": currentToolCall.Input,
+					"input_count": len(currentToolCall.Input),
 				}).Info("Sending tool request through SignalR during streaming")
 				
 				// Create tool request
@@ -984,10 +1018,7 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 					"autonomy_mode": autonomyMode, // Pass autonomy mode
 				}
 				
-				// Add all input fields to the request
-				for k, v := range currentToolCall.Input {
-					toolRequest[k] = v
-				}
+				// NOTE: Do not add input fields at top level - they should only be in parameters
 				
 				// Send through SignalR bridge
 				type signalRBridge interface {
@@ -1027,6 +1058,7 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 				}
 				
 				currentToolCall = nil
+				toolInputBuffer.Reset() // Reset buffer for next tool
 			}
 			
 		case "":

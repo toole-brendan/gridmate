@@ -308,16 +308,54 @@ namespace GridmateSignalR.Hubs
         {
             if (_sessionConnections.TryGetValue(sessionId, out var connectionId))
             {
-                await hubContext.Clients.Client(connectionId).SendAsync("aiResponse", aiResponse);
+                try
+                {
+                    // Log response details for debugging
+                    var responseJson = System.Text.Json.JsonSerializer.Serialize(aiResponse);
+                    Console.WriteLine($"[HUB RELAY] Sending AI response to session {sessionId}. Size: {responseJson.Length} chars");
+                    
+                    await hubContext.Clients.Client(connectionId).SendAsync("aiResponse", aiResponse);
+                    
+                    // Update activity
+                    _sessionActivity[sessionId] = DateTime.UtcNow;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[HUB RELAY ERROR] Failed to send AI response to session {sessionId}: {ex.Message}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[HUB RELAY WARNING] No connection found for session {sessionId} when sending AI response");
             }
         }
         
         // Method to send streaming chunks to client (called via HTTP from Go)
         public static async Task SendStreamChunkToClient(IHubContext<GridmateHub> hubContext, string sessionId, object chunk)
         {
+            var logger = hubContext as ILogger<GridmateHub> ?? null;
+            
             if (_sessionConnections.TryGetValue(sessionId, out var connectionId))
             {
-                await hubContext.Clients.Client(connectionId).SendAsync("streamChunk", chunk);
+                try
+                {
+                    // Log chunk details for debugging
+                    var chunkJson = System.Text.Json.JsonSerializer.Serialize(chunk);
+                    Console.WriteLine($"[HUB RELAY] Sending chunk to session {sessionId}: {chunkJson.Substring(0, Math.Min(chunkJson.Length, 200))}...");
+                    
+                    await hubContext.Clients.Client(connectionId).SendAsync("streamChunk", chunk);
+                    
+                    // Update activity
+                    _sessionActivity[sessionId] = DateTime.UtcNow;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[HUB RELAY ERROR] Failed to send chunk to session {sessionId}: {ex.Message}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"[HUB RELAY WARNING] No connection found for session {sessionId}");
             }
         }
 
@@ -444,6 +482,157 @@ namespace GridmateSignalR.Hubs
                     error = ex.Message,
                     sessionId,
                     timestamp = DateTime.UtcNow
+                });
+            }
+        }
+        
+        // Debug endpoint: Get streaming health status
+        public async Task GetStreamingHealth(string sessionId)
+        {
+            _logger.LogInformation("[HUB DEBUG] GetStreamingHealth called for session {SessionId}", sessionId);
+            
+            var health = new
+            {
+                sessionId,
+                connectionId = Context.ConnectionId,
+                isConnected = _sessionConnections.ContainsKey(sessionId),
+                lastActivity = _sessionActivity.TryGetValue(sessionId, out var activity) ? activity : (DateTime?)null,
+                timestamp = DateTime.UtcNow,
+                sessionCount = _sessionConnections.Count,
+                activeSessionCount = _sessionActivity.Count(x => x.Value > DateTime.UtcNow.AddMinutes(-5))
+            };
+            
+            await Clients.Caller.SendAsync("streamingHealth", health);
+            _logger.LogInformation("[HUB DEBUG] Streaming health: {@Health}", health);
+        }
+        
+        // Debug endpoint: Trace streaming phases
+        public async Task TraceStreamingPhases(string sessionId, bool enable)
+        {
+            _logger.LogInformation("[HUB DEBUG] TraceStreamingPhases called for session {SessionId}, enable: {Enable}", sessionId, enable);
+            
+            // Store tracing preference (in production, this would be per-session)
+            var traceKey = $"trace_{sessionId}";
+            
+            await Clients.Caller.SendAsync("tracingEnabled", new
+            {
+                sessionId,
+                enabled = enable,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        
+        // Debug endpoint: Simulate streaming with phases
+        public async Task SimulatePhaseStreaming(string sessionId, string message)
+        {
+            _logger.LogInformation("[HUB DEBUG] SimulatePhaseStreaming called for session {SessionId}", sessionId);
+            UpdateSessionActivity(sessionId);
+            
+            try
+            {
+                // Phase 1: Initial acknowledgment
+                await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "phase_change",
+                    phase = "initial",
+                    timestamp = DateTime.UtcNow
+                }));
+                
+                await Task.Delay(100);
+                
+                // Send initial text
+                var initialText = "I'll help you with that. Let me analyze your request...\n\n";
+                foreach (var word in initialText.Split(' '))
+                {
+                    await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "text",
+                        delta = word + " ",
+                        timestamp = DateTime.UtcNow
+                    }));
+                    await Task.Delay(50);
+                }
+                
+                // Phase 2: Tool execution
+                if (message.ToLower().Contains("create") || message.ToLower().Contains("formula"))
+                {
+                    await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "phase_change",
+                        phase = "tool_execution",
+                        timestamp = DateTime.UtcNow
+                    }));
+                    
+                    await Task.Delay(500);
+                    
+                    // Simulate tool call
+                    await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "tool_start",
+                        tool = new { id = "test_tool_1", name = "write_range" },
+                        timestamp = DateTime.UtcNow
+                    }));
+                    
+                    await Task.Delay(1000);
+                    
+                    await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "tool_complete",
+                        tool = new { id = "test_tool_1", name = "write_range" },
+                        timestamp = DateTime.UtcNow
+                    }));
+                }
+                
+                // Phase 3: Continuation
+                await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "phase_change",
+                    phase = "continuation",
+                    timestamp = DateTime.UtcNow
+                }));
+                
+                await Task.Delay(100);
+                
+                // Send continuation text
+                var continuationText = "\n\nI've completed the operation successfully.";
+                foreach (var word in continuationText.Split(' '))
+                {
+                    await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        type = "text",
+                        delta = word + " ",
+                        timestamp = DateTime.UtcNow
+                    }));
+                    await Task.Delay(50);
+                }
+                
+                // Phase 4: Final
+                await Clients.Caller.SendAsync("streamChunk", System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    type = "phase_change",
+                    phase = "final",
+                    timestamp = DateTime.UtcNow
+                }));
+                
+                await Clients.Caller.SendAsync("streamComplete", new
+                {
+                    sessionId,
+                    timestamp = DateTime.UtcNow,
+                    debug = true,
+                    phases = new[] { "initial", "tool_execution", "continuation", "final" }
+                });
+                
+                _logger.LogInformation("[HUB DEBUG] Phase simulation completed for session {SessionId}", sessionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[HUB DEBUG] Phase simulation failed for session {SessionId}", sessionId);
+                await Clients.Caller.SendAsync("streamError", new
+                {
+                    error = ex.Message,
+                    sessionId,
+                    timestamp = DateTime.UtcNow,
+                    debug = true
                 });
             }
         }

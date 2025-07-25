@@ -130,12 +130,12 @@ export const ToolSuggestionCard: React.FC<ToolSuggestionCardProps> = ({
           </div>
         )}
 
-        {diffData && diffData.status === 'previewing' && onAcceptDiff && onRejectDiff && (
+        {diffData && (
           <ChatMessageDiffPreview
             messageId={message.id}
             hunks={diffData.hunks}
-            onAccept={onAcceptDiff}
-            onReject={onRejectDiff}
+            onAccept={diffData.status === 'previewing' ? onAcceptDiff : undefined}
+            onReject={diffData.status === 'previewing' ? onRejectDiff : undefined}
             status={diffData.status}
           />
         )}

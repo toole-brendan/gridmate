@@ -350,6 +350,52 @@ export class GridVisualizer {
   }
 
   /**
+   * Apply status overlay to previously highlighted cells
+   */
+  static async applyStatusOverlay(hunks: DiffHunk[], status: 'accepted' | 'rejected', addLog?: (type: 'info' | 'error' | 'success' | 'warning', message: string, data?: any) => void): Promise<void> {
+    const log = addLog || ((type, message, data) => console.log(`[${type}] ${message}`, data));
+    
+    if (!hunks || hunks.length === 0) return;
+    
+    log('info', `[Visualizer] Applying ${status} status overlay to ${hunks.length} cells`);
+    
+    return Excel.run(async (context: any) => {
+      const workbook = context.workbook;
+      const hunksBySheet = this.groupHunksBySheet(hunks);
+      
+      for (const [sheetName, sheetHunks] of hunksBySheet) {
+        try {
+          const worksheet = workbook.worksheets.getItem(sheetName);
+          
+          for (const hunk of sheetHunks) {
+            const range = worksheet.getCell(hunk.key.row, hunk.key.col);
+            
+            if (status === 'accepted') {
+              // Add subtle green checkmark indicator on the right edge
+              range.format.borders.getItem('EdgeRight').style = 'Continuous';
+              range.format.borders.getItem('EdgeRight').color = '#00B050';
+              range.format.borders.getItem('EdgeRight').weight = 'Thick';
+            } else if (status === 'rejected') {
+              // Add subtle red X indicator on the left edge
+              range.format.borders.getItem('EdgeLeft').style = 'Continuous';
+              range.format.borders.getItem('EdgeLeft').color = '#FF0000';
+              range.format.borders.getItem('EdgeLeft').weight = 'Thick';
+            }
+          }
+        } catch (error) {
+          log('error', `[Visualizer] Error applying status overlay to sheet ${sheetName}:`, error);
+        }
+      }
+      
+      await context.sync();
+      log('success', `[Visualizer] Status overlay applied successfully`);
+    }).catch((error: any) => {
+      log('error', `[Visualizer] Error applying status overlay: ${error.message}`, { error });
+      throw error;
+    });
+  }
+
+  /**
    * Begin a preview session
    */
   static beginPreview(): void {

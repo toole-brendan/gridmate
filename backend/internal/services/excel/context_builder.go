@@ -28,6 +28,8 @@ type ContextBuilder struct {
 	representationCache *RepresentationCache
 	representationBuilder *spreadsheet.RepresentationBuilder
 	semanticAnalyzer *spreadsheet.SemanticAnalyzer
+	// Cached context provider for streaming mode
+	cachedContextProvider *CachedContextProvider
 }
 
 // CellChangeInfo tracks changes to individual cells
@@ -49,7 +51,20 @@ func NewContextBuilder(bridge ai.ExcelBridge) *ContextBuilder {
 		representationCache: NewRepresentationCache(time.Hour, 100),
 		representationBuilder: spreadsheet.NewRepresentationBuilder(),
 		semanticAnalyzer: spreadsheet.NewSemanticAnalyzer(),
+		cachedContextProvider: NewCachedContextProvider(5 * time.Minute), // 5 minute TTL
 	}
+}
+
+// UpdateCachedContext updates the cached context based on tool execution results
+func (cb *ContextBuilder) UpdateCachedContext(sessionID string, toolName string, result interface{}) {
+	if cb.cachedContextProvider != nil {
+		cb.cachedContextProvider.UpdateFromToolResult(sessionID, toolName, result)
+	}
+}
+
+// GetCachedContextProvider returns the cached context provider
+func (cb *ContextBuilder) GetCachedContextProvider() *CachedContextProvider {
+	return cb.cachedContextProvider
 }
 
 // BuildContext builds comprehensive context from the current Excel state
@@ -155,12 +170,43 @@ func (cb *ContextBuilder) BuildContextWithRange(ctx context.Context, sessionID s
 		RecentChanges: []ai.CellChange{},
 	}
 	
-	// PHASE 0 FIX: Skip all context building during streaming to avoid tool requests
+	// PHASE 1 FIX: Use cached context during streaming to avoid tool requests
 	if streamingMode {
-		fmt.Printf("[STREAMING] Skipping full context building due to streaming_mode\n")
-		context.ModelType = "Streaming"
-		context.DocumentContext = append(context.DocumentContext, 
-			"Context building skipped during streaming response.")
+		fmt.Printf("[STREAMING] Using cached context for streaming mode\n")
+		
+		// Get lightweight cached context
+		cached := cb.cachedContextProvider.GetContext(sessionID)
+		
+		// Populate financial context from cache
+		context.ModelType = cached.ModelType
+		if context.ModelType == "" {
+			context.ModelType = "Streaming"
+		}
+		
+		// Use cached range if no specific range selected
+		if selectedRange == "" && cached.ActiveRange != "" {
+			context.SelectedRange = cached.ActiveRange
+		}
+		
+		// Add context information
+		contextInfo := []string{
+			fmt.Sprintf("Using cached context from %v", cached.CachedAt.Format("15:04:05")),
+		}
+		
+		if !cached.IsEmpty {
+			contextInfo = append(contextInfo, 
+				fmt.Sprintf("Spreadsheet has %d rows and %d columns", cached.RowCount, cached.ColumnCount))
+		}
+		
+		if cached.HasFormulas {
+			contextInfo = append(contextInfo, "Contains formulas")
+		}
+		
+		if cached.HasCharts {
+			contextInfo = append(contextInfo, "Contains charts")
+		}
+		
+		context.DocumentContext = contextInfo
 		return context, nil
 	}
 

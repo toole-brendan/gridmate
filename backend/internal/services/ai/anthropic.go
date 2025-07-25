@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -574,17 +575,24 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 				if currentToolCall != nil && event.Delta.Type == "input_json_delta" {
 					// Accumulate tool input JSON
 					toolInputBuffer.WriteString(event.Delta.Text)
+					
+					// CRITICAL: Log the accumulated buffer for debugging
 					log.Debug().
 						Str("tool_id", currentToolCall.ID).
 						Str("delta_text", event.Delta.Text).
 						Int("buffer_size", toolInputBuffer.Len()).
-						Msg("[Anthropic] Sending tool_progress chunk with delta")
-					ch <- CompletionChunk{
-						ID:       messageID,
-						Type:     "tool_progress",
-						ToolCall: currentToolCall,
-						Delta:    event.Delta.Text,
-						Done:     false,
+						Str("buffer_content", toolInputBuffer.String()).
+						Msg("[Anthropic] Accumulating tool input")
+					
+					// Only send progress chunk if we have actual content
+					if event.Delta.Text != "" {
+						ch <- CompletionChunk{
+							ID:       messageID,
+							Type:     "tool_progress",
+							ToolCall: currentToolCall,
+							Delta:    event.Delta.Text,
+							Done:     false,
+						}
 					}
 				} else {
 					// Regular text delta
@@ -602,9 +610,26 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 				// Parse the accumulated JSON input
 				if toolInputBuffer.Len() > 0 {
 					if err := json.Unmarshal([]byte(toolInputBuffer.String()), &currentToolCall.Input); err != nil {
-						log.Error().Err(err).Str("json", toolInputBuffer.String()).Msg("Failed to parse tool input JSON")
+						log.Error().
+							Err(err).
+							Str("json", toolInputBuffer.String()).
+							Str("tool_id", currentToolCall.ID).
+							Str("tool_name", currentToolCall.Name).
+							Msg("Failed to parse tool input JSON")
+						
+						// Try to extract partial data if possible
+						// This is a fallback for when JSON is malformed
+						currentToolCall.Input = extractPartialToolInput(toolInputBuffer.String(), currentToolCall.Name)
+					} else {
+						log.Debug().
+							Str("tool_id", currentToolCall.ID).
+							Str("tool_name", currentToolCall.Name).
+							Interface("parsed_input", currentToolCall.Input).
+							Msg("[Anthropic] Successfully parsed tool input")
 					}
 				}
+				
+				// Send the complete tool with parsed input
 				ch <- CompletionChunk{
 					ID:       messageID,
 					Type:     "tool_complete",
@@ -612,6 +637,7 @@ func (a *AnthropicProvider) makeStreamingRequest(ctx context.Context, request *a
 					Done:     false,
 				}
 				currentToolCall = nil
+				toolInputBuffer.Reset()
 			}
 		case "message_delta":
 			if event.Delta != nil && event.Delta.StopReason != "" {
@@ -784,4 +810,49 @@ func (a *AnthropicProvider) handleAPIError(resp *http.Response) *AIError {
 	}
 
 	return aiErr
+}
+
+// extractPartialToolInput attempts to extract tool parameters from malformed JSON
+func extractPartialToolInput(jsonStr string, toolName string) map[string]interface{} {
+	params := make(map[string]interface{})
+	
+	// Try to extract common parameters based on tool type
+	switch toolName {
+	case "write_range":
+		// Look for range pattern like "A1:B10" or "Sheet1!A1"
+		if match := regexp.MustCompile(`"range"\s*:\s*"([^"]+)"`).FindStringSubmatch(jsonStr); len(match) > 1 {
+			params["range"] = match[1]
+		}
+		// Look for values array
+		if strings.Contains(jsonStr, `"values"`) {
+			params["values"] = [][]interface{}{} // Empty default
+		}
+		
+	case "format_range":
+		if match := regexp.MustCompile(`"range"\s*:\s*"([^"]+)"`).FindStringSubmatch(jsonStr); len(match) > 1 {
+			params["range"] = match[1]
+		}
+		params["format"] = map[string]interface{}{} // Empty format object
+		
+	case "apply_formula":
+		if match := regexp.MustCompile(`"range"\s*:\s*"([^"]+)"`).FindStringSubmatch(jsonStr); len(match) > 1 {
+			params["range"] = match[1]
+		}
+		if match := regexp.MustCompile(`"formula"\s*:\s*"([^"]+)"`).FindStringSubmatch(jsonStr); len(match) > 1 {
+			params["formula"] = match[1]
+		}
+		
+	case "read_range":
+		if match := regexp.MustCompile(`"range"\s*:\s*"([^"]+)"`).FindStringSubmatch(jsonStr); len(match) > 1 {
+			params["range"] = match[1]
+		}
+	}
+	
+	log.Warn().
+		Str("tool", toolName).
+		Interface("extracted_params", params).
+		Str("original_json", jsonStr).
+		Msg("[Anthropic] Used partial extraction due to JSON parse error")
+	
+	return params
 }

@@ -46,7 +46,8 @@
       "Bash(go doc:*)",
       "Bash(npx vite:*)",
       "Bash(LOG_LEVEL=debug go run cmd/api/main.go)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(kill:*)"
     ],
     "deny": []
   }

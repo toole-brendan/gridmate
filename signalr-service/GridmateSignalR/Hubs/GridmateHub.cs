@@ -311,6 +311,15 @@ namespace GridmateSignalR.Hubs
                 await hubContext.Clients.Client(connectionId).SendAsync("aiResponse", aiResponse);
             }
         }
+        
+        // Method to send streaming chunks to client (called via HTTP from Go)
+        public static async Task SendStreamChunkToClient(IHubContext<GridmateHub> hubContext, string sessionId, object chunk)
+        {
+            if (_sessionConnections.TryGetValue(sessionId, out var connectionId))
+            {
+                await hubContext.Clients.Client(connectionId).SendAsync("streamChunk", chunk);
+            }
+        }
 
         // Method to get session activity for cleanup purposes
         public static Dictionary<string, DateTime> GetSessionActivity()

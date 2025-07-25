@@ -13,6 +13,27 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// StreamingSession represents an active streaming session with context
+type StreamingSession struct {
+	ID               string
+	Context          context.Context
+	Messages         []Message
+	FinancialContext *FinancialContext
+	ToolResults      map[string]interface{}
+	CurrentPhase     StreamPhase // "initial" | "tool_execution" | "final"
+	MessageID        string
+	AutonomyMode     string
+}
+
+// StreamPhase represents the current phase of a streaming session
+type StreamPhase string
+
+const (
+	StreamPhaseInitial       StreamPhase = "initial"
+	StreamPhaseToolExecution StreamPhase = "tool_execution"
+	StreamPhaseFinal         StreamPhase = "final"
+)
+
 // Service represents the main AI service
 type Service struct {
 	provider          AIProvider
@@ -152,6 +173,18 @@ func (s *Service) ProcessChatMessageStreaming(ctx context.Context, sessionID str
 		Int("history_length", len(chatHistory)).
 		Msg("Starting ProcessChatMessageStreaming")
 
+	// Create streaming session
+	session := &StreamingSession{
+		ID:               sessionID,
+		Context:          ctx,
+		Messages:         []Message{},
+		FinancialContext: financialContext,
+		ToolResults:      make(map[string]interface{}),
+		CurrentPhase:     StreamPhaseInitial,
+		MessageID:        messageID,
+		AutonomyMode:     autonomyMode,
+	}
+
 	// Add message ID to context for tool executor
 	ctx = context.WithValue(ctx, "message_id", messageID)
 
@@ -160,41 +193,229 @@ func (s *Service) ProcessChatMessageStreaming(ctx context.Context, sessionID str
 		financialContext.ModelType = s.promptBuilder.DetectModelType(financialContext)
 	}
 
-	// Build the prompt
-	messages := s.promptBuilder.BuildChatPrompt(userMessage, financialContext)
-
-	// Create request
-	request := CompletionRequest{
-		Messages:    messages,
-		MaxTokens:   s.config.MaxTokens,
-		Temperature: s.config.Temperature,
-		TopP:        s.config.TopP,
-		Model:       s.config.DefaultModel,
-		Stream:      true,
-	}
-
-	// Add Excel tools if enabled - use smart selection
-	if s.config.EnableActions && s.toolExecutor != nil {
-		request.Tools = s.selectRelevantTools(userMessage, financialContext)
-		log.Info().
-			Int("tools_count", len(request.Tools)).
-			Int("total_available_tools", len(GetExcelTools())).
-			Msg("Added relevant tools to ProcessChatMessageStreaming request")
+	// Build the prompt with history
+	if len(chatHistory) > 0 {
+		session.Messages = s.promptBuilder.BuildPromptWithHistory(userMessage, financialContext, chatHistory)
 	} else {
-		log.Warn().
-			Bool("actions_enabled", s.config.EnableActions).
-			Bool("tool_executor_available", s.toolExecutor != nil).
-			Msg("No tools added to ProcessChatMessageStreaming request")
+		session.Messages = s.promptBuilder.BuildChatPrompt(userMessage, financialContext)
 	}
 
-	// Get streaming response
-	chunks, err := s.provider.GetStreamingCompletion(ctx, request)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get streaming completion from AI provider")
-		return nil, fmt.Errorf("AI streaming request failed: %w", err)
+	// Create output channel
+	outChan := make(chan CompletionChunk, 100)
+
+	// Start streaming in a goroutine
+	go func() {
+		defer close(outChan)
+		s.processStreamingWithContinuation(session, outChan)
+	}()
+
+	return outChan, nil
+}
+
+// processStreamingWithContinuation handles streaming with proper tool continuation
+func (s *Service) processStreamingWithContinuation(session *StreamingSession, outChan chan<- CompletionChunk) {
+	maxRounds := 5 // Limit tool execution rounds
+	
+	log.Info().
+		Str("session_id", session.ID).
+		Str("phase", string(session.CurrentPhase)).
+		Int("message_count", len(session.Messages)).
+		Msg("[STREAMING] Starting processStreamingWithContinuation")
+	
+	// Send initial chunk to indicate streaming started
+	outChan <- CompletionChunk{
+		Type:    "phase_change",
+		Content: `{"phase": "initial", "message": "Starting response"}`,
+		Done:    false,
+	}
+	
+	for round := 0; round < maxRounds; round++ {
+		log.Info().
+			Str("session_id", session.ID).
+			Str("phase", string(session.CurrentPhase)).
+			Int("round", round).
+			Int("messages_in_session", len(session.Messages)).
+			Msg("[STREAMING] Processing streaming round")
+
+		// Create request
+		request := CompletionRequest{
+			Messages:    session.Messages,
+			MaxTokens:   s.config.MaxTokens,
+			Temperature: s.config.Temperature,
+			TopP:        s.config.TopP,
+			Model:       s.config.DefaultModel,
+			Stream:      true,
+		}
+
+		// Add Excel tools if enabled
+		if s.config.EnableActions && s.toolExecutor != nil {
+			if round == 0 && len(session.Messages) > 0 {
+				lastMsg := session.Messages[len(session.Messages)-1]
+				request.Tools = s.selectRelevantTools(lastMsg.Content, session.FinancialContext)
+			} else {
+				request.Tools = GetExcelTools()
+			}
+			log.Info().
+				Int("tools_count", len(request.Tools)).
+				Str("phase", string(session.CurrentPhase)).
+				Msg("Added tools to streaming request")
+		}
+
+		// Get streaming response
+		log.Info().
+			Str("session_id", session.ID).
+			Int("tools_count", len(request.Tools)).
+			Str("provider", s.provider.GetProviderName()).
+			Msg("[STREAMING] Calling provider.GetStreamingCompletion")
+			
+		chunks, err := s.provider.GetStreamingCompletion(session.Context, request)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("session_id", session.ID).
+				Msg("[STREAMING] Failed to get streaming completion")
+			outChan <- CompletionChunk{
+				Type:  "error",
+				Error: err,
+				Done:  true,
+			}
+			return
+		}
+
+		log.Info().
+			Str("session_id", session.ID).
+			Msg("[STREAMING] Got chunks channel from provider, processing chunks")
+
+		// Process chunks
+		toolCalls, finalChunk := s.processStreamingChunks(chunks, outChan, session)
+
+		// If no tool calls, we're done
+		if len(toolCalls) == 0 {
+			if finalChunk != nil {
+				outChan <- *finalChunk
+			}
+			return
+		}
+
+		// Update phase
+		session.CurrentPhase = StreamPhaseToolExecution
+
+		// Add assistant message with tool calls
+		assistantMsg := Message{
+			Role:      "assistant",
+			Content:   "", // Content will be built from chunks
+			ToolCalls: toolCalls,
+		}
+		session.Messages = append(session.Messages, assistantMsg)
+
+		// Note: Tool execution happens asynchronously via SignalR
+		// The stream continues and tool results will be injected when available
+		// For now, we'll add placeholder results to continue the conversation
+		
+		// Send a phase change chunk
+		outChan <- CompletionChunk{
+			Type:    "phase_change",
+			Content: `{"phase": "tool_execution", "tool_count": ` + fmt.Sprintf("%d", len(toolCalls)) + `}`,
+			Done:    false,
+		}
+
+		// Add placeholder tool results to continue streaming
+		// In the real implementation, these would come from SignalR responses
+		toolResults := []ToolResult{}
+		for _, tc := range toolCalls {
+			toolResults = append(toolResults, ToolResult{
+				Type:      "tool_result",
+				ToolUseID: tc.ID,
+				Content:   `{"status": "processing", "message": "Tool execution in progress"}`,
+				IsError:   false,
+			})
+		}
+
+		// Add tool results message
+		toolResultMsg := Message{
+			Role:        "user",
+			ToolResults: toolResults,
+		}
+		session.Messages = append(session.Messages, toolResultMsg)
+
+		// Continue to next round
+		session.CurrentPhase = StreamPhaseFinal
 	}
 
-	return chunks, nil
+	// Send final error if we exceeded max rounds
+	outChan <- CompletionChunk{
+		Type:  "error",
+		Error: fmt.Errorf("exceeded maximum rounds of tool use"),
+		Done:  true,
+	}
+}
+
+// processStreamingChunks processes chunks and extracts tool calls
+func (s *Service) processStreamingChunks(chunks <-chan CompletionChunk, outChan chan<- CompletionChunk, session *StreamingSession) ([]ToolCall, *CompletionChunk) {
+	var toolCalls []ToolCall
+	var currentToolCall *ToolCall
+	var finalChunk *CompletionChunk
+
+	log.Info().
+		Str("session_id", session.ID).
+		Msg("[STREAMING] Starting processStreamingChunks")
+
+	chunkCount := 0
+	for chunk := range chunks {
+		chunkCount++
+		log.Debug().
+			Str("session_id", session.ID).
+			Int("chunk_count", chunkCount).
+			Str("chunk_type", chunk.Type).
+			Bool("has_delta", chunk.Delta != "").
+			Bool("has_content", chunk.Content != "").
+			Bool("is_done", chunk.Done).
+			Msg("[STREAMING] Processing chunk from provider")
+		// Forward the chunk (except for internal processing chunks)
+		if chunk.Type != "tool_internal" {
+			select {
+			case outChan <- chunk:
+			case <-session.Context.Done():
+				return nil, nil
+			}
+		}
+
+		// Process tool-related chunks
+		switch chunk.Type {
+		case "tool_start":
+			if chunk.ToolCall != nil {
+				currentToolCall = &ToolCall{
+					ID:    chunk.ToolCall.ID,
+					Name:  chunk.ToolCall.Name,
+					Input: make(map[string]interface{}),
+				}
+			}
+
+		case "tool_progress":
+			if currentToolCall != nil && chunk.Delta != "" {
+				// Parse and merge the JSON delta
+				var deltaData map[string]interface{}
+				if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
+					for k, v := range deltaData {
+						currentToolCall.Input[k] = v
+					}
+				}
+			}
+
+		case "tool_complete":
+			if currentToolCall != nil {
+				toolCalls = append(toolCalls, *currentToolCall)
+				currentToolCall = nil
+			}
+
+		case "":
+			if chunk.Done {
+				finalChunk = &chunk
+			}
+		}
+	}
+
+	return toolCalls, finalChunk
 }
 
 // GenerateFormula generates a formula based on description and context

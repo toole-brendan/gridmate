@@ -80,6 +80,10 @@ app.MapPost("/api/forward-to-client", async (
             case "aiResponse":
                 await GridmateHub.SendAIResponseToClient(hubContext, request.SessionId, request.Data);
                 break;
+            case "streamChunk":
+                // Forward streaming chunk to client
+                await GridmateHub.SendStreamChunkToClient(hubContext, request.SessionId, request.Data);
+                break;
             case "workbookDiff":
                 // Broadcast to all clients in the workbook group
                 var workbookId = request.SessionId; // In this case, SessionId is actually the workbookId

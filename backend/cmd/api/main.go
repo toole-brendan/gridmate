@@ -202,6 +202,7 @@ func main() {
 
 	// Chat API endpoints for SignalR bridge
 	router.HandleFunc("/api/chat", signalRHandler.HandleSignalRChat).Methods("POST")
+	router.HandleFunc("/api/chat/streaming", signalRHandler.HandleSignalRStreamingChat).Methods("POST")
 	router.HandleFunc("/api/tool-response", signalRHandler.HandleSignalRToolResponse).Methods("POST")
 	router.HandleFunc("/api/selection-update", signalRHandler.HandleSignalRSelectionUpdate).Methods("POST")
 	

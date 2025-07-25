@@ -46,6 +46,16 @@ type SignalRResponse struct {
 	Message string `json:"message"`
 }
 
+// SignalRStreamRequest represents a streaming chat request from SignalR
+type SignalRStreamRequest struct {
+	SessionID    string                 `json:"sessionId"`
+	MessageID    string                 `json:"messageId"`
+	Content      string                 `json:"content"`
+	ExcelContext map[string]interface{} `json:"excelContext"`
+	AutonomyMode string                 `json:"autonomyMode"`
+	ChatHistory  []services.ChatMessage `json:"chatHistory"`
+}
+
 // HandleSignalRChat processes chat messages from SignalR
 func (h *SignalRHandler) HandleSignalRChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -407,5 +417,96 @@ func (h *SignalRHandler) HandleSignalRSelectionUpdate(w http.ResponseWriter, r *
 	json.NewEncoder(w).Encode(SignalRResponse{
 		Success: true,
 		Message: "Selection update received",
+	})
+}
+
+// HandleSignalRStreamingChat handles streaming chat requests from SignalR
+func (h *SignalRHandler) HandleSignalRStreamingChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req SignalRStreamRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.logger.WithError(err).Error("Failed to decode SignalR streaming request")
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"session_id":    req.SessionID,
+		"message_id":    req.MessageID,
+		"content":       req.Content,
+		"autonomy_mode": req.AutonomyMode,
+		"has_context":   req.ExcelContext != nil,
+		"history_count": len(req.ChatHistory),
+	}).Info("[STREAMING] Received streaming chat request from SignalR")
+
+	// Create or get session
+	h.excelBridge.CreateSignalRSession(req.SessionID)
+
+	// Create chat message
+	chatMsg := services.ChatMessage{
+		Content:      req.Content,
+		SessionID:    req.SessionID,
+		MessageID:    req.MessageID,
+		AutonomyMode: req.AutonomyMode,
+		Context:      req.ExcelContext,
+	}
+
+	// Start streaming
+	ctx := r.Context()
+	chunks, err := h.excelBridge.ProcessChatMessageStreaming(ctx, req.SessionID, chatMsg)
+	if err != nil {
+		h.logger.WithError(err).Error("[STREAMING] Failed to start streaming")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(SignalRResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Start a goroutine to forward chunks to SignalR
+	go func() {
+		chunkCount := 0
+		for chunk := range chunks {
+			chunkCount++
+			h.logger.WithFields(logrus.Fields{
+				"session_id":  req.SessionID,
+				"chunk_count": chunkCount,
+				"chunk_type":  chunk.Type,
+				"has_content": chunk.Content != "",
+				"has_delta":   chunk.Delta != "",
+				"is_done":     chunk.Done,
+			}).Debug("[STREAMING] Forwarding chunk to SignalR")
+
+			// Serialize chunk to JSON string for SignalR
+			chunkJSON, err := json.Marshal(chunk)
+			if err != nil {
+				h.logger.WithError(err).Error("[STREAMING] Failed to serialize chunk")
+				continue
+			}
+			
+			// Forward chunk to client via SignalR as string
+			err = h.signalRBridge.SendStreamChunk(req.SessionID, string(chunkJSON))
+
+			if err != nil {
+				h.logger.WithError(err).Error("[STREAMING] Failed to forward chunk to SignalR")
+			}
+		}
+
+		h.logger.WithFields(logrus.Fields{
+			"session_id":   req.SessionID,
+			"total_chunks": chunkCount,
+		}).Info("[STREAMING] Finished forwarding chunks to SignalR")
+	}()
+
+	// Return immediate success response
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(SignalRResponse{
+		Success: true,
+		Message: "Streaming started",
 	})
 }

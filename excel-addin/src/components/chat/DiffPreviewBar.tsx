@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { DiffKind, DiffHunk } from '../../types/diff'
 import { EyeIcon, CheckIcon, XMarkIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 
@@ -14,6 +14,13 @@ interface DiffPreviewBarProps {
   isPreviewing: boolean
   hunks: DiffHunk[] | null
   error: string | null
+  streamingContext?: {
+    isStreaming: boolean
+    phase?: 'initial' | 'tool_execution' | 'tool_continuation' | 'final'
+    toolCount?: number
+    currentTool?: number
+  }
+  autoAdvance?: boolean
 }
 
 const DIFF_ICONS: Record<DiffKind, string> = {
@@ -38,9 +45,32 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
   isLoading = false,
   isPreviewing,
   hunks,
-  error
+  error,
+  streamingContext,
+  autoAdvance = false
 }) => {
   const [isExpanded, setIsExpanded] = useState(false)
+  
+  // Keyboard shortcut handlers
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!isPreviewing || isLoading) return
+    
+    // Cmd+Enter or Ctrl+Enter to apply
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault()
+      onApply()
+    }
+    // Escape to cancel
+    else if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+    }
+  }, [isPreviewing, isLoading, onApply, onCancel])
+  
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
   
   log('visual-diff', `[🎨 Diff Apply] DiffPreviewBar rendered.`, { isPreviewing, hunksCount: hunks?.length || 0, isLoading });
   
@@ -80,10 +110,24 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
             <div className="flex-1">
               <div className="font-medium text-sm flex items-center gap-2">
                 Preview Mode
+                {streamingContext?.isStreaming && (
+                  <span className="inline-flex items-center gap-1 text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded">
+                    <span className="animate-pulse">●</span>
+                    AI is working...
+                    {streamingContext.toolCount && streamingContext.currentTool && (
+                      <span>({streamingContext.currentTool}/{streamingContext.toolCount})</span>
+                    )}
+                  </span>
+                )}
                 {isLoading && (
                   <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                     <span className="animate-spin inline-block w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full" />
                     Processing...
+                  </span>
+                )}
+                {autoAdvance && (
+                  <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">
+                    Auto-advance enabled
                   </span>
                 )}
               </div>
@@ -113,10 +157,14 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
               disabled={isLoading || !!error}
               className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white 
                          rounded-md hover:bg-green-700 disabled:bg-gray-400 
-                         disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                         disabled:cursor-not-allowed transition-colors text-sm font-medium group"
+              title="Apply changes (⌘+Enter)"
             >
               <CheckIcon className="h-4 w-4" />
-              Apply
+              <span>Apply</span>
+              <span className="text-xs opacity-75 group-hover:opacity-100 transition-opacity hidden sm:inline">
+                ⌘↵
+              </span>
             </button>
             
             <button
@@ -124,10 +172,14 @@ export const DiffPreviewBar: React.FC<DiffPreviewBarProps> = ({
               disabled={isLoading}
               className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white 
                          rounded-md hover:bg-red-700 disabled:bg-gray-400 
-                         disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                         disabled:cursor-not-allowed transition-colors text-sm font-medium group"
+              title="Cancel preview (Esc)"
             >
               <XMarkIcon className="h-4 w-4" />
-              Cancel
+              <span>Cancel</span>
+              <span className="text-xs opacity-75 group-hover:opacity-100 transition-opacity hidden sm:inline">
+                Esc
+              </span>
             </button>
           </div>
         </div>

@@ -26,6 +26,16 @@ func NewSignalRBridge(signalRURL string) *SignalRBridge {
 
 // ForwardToClient sends a message to a specific client via SignalR
 func (b *SignalRBridge) ForwardToClient(sessionID string, messageType string, data interface{}) error {
+	// Log what we're sending
+	if messageType == "streamChunk" {
+		// Get string representation for logging
+		dataStr := fmt.Sprintf("%v", data)
+		if len(dataStr) > 100 {
+			dataStr = dataStr[:100] + "..."
+		}
+		fmt.Printf("[SignalRBridge] Forwarding streamChunk to session %s: %s\n", sessionID, dataStr)
+	}
+	
 	payload := map[string]interface{}{
 		"sessionId": sessionID,
 		"type":      messageType,
@@ -66,4 +76,9 @@ func (b *SignalRBridge) SendToolRequest(sessionID string, toolRequest interface{
 // SendAIResponse sends an AI response to the client
 func (b *SignalRBridge) SendAIResponse(sessionID string, response interface{}) error {
 	return b.ForwardToClient(sessionID, "aiResponse", response)
+}
+
+// SendStreamChunk sends a streaming chunk to the client
+func (b *SignalRBridge) SendStreamChunk(sessionID string, chunk interface{}) error {
+	return b.ForwardToClient(sessionID, "streamChunk", chunk)
 }

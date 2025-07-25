@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState } from 'react';
-import { StreamChunk, StreamingMessage } from '../types/streaming';
+import { StreamChunk, StreamingMessage, StreamingSession } from '../types/streaming';
 import { ExcelService } from '../services/excel/ExcelService';
 import { useDiffPreview } from './useDiffPreview';
 import { useChatManager } from './useChatManager';
@@ -1068,6 +1068,9 @@ export const useMessageHandlers = (
     }
   }, [chatManager, addDebugLog]);
 
+  // Add streaming session tracking
+  const streamingSessionsRef = useRef<Map<string, StreamingSession>>(new Map());
+
   // Handle individual chunks
   const handleStreamChunk = useCallback((messageId: string, chunk: StreamChunk) => {
     const timestamp = new Date().toISOString();
@@ -1082,6 +1085,8 @@ export const useMessageHandlers = (
       contentLength: chunk.content?.length || 0,
       deltaValue: chunk.delta?.substring(0, 100),
       contentValue: chunk.content?.substring(0, 100),
+      phase: chunk.phase,
+      metadata: chunk.metadata,
       toolCall: chunk.toolCall,
       isDone: chunk.done
     });
@@ -1185,9 +1190,92 @@ export const useMessageHandlers = (
           chatManager.completeToolCall(messageId, chunk.toolCall.id);
           addDebugLog(`Tool completed: ${chunk.toolCall.name}`, 'success');
           
-          // Clear the executing state
-          // TODO: Implement tool execution state tracking
-          // chatManager.setToolExecuting(messageId, chunk.toolCall.id, false);
+          // In streaming mode with default autonomy, generate diff preview
+          if (autonomyMode === 'default' || autonomyMode === 'agent-default') {
+            const session = streamingSessionsRef.current.get(messageId);
+            if (session) {
+              // Add the completed tool to pending tools
+              session.pendingTools.push({
+                id: chunk.toolCall.id,
+                name: chunk.toolCall.name,
+                status: 'queued',
+                input: chunk.toolCall.input
+              });
+              
+              // Create operation for diff preview
+              const operation = {
+                tool: chunk.toolCall.name,
+                input: chunk.toolCall.input,
+                description: `Execute ${chunk.toolCall.name}`
+              };
+              
+              // Generate diff preview
+              const previewMessageId = `stream_preview_${chunk.toolCall.id}`;
+              diffPreview.generatePreview(previewMessageId, [operation]).then(() => {
+                addDebugLog(`Generated diff preview for streaming tool: ${chunk.toolCall.name}`, 'success');
+              }).catch(error => {
+                addDebugLog(`Failed to generate diff preview: ${error}`, 'error');
+              });
+            }
+          }
+        }
+        break;
+        
+      case 'tool_status':
+        if (chunk.toolCall && chunk.content) {
+          try {
+            const status = JSON.parse(chunk.content);
+            addDebugLog(`Tool status update: ${chunk.toolCall.name} - ${status.status}`, 'info');
+            
+            // Update tool progress with status
+            chatManager.updateToolProgress(messageId, chunk.toolCall.id, status.message || status.status);
+          } catch (error) {
+            console.error('[handleStreamChunk] Failed to parse tool status:', error);
+          }
+        }
+        break;
+        
+      case 'phase_change':
+        if (chunk.content) {
+          try {
+            const phaseData = JSON.parse(chunk.content);
+            addDebugLog(`Streaming phase changed to: ${phaseData.phase}`, 'info');
+            
+            // Update or create streaming session
+            let session = streamingSessionsRef.current.get(messageId);
+            if (!session) {
+              session = {
+                messageId,
+                phase: phaseData.phase,
+                pendingTools: [],
+                executedTools: {},
+                contentChunks: [],
+                startTime: Date.now(),
+                lastUpdate: Date.now()
+              };
+              streamingSessionsRef.current.set(messageId, session);
+            } else {
+              session.phase = phaseData.phase;
+              session.lastUpdate = Date.now();
+            }
+            
+            // Add phase indicator to chat
+            if (phaseData.phase === 'tool_execution') {
+              chatManager.updateStreamingMessage(messageId, {
+                metadata: { phase: phaseData.phase, tool_count: phaseData.tool_count }
+              });
+              addDebugLog(`Entering tool execution phase with ${phaseData.tool_count} tools`, 'info');
+            } else if (phaseData.phase === 'tool_continuation') {
+              chatManager.updateStreamingMessage(messageId, {
+                metadata: { phase: phaseData.phase, message: phaseData.message }
+              });
+              addDebugLog('Continuing after tool execution', 'info');
+            } else if (phaseData.phase === 'tools_complete') {
+              addDebugLog('All tools executed successfully', 'success');
+            }
+          } catch (error) {
+            console.error('[handleStreamChunk] Failed to parse phase change:', error);
+          }
         }
         break;
         
@@ -1195,29 +1283,34 @@ export const useMessageHandlers = (
         // Handle tool execution result
         if (chunk.content && chunk.toolCall) {
           try {
-            const result = JSON.parse(chunk.content);
+            const result = typeof chunk.content === 'string' ? JSON.parse(chunk.content) : chunk.content;
+            addDebugLog(`Tool result received: ${chunk.toolCall.id} - ${result.status || 'completed'}`, 'info');
             
-            // Update the streaming message with tool result info
-            chatManager.updateStreamingMessage(messageId, {
-              toolCalls: [{
-                id: chunk.toolCall.id,
-                name: chunk.toolCall.name,
-                status: result.status === 'queued' || result.status === 'queued_for_preview' ? 'queued' : 'complete',
-                output: result,
-                endTime: Date.now()
-              }]
-            });
-            
-            addDebugLog(`Tool result received for ${chunk.toolCall.name}`, 'success');
-            
-            // Check if the tool was queued
-            if (result.status === 'queued' || result.status === 'queued_for_preview') {
-              addDebugLog(`Tool ${chunk.toolCall.name} queued for processing`);
-              // In streaming mode, the tool request will be handled through the normal tool_request flow
-              // No need to duplicate the logic here
+            // Update streaming session
+            const session = streamingSessionsRef.current.get(messageId);
+            if (session) {
+              session.executedTools[chunk.toolCall.id] = result;
+              
+              // Update tool status in UI
+              const tool = session.pendingTools.find(t => t.id === chunk.toolCall.id);
+              if (tool) {
+                tool.status = result.status === 'error' ? 'error' : 'complete';
+                tool.output = result;
+                tool.endTime = Date.now();
+              }
+              
+              // Check if all tools have been executed
+              const allToolsExecuted = session.pendingTools.every(tool => 
+                session.executedTools[tool.id] !== undefined
+              );
+              
+              if (allToolsExecuted && session.pendingTools.length > 0) {
+                addDebugLog('All streaming tools have been executed', 'success');
+                session.phase = 'final';
+              }
             }
           } catch (error) {
-            console.error('Failed to parse tool result:', error);
+            console.error('[handleStreamChunk] Failed to parse tool result:', error);
           }
         }
         break;

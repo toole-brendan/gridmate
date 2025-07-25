@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { PendingAction } from './ActionPreview'
 import { CheckIcon, XMarkIcon, SparklesIcon, ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { useAcceptRejectButtonStyles } from '../../hooks/useAcceptRejectButtonStyles'
@@ -11,6 +11,12 @@ interface PendingActionsPanelProps {
   onRejectOne: (actionId: string) => void
   isProcessing?: boolean
   aiIsGenerating?: boolean
+  streamingContext?: {
+    isStreaming: boolean
+    phase?: 'initial' | 'tool_execution' | 'tool_continuation' | 'final'
+    toolCount?: number
+  }
+  autoAdvance?: boolean
 }
 
 export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
@@ -20,8 +26,29 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
   onAcceptOne,
   onRejectOne,
   isProcessing = false,
-  aiIsGenerating = false
+  aiIsGenerating = false,
+  streamingContext,
+  autoAdvance = false
 }) => {
+  // Add CSS animation for pulse effect
+  useEffect(() => {
+    const style = document.createElement('style')
+    style.textContent = `
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `
+    document.head.appendChild(style)
+    return () => {
+      document.head.removeChild(style)
+    }
+  }, [])
+  
   if (actions.length === 0) return null
   
   // Calculate progress for batch execution
@@ -91,6 +118,39 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
           }}>
             AI wants to perform {actions.length} action{actions.length > 1 ? 's' : ''}
           </h3>
+          {streamingContext?.isStreaming && (
+            <span style={{
+              fontSize: '12px',
+              color: '#6366f1',
+              backgroundColor: '#eef2ff',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}>
+              <span style={{ 
+                width: '6px', 
+                height: '6px', 
+                backgroundColor: '#6366f1',
+                borderRadius: '50%',
+                animation: 'pulse 1.5s ease-in-out infinite'
+              }} />
+              Streaming
+              {streamingContext.toolCount && ` (${streamingContext.toolCount} tools)`}
+            </span>
+          )}
+          {autoAdvance && (
+            <span style={{
+              fontSize: '12px',
+              color: '#d97706',
+              backgroundColor: '#fef3c7',
+              padding: '2px 8px',
+              borderRadius: '12px'
+            }}>
+              Auto-advance
+            </span>
+          )}
         </div>
         
         {/* Show Accept All / Reject All only when AI is done generating */}
@@ -159,6 +219,32 @@ export const PendingActionsPanel: React.FC<PendingActionsPanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* Real-time tool addition indicator for streaming */}
+      {streamingContext?.isStreaming && streamingContext.phase === 'tool_execution' && aiIsGenerating && (
+        <div style={{
+          marginBottom: '12px',
+          backgroundColor: '#eef2ff',
+          border: '1px solid #c7d2fe',
+          borderRadius: '6px',
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '12px',
+          color: '#4338ca'
+        }}>
+          <ArrowPathIcon style={{ 
+            width: '16px', 
+            height: '16px',
+            animation: 'spin 1s linear infinite'
+          }} />
+          <span>
+            AI is analyzing what needs to be done...
+            {streamingContext.toolCount && ` (${streamingContext.toolCount} tools queued)`}
+          </span>
+        </div>
+      )}
 
       {/* Progress bar for batch execution */}
       {isExecutingBatch && actions.length > 1 && (

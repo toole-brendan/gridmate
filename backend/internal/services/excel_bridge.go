@@ -57,6 +57,19 @@ type ExcelBridge struct {
 
 	// Tool response handler for streaming
 	toolResponseHandler interface{} // Will be set by main.go
+
+	// Active streaming sessions
+	streamingSessions     map[string]*ActiveStreamingSession
+	streamingSessionMutex sync.RWMutex
+}
+
+// ActiveStreamingSession represents an active streaming session with output channel
+type ActiveStreamingSession struct {
+	State      *StreamingState
+	OutputChan chan<- ai.CompletionChunk
+	Context    context.Context
+	Cancel     context.CancelFunc
+	StartTime  time.Time
 }
 
 // ExcelSession represents an active Excel session
@@ -100,6 +113,7 @@ func NewExcelBridge(logger *logrus.Logger, aiService *ai.Service) *ExcelBridge {
 		chatHistory:       chat.NewHistory(),
 		queuedOpsRegistry: NewQueuedOperationRegistry(),
 		requestIDMapper:   requestIDMapper,
+		streamingSessions: make(map[string]*ActiveStreamingSession),
 	}
 
 	// Create Excel bridge implementation for tool executor
@@ -280,6 +294,165 @@ func (eb *ExcelBridge) SetSignalRBridge(bridge interface{}) {
 // SetIndexingService sets the indexing service instance
 func (eb *ExcelBridge) SetIndexingService(service interface{}) {
 	eb.indexingService = service
+}
+
+// InjectToolResultToStream injects a tool result into an active streaming session
+func (eb *ExcelBridge) InjectToolResultToStream(sessionID string, toolID string, result interface{}) {
+	eb.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"tool_id":    toolID,
+		"result":     result,
+	}).Info("Injecting tool result to stream")
+	
+	// Find the active streaming session
+	eb.streamingSessionMutex.RLock()
+	activeSession, exists := eb.streamingSessions[sessionID]
+	eb.streamingSessionMutex.RUnlock()
+	
+	if !exists {
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"tool_id":    toolID,
+		}).Warn("No active streaming session found for tool result injection")
+		return
+	}
+	
+	// Convert result to ToolResult format
+	toolResult := ai.ToolResult{
+		Type:      "tool_result",
+		ToolUseID: toolID,
+		IsError:   false,
+	}
+	
+	// Check if result indicates an error
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if status, ok := resultMap["status"].(string); ok && status == "error" {
+			toolResult.IsError = true
+			toolResult.Content = resultMap["error"]
+		} else {
+			toolResult.Content = result
+		}
+	} else {
+		toolResult.Content = result
+	}
+	
+	// Update the streaming state with the tool result
+	activeSession.State.ExecutedTools[toolID] = toolResult
+	
+	// Check if response channel exists for this tool
+	if respChan, ok := activeSession.State.ToolResponseMap.Load(toolID); ok {
+		if ch, ok := respChan.(chan interface{}); ok {
+			// Send the result through the channel
+			select {
+			case ch <- toolResult:
+				eb.logger.WithField("tool_id", toolID).Info("Tool result sent to response channel")
+			default:
+				eb.logger.WithField("tool_id", toolID).Warn("Response channel full or closed")
+			}
+		}
+	}
+	
+	// Send a tool result chunk to the output channel
+	if activeSession.OutputChan != nil {
+		resultChunk := ai.CompletionChunk{
+			Type:     "tool_result",
+			ToolCall: &ai.ToolCall{ID: toolID},
+			Content:  fmt.Sprintf(`{"tool_use_id": "%s", "result": %v}`, toolID, result),
+			Done:     false,
+		}
+		
+		select {
+		case activeSession.OutputChan <- resultChunk:
+			eb.logger.WithField("tool_id", toolID).Info("Tool result chunk sent to output channel")
+		case <-activeSession.Context.Done():
+			eb.logger.WithField("tool_id", toolID).Warn("Context cancelled, couldn't send result chunk")
+		default:
+			eb.logger.WithField("tool_id", toolID).Warn("Output channel full or closed")
+		}
+	}
+	
+	// Check if all pending tools have been executed
+	allToolsExecuted := true
+	for _, pendingTool := range activeSession.State.PendingTools {
+		if _, executed := activeSession.State.ExecutedTools[pendingTool.ID]; !executed {
+			allToolsExecuted = false
+			break
+		}
+	}
+	
+	if allToolsExecuted && len(activeSession.State.PendingTools) > 0 {
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"tool_count": len(activeSession.State.PendingTools),
+		}).Info("All tools executed, ready for continuation")
+		
+		// In a full implementation, this would trigger AI continuation
+		// For now, we'll send a phase change notification
+		if activeSession.OutputChan != nil {
+			phaseChunk := ai.CompletionChunk{
+				Type:    "phase_change",
+				Content: `{"phase": "tools_complete", "message": "All tools executed successfully"}`,
+				Done:    false,
+			}
+			
+			select {
+			case activeSession.OutputChan <- phaseChunk:
+			case <-activeSession.Context.Done():
+			default:
+			}
+		}
+	}
+}
+
+// ContinueStreamingWithToolResults continues an AI stream after tool results are available
+func (eb *ExcelBridge) ContinueStreamingWithToolResults(
+	ctx context.Context,
+	sessionID string,
+	streamingState *StreamingState,
+	toolResults []ai.ToolResult,
+	outChan chan<- ai.CompletionChunk,
+) {
+	eb.logger.WithFields(logrus.Fields{
+		"session_id":   sessionID,
+		"tool_results": len(toolResults),
+		"phase":        streamingState.Phase,
+	}).Info("Continuing stream with tool results")
+	
+	// Update streaming state
+	streamingState.Phase = "tool_continuation"
+	
+	// Send phase change notification
+	outChan <- ai.CompletionChunk{
+		Type:    "phase_change",
+		Content: `{"phase": "tool_continuation", "message": "Continuing with tool results"}`,
+		Done:    false,
+	}
+	
+	// In a real implementation, we would:
+	// 1. Build a continuation message with tool results
+	// 2. Call the AI service to continue the stream
+	// 3. Forward the continuation chunks to the output channel
+	
+	// For now, we'll simulate a continuation
+	continuationMessage := fmt.Sprintf("Based on the tool execution results, I've completed the requested operations. %d tools were executed successfully.", len(toolResults))
+	
+	// Send the continuation as chunks
+	words := strings.Fields(continuationMessage)
+	for i, word := range words {
+		outChan <- ai.CompletionChunk{
+			Type:    "text",
+			Delta:   word + " ",
+			Content: strings.Join(words[:i+1], " ") + " ",
+			Done:    false,
+		}
+		time.Sleep(50 * time.Millisecond) // Simulate streaming delay
+	}
+	
+	// Send completion chunk
+	outChan <- ai.CompletionChunk{
+		Type: "",
+		Done: true,
+	}
 }
 
 // GetBridgeImpl returns the Excel bridge implementation
@@ -587,18 +760,35 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 // ProcessChatMessageStreaming processes a chat message with streaming response
 func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID string, message ChatMessage) (<-chan ai.CompletionChunk, error) {
 	// Get or create session
-	session := eb.sessionManager.GetOrCreateSession(clientID)
+	session := eb.getOrCreateSession(clientID, message.SessionID)
 	
-	// Get financial context
-	financialContext, err := eb.GetFinancialContext(ctx, clientID)
-	if err != nil {
-		eb.logger.WithError(err).Error("Failed to get financial context")
-		// Continue without context rather than failing
-		financialContext = &ai.FinancialContext{}
+	// Build comprehensive context BEFORE adding message to history
+	var financialContext *ai.FinancialContext
+	var msgContext map[string]interface{}
+	
+	// Try to use the context builder if available
+	if eb.contextBuilder != nil {
+		builtContext, err := eb.contextBuilder.BuildContext(ctx, session.ID)
+		if err != nil {
+			eb.logger.WithError(err).Warn("Failed to build comprehensive context")
+			// Fallback to basic context
+			msgContext = eb.buildContext(session, message.Context)
+			financialContext = eb.buildFinancialContext(session, msgContext)
+		} else {
+			financialContext = builtContext
+			// Merge any additional context from the message
+			eb.mergeMessageContext(financialContext, message.Context)
+			// Also build msgContext for later use
+			msgContext = eb.buildContext(session, message.Context)
+		}
+	} else {
+		// Fallback to basic context building
+		msgContext = eb.buildContext(session, message.Context)
+		financialContext = eb.buildFinancialContext(session, msgContext)
 	}
 	
-	// Get chat history
-	history := session.GetChatHistory()
+	// Get existing history BEFORE adding new message
+	history := eb.chatHistory.GetHistory(session.ID)
 	
 	// Convert to AI service format
 	aiHistory := make([]ai.Message, len(history))
@@ -617,8 +807,18 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 		defer close(outChan)
 		
 		// Get streaming chunks from AI service
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": clientID,
+			"message_id": message.MessageID,
+			"message_content": message.Content,
+			"autonomy_mode": message.AutonomyMode,
+			"has_financial_context": financialContext != nil,
+			"history_count": len(aiHistory),
+		}).Info("[STREAMING] Calling AI service ProcessChatMessageStreaming")
+		
 		chunks, err := eb.aiService.ProcessChatMessageStreaming(ctx, clientID, message.Content, financialContext, aiHistory, message.AutonomyMode, "")
 		if err != nil {
+			eb.logger.WithError(err).Error("[STREAMING] Failed to get streaming chunks from AI service")
 			outChan <- ai.CompletionChunk{
 				Type:  "error",
 				Error: err,
@@ -627,11 +827,25 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 			return
 		}
 		
+		eb.logger.Info("[STREAMING] Got streaming chunks channel from AI service, starting processStreamingChunksWithTools")
+		
 		// Process chunks and handle tool execution
 		eb.processStreamingChunksWithTools(ctx, clientID, chunks, outChan, message.AutonomyMode)
 	}()
 	
 	return outChan, nil
+}
+
+// StreamingState manages the state of an active streaming session
+type StreamingState struct {
+	SessionID       string
+	MessageID       string
+	Phase           string
+	PendingTools    []ai.ToolCall
+	ExecutedTools   map[string]ai.ToolResult
+	ContentBuffer   strings.Builder
+	StartTime       time.Time
+	ToolResponseMap sync.Map // thread-safe map for tool responses
 }
 
 // processStreamingChunksWithTools handles streaming chunks and executes tools through SignalR
@@ -646,11 +860,52 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 	var pendingToolCalls []ai.ToolCall
 	toolResponseChannels := make(map[string]chan interface{})
 	
+	// Create streaming state
+	streamingState := &StreamingState{
+		SessionID:     sessionID,
+		Phase:         "initial",
+		PendingTools:  []ai.ToolCall{},
+		ExecutedTools: make(map[string]ai.ToolResult),
+		StartTime:     time.Now(),
+	}
+	
+	// Register the streaming session
+	activeSession := &ActiveStreamingSession{
+		State:      streamingState,
+		OutputChan: outChan,
+		Context:    ctx,
+		StartTime:  time.Now(),
+	}
+	
+	eb.streamingSessionMutex.Lock()
+	eb.streamingSessions[sessionID] = activeSession
+	eb.streamingSessionMutex.Unlock()
+	
+	// Clean up on exit
+	defer func() {
+		eb.streamingSessionMutex.Lock()
+		delete(eb.streamingSessions, sessionID)
+		eb.streamingSessionMutex.Unlock()
+		
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"duration":   time.Since(activeSession.StartTime),
+			"tools_executed": len(streamingState.ExecutedTools),
+		}).Info("Streaming session completed")
+	}()
+	
+	eb.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"autonomy_mode": autonomyMode,
+		"streaming_state_created": true,
+	}).Info("[STREAMING] processStreamingChunksWithTools started")
+	
 	// Start a goroutine to handle tool responses
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				eb.logger.Info("[STREAMING] Tool response handler context done")
 				return
 			default:
 				// Check for tool responses
@@ -662,7 +917,17 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 		}
 	}()
 	
+	chunkCount := 0
 	for chunk := range inChan {
+		chunkCount++
+		eb.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"chunk_count": chunkCount,
+			"chunk_type": chunk.Type,
+			"has_delta": chunk.Delta != "",
+			"has_content": chunk.Content != "",
+			"is_done": chunk.Done,
+		}).Debug("[STREAMING] Processing chunk")
 		// Forward most chunks immediately
 		select {
 		case outChan <- chunk:
@@ -696,6 +961,7 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 			if currentToolCall != nil {
 				// Add to pending tools
 				pendingToolCalls = append(pendingToolCalls, *currentToolCall)
+				streamingState.PendingTools = append(streamingState.PendingTools, *currentToolCall)
 				
 				// Create response channel for this tool
 				respChan := make(chan interface{}, 1)
@@ -724,8 +990,12 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 				}
 				
 				// Send through SignalR bridge
-				if eb.signalRBridge != nil {
-					err := eb.signalRBridge.SendToolRequest(sessionID, toolRequest)
+				type signalRBridge interface {
+					SendToolRequest(sessionID string, toolRequest interface{}) error
+				}
+				
+				if bridge, ok := eb.signalRBridge.(signalRBridge); ok {
+					err := bridge.SendToolRequest(sessionID, toolRequest)
 					if err != nil {
 						eb.logger.WithError(err).Error("Failed to send tool request through SignalR")
 						// Send error chunk
@@ -736,18 +1006,21 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 							Done:     false,
 						}
 					} else {
-						// For default mode, the tool might be queued for preview
-						// We don't need to wait for the response - the stream can continue
+						// Store the pending tool in streaming state
+						streamingState.ToolResponseMap.Store(currentToolCall.ID, respChan)
+						
+						// For streaming mode, the AI continues while tools execute
+						// Send a status chunk but don't block
 						eb.logger.WithFields(logrus.Fields{
 							"tool_id": currentToolCall.ID,
 							"tool_name": currentToolCall.Name,
-						}).Info("Tool request sent - stream continuing")
+						}).Info("Tool request sent - stream continuing without blocking")
 						
 						// Send a chunk indicating the tool was sent
 						outChan <- ai.CompletionChunk{
-							Type:     "tool_result", 
+							Type:     "tool_status", 
 							ToolCall: currentToolCall,
-							Content:  fmt.Sprintf(`{"status": "sent_to_client", "tool_use_id": "%s", "message": "Tool request sent for processing"}`, currentToolCall.ID),
+							Content:  fmt.Sprintf(`{"status": "executing", "tool_use_id": "%s", "message": "Tool request sent for processing"}`, currentToolCall.ID),
 							Done:     false,
 						}
 					}

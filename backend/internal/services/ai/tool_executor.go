@@ -77,7 +77,7 @@ type DataAnalysis struct {
 	Statistics map[string]Stats `json:"statistics,omitempty"`
 	Patterns   []string         `json:"patterns,omitempty"`
 	RowCount   int              `json:"rowCount"`
-	ColCount   int              `json:"colCount"`
+	ColCount   int             `json:"colCount"`
 }
 
 // Stats represents basic statistics
@@ -464,12 +464,23 @@ func (te *ToolExecutor) validateResponseSize(result *ToolResult) (*ToolResult, e
 
 // ExecuteTool executes a tool call and returns the result
 func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolCall ToolCall, autonomyMode string) (*ToolResult, error) {
+	// Check if we're in streaming mode
+	isStreamingMode := false
+	if streaming, ok := ctx.Value("streaming_mode").(bool); ok {
+		isStreamingMode = streaming
+	}
+	
+	// Use the provided autonomy mode without override
+	// The frontend will handle the preview logic based on the mode
+	effectiveAutonomyMode := autonomyMode
+	
 	log.Info().
 		Str("tool", toolCall.Name).
 		Str("session", sessionID).
 		Str("tool_id", toolCall.ID).
 		Interface("input", toolCall.Input).
-		Str("autonomy_mode", autonomyMode).
+		Str("autonomy_mode", effectiveAutonomyMode).
+		Bool("streaming_mode", isStreamingMode).
 		Msg("Executing Excel tool")
 
 	// Add timeout context
@@ -477,7 +488,7 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 	defer cancel()
 
 	// Wrap execution with error handling
-	result, err := te.executeWithErrorHandling(toolCtx, sessionID, toolCall, autonomyMode)
+	result, err := te.executeWithErrorHandling(toolCtx, sessionID, toolCall, effectiveAutonomyMode)
 	if err != nil {
 		toolErr := te.categorizeError(err, toolCall)
 		return &ToolResult{

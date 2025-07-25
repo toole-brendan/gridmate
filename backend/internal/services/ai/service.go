@@ -1088,209 +1088,75 @@ func (s *Service) streamWithToolContinuation(
 	autonomyMode string,
 	outChan chan<- CompletionChunk,
 ) {
-	const maxIterations = 5                      // Prevent infinite loops
-	const toolResponseTimeout = 45 * time.Second // Extended timeout for tool responses
+	const maxIterations = 5 // Prevent infinite loops
 
-	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Get relevant tools
-		tools := s.getRelevantTools(messages[len(messages)-1].Content, financialContext)
+	// For streaming, we only need one iteration since tools are handled asynchronously
+	// The AI can continue generating content while tools are being approved
+	
+	// Get relevant tools
+	tools := s.getRelevantTools(messages[len(messages)-1].Content, financialContext)
 
-		log.Info().
-			Str("session", sessionID).
-			Int("tools_count", len(tools)).
-			Str("autonomy_mode", autonomyMode).
-			Int("iteration", iteration).
-			Msg("Starting streaming iteration with tools")
+	log.Info().
+		Str("session", sessionID).
+		Int("tools_count", len(tools)).
+		Str("autonomy_mode", autonomyMode).
+		Msg("Starting streaming with tools")
 
-		// Create request with streaming enabled
-		request := CompletionRequest{
-			Messages:  messages,
-			MaxTokens: 4096,
-			Tools:     tools,
-			Stream:    true,
+	// Create request with streaming enabled
+	request := CompletionRequest{
+		Messages:  messages,
+		MaxTokens: 4096,
+		Tools:     tools,
+		Stream:    true,
+	}
+
+	// Set tool choice based on autonomy mode
+	switch autonomyMode {
+	case "read-only":
+		// In read-only mode, only allow read tools
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	case "agent-default", "default":
+		// In default mode, allow tools but they'll be queued for approval
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	case "full-autonomy", "yolo":
+		// In full autonomy mode, allow any tools
+		request.ToolChoice = &ToolChoice{Type: "any"}
+	default:
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	}
+
+	// Get streaming response
+	providerChan, err := s.provider.GetStreamingCompletion(ctx, request)
+	if err != nil {
+		// Send error chunk
+		outChan <- CompletionChunk{
+			Type:  "error",
+			Error: err,
+			Done:  true,
 		}
+		return
+	}
 
-		// Set tool choice based on autonomy mode
-		switch autonomyMode {
-		case "ask":
-			request.ToolChoice = &ToolChoice{Type: "none"}
-		case "auto":
-			request.ToolChoice = &ToolChoice{Type: "auto"}
-		case "full":
-			request.ToolChoice = &ToolChoice{Type: "any"}
-		}
-
-		// Get streaming response
-		providerChan, err := s.provider.GetStreamingCompletion(ctx, request)
-		if err != nil {
-			// Send error chunk
-			outChan <- CompletionChunk{
-				Type:  "error",
-				Error: err,
-				Done:  true,
-			}
+	// Forward chunks - the AI can continue even if tools are queued
+	for chunk := range providerChan {
+		// Forward the chunk
+		select {
+		case outChan <- chunk:
+		case <-ctx.Done():
 			return
 		}
 
-		// Track assistant message content and tool calls
-		var assistantContent strings.Builder
-		var toolCalls []ToolCall
-		var currentToolCall *ToolCall
-		hasQueuedTools := false
-		hasExecutedTools := false
-		toolsWaitingForResponse := make(map[string]chan ToolResult)
-
-		// Forward chunks and collect tool calls
-		for chunk := range providerChan {
-			// Forward the chunk
-			select {
-			case outChan <- chunk:
-			case <-ctx.Done():
-				return
-			}
-
-			// Collect content and tool calls
-			switch chunk.Type {
-			case "text":
-				if chunk.Delta != "" {
-					assistantContent.WriteString(chunk.Delta)
-				}
-
-			case "tool_start":
-				if chunk.ToolCall != nil {
-					currentToolCall = &ToolCall{
-						ID:    chunk.ToolCall.ID,
-						Name:  chunk.ToolCall.Name,
-						Input: make(map[string]interface{}),
-					}
-				}
-
-			case "tool_progress":
-				if currentToolCall != nil && chunk.Delta != "" {
-					// Parse and merge the JSON delta
-					var deltaData map[string]interface{}
-					if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
-						for k, v := range deltaData {
-							currentToolCall.Input[k] = v
-						}
-					}
-				}
-
-			case "tool_complete":
-				if currentToolCall != nil {
-					toolCalls = append(toolCalls, *currentToolCall)
-					hasExecutedTools = true
-					currentToolCall = nil
-				}
-
-			case "tool_result":
-				// Handle tool results that come back during streaming
-				if chunk.ToolCall != nil && chunk.Content != "" {
-					// Check if this tool returned queued status
-					var result map[string]interface{}
-					if err := json.Unmarshal([]byte(chunk.Content), &result); err == nil {
-						if status, ok := result["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
-							hasQueuedTools = true
-							log.Info().
-								Str("tool_name", chunk.ToolCall.Name).
-								Str("tool_id", chunk.ToolCall.ID).
-								Msg("Tool returned queued status during streaming")
-						}
-					}
-				}
-			}
-
-			// Check if this is the final chunk
-			if chunk.Done {
-				// If we have executed tools but they're all queued, don't wait or continue
-				if hasExecutedTools && hasQueuedTools && len(toolCalls) > 0 {
-					// Add assistant message to history for context
-					if assistantContent.Len() > 0 {
-						assistantMsg := Message{
-							Role:      "assistant",
-							Content:   assistantContent.String(),
-							ToolCalls: toolCalls,
-						}
-						messages = append(messages, assistantMsg)
-					}
-
-					log.Info().
-						Str("session", sessionID).
-						Int("iteration", iteration).
-						Int("queued_tools", len(toolCalls)).
-						Msg("All tools queued for preview - ending stream gracefully")
-
-					// Send a final informative message if no content was generated
-					if assistantContent.Len() == 0 {
-						outChan <- CompletionChunk{
-							Type:  "text",
-							Delta: "I've queued the requested operations for your review. You can approve or reject them in the preview panel.",
-							Done:  false,
-						}
-					}
-
-					// Send final done chunk
-					outChan <- CompletionChunk{
-						Type: "",
-						Done: true,
-					}
-					return
-				}
-
-				// If we have non-queued tool calls that need responses, wait for them
-				if len(toolCalls) > 0 && !hasQueuedTools {
-					// Add assistant message to history
-					assistantMsg := Message{
-						Role:      "assistant",
-						Content:   assistantContent.String(),
-						ToolCalls: toolCalls,
-					}
-					messages = append(messages, assistantMsg)
-
-					log.Info().
-						Str("session", sessionID).
-						Int("iteration", iteration).
-						Int("tool_calls", len(toolCalls)).
-						Msg("Processing tool results before continuing")
-
-					// Create a context with timeout for waiting
-					waitCtx, cancel := context.WithTimeout(ctx, toolResponseTimeout)
-					defer cancel()
-
-					// Wait for tool responses with timeout
-					toolResults := s.waitForToolResponses(waitCtx, sessionID, toolCalls, toolsWaitingForResponse)
-
-					if len(toolResults) > 0 {
-						// Add tool results message
-						toolResultMsg := Message{
-							Role:        "user",
-							Content:     "", // Empty content for tool results message
-							ToolResults: toolResults,
-						}
-						messages = append(messages, toolResultMsg)
-
-						// Continue to next iteration
-						if iteration < maxIterations-1 {
-							log.Info().
-								Str("session", sessionID).
-								Int("iteration", iteration).
-								Int("tool_results", len(toolResults)).
-								Msg("Received tool responses, continuing conversation")
-							break // Continue to next iteration
-						}
-					}
-				}
-
-				// No more iterations needed - send final done if not already sent
-				if !chunk.Done {
-					outChan <- CompletionChunk{
-						Type: "",
-						Done: true,
-					}
-				}
-				return
-			}
+		// If this is the final chunk, we're done
+		if chunk.Done {
+			return
 		}
+	}
+	
+	// If we reach here, the provider channel closed without a done chunk
+	// Send a done chunk to complete the stream
+	outChan <- CompletionChunk{
+		Type: "",
+		Done: true,
 	}
 }
 

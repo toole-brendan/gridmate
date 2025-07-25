@@ -54,6 +54,9 @@ type ExcelBridge struct {
 
 	// Indexing service for vector memory
 	indexingService interface{} // Will be set by main.go
+
+	// Tool response handler for streaming
+	toolResponseHandler interface{} // Will be set by main.go
 }
 
 // ExcelSession represents an active Excel session
@@ -583,307 +586,186 @@ func (eb *ExcelBridge) ProcessChatMessage(clientID string, message ChatMessage) 
 
 // ProcessChatMessageStreaming processes a chat message with streaming response
 func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID string, message ChatMessage) (<-chan ai.CompletionChunk, error) {
-	session := eb.getOrCreateSession(clientID, message.SessionID)
-
-	// Build financial context from Excel state
-	financialContext := &ai.FinancialContext{
-		CellValues:      make(map[string]interface{}),
-		NamedRanges:     make(map[string]ai.NamedRangeInfo),
-		Formulas:        make(map[string]string),
-		WorkbookName:    "",
-		WorksheetName:   "",
-		SelectedRange:   "",
-		ModelType:       "",
-		RecentChanges:   []ai.CellChange{},
-		DocumentContext: []string{},
+	// Get or create session
+	session := eb.sessionManager.GetOrCreateSession(clientID)
+	
+	// Get financial context
+	financialContext, err := eb.GetFinancialContext(ctx, clientID)
+	if err != nil {
+		eb.logger.WithError(err).Error("Failed to get financial context")
+		// Continue without context rather than failing
+		financialContext = &ai.FinancialContext{}
 	}
-
-	// Populate context from message or session
-	if message.Context != nil {
-		// Extract relevant data from message context
-		if worksheetName, ok := message.Context["worksheet"].(string); ok {
-			financialContext.WorksheetName = worksheetName
-		}
-		if workbookName, ok := message.Context["workbook"].(string); ok {
-			financialContext.WorkbookName = workbookName
-		}
-		if selectedRange, ok := message.Context["selectedRange"].(string); ok {
-			financialContext.SelectedRange = selectedRange
-		}
-		if modelType, ok := message.Context["modelType"].(string); ok {
-			financialContext.ModelType = modelType
-		}
-		// Extract cell values if available
-		if cellData, ok := message.Context["cells"].(map[string]interface{}); ok {
-			financialContext.CellValues = cellData
-		}
-	}
-
+	
 	// Get chat history
-	chatHistory := eb.chatHistory.GetHistory(session.ID)
-	aiHistory := make([]ai.Message, 0, len(chatHistory))
-	for _, msg := range chatHistory {
-		aiHistory = append(aiHistory, ai.Message{
+	history := session.GetChatHistory()
+	
+	// Convert to AI service format
+	aiHistory := make([]ai.Message, len(history))
+	for i, msg := range history {
+		aiHistory[i] = ai.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
-		})
+		}
 	}
-
-	eb.logger.WithFields(logrus.Fields{
-		"session_id":     session.ID,
-		"history_length": len(aiHistory),
-		"autonomy_mode":  message.AutonomyMode,
-	}).Info("Starting streaming chat processing")
-
-	// Call streaming AI service with message ID - use the method that includes history
-	chunks, err := eb.aiService.ProcessChatWithToolsAndHistoryStreaming(
-		ctx,
-		session.ID,
-		message.Content,
-		financialContext,
-		aiHistory,
-		message.AutonomyMode,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a new channel to forward chunks with proper buffering
-	outChan := make(chan ai.CompletionChunk, 1) // Smaller buffer to ensure streaming
-
+	
+	// Create output channel
+	outChan := make(chan ai.CompletionChunk, 10)
+	
+	// Process in a goroutine to handle tool execution
 	go func() {
 		defer close(outChan)
-
-		var fullContent strings.Builder
-		var collectedToolCalls []ai.ToolCall
-		var currentToolCall *ai.ToolCall
-		var queuedOperations []map[string]interface{}
-
-		chunkCount := 0
-		for chunk := range chunks {
-			chunkCount++
-			// Log chunk details for debugging
-			if chunkCount <= 5 || chunk.Done { // Log first 5 chunks and done chunk
-				eb.logger.WithFields(logrus.Fields{
-					"chunk_number": chunkCount,
-					"chunk_type":   chunk.Type,
-					"has_delta":    chunk.Delta != "",
-					"delta_length": len(chunk.Delta),
-					"is_done":      chunk.Done,
-					"session_id":   session.ID,
-				}).Debug("Processing streaming chunk")
+		
+		// Get streaming chunks from AI service
+		chunks, err := eb.aiService.ProcessChatMessageStreaming(ctx, clientID, message.Content, financialContext, aiHistory, message.AutonomyMode, "")
+		if err != nil {
+			outChan <- ai.CompletionChunk{
+				Type:  "error",
+				Error: err,
+				Done:  true,
 			}
-			
-			// Forward the chunk immediately
+			return
+		}
+		
+		// Process chunks and handle tool execution
+		eb.processStreamingChunksWithTools(ctx, clientID, chunks, outChan, message.AutonomyMode)
+	}()
+	
+	return outChan, nil
+}
+
+// processStreamingChunksWithTools handles streaming chunks and executes tools through SignalR
+func (eb *ExcelBridge) processStreamingChunksWithTools(
+	ctx context.Context,
+	sessionID string,
+	inChan <-chan ai.CompletionChunk,
+	outChan chan<- ai.CompletionChunk,
+	autonomyMode string,
+) {
+	var currentToolCall *ai.ToolCall
+	var pendingToolCalls []ai.ToolCall
+	toolResponseChannels := make(map[string]chan interface{})
+	
+	// Start a goroutine to handle tool responses
+	go func() {
+		for {
 			select {
-			case outChan <- chunk:
-				// Successfully sent
 			case <-ctx.Done():
-				// Context cancelled
-				eb.logger.Info("Streaming cancelled by client", "session_id", session.ID, "chunks_sent", chunkCount)
 				return
-			}
-
-			// Handle different chunk types
-			switch chunk.Type {
-			case "text":
-				// Accumulate content for history
-				if chunk.Content != "" {
-					fullContent.WriteString(chunk.Content)
-				}
-
-			case "tool_start":
-				// Start collecting a new tool call
-				if chunk.ToolCall != nil {
-					currentToolCall = &ai.ToolCall{
-						ID:    chunk.ToolCall.ID,
-						Name:  chunk.ToolCall.Name,
-						Input: make(map[string]interface{}),
-					}
-				}
-
-			case "tool_progress":
-				// Accumulate tool input data
-				if currentToolCall != nil && chunk.Delta != "" {
-					// Parse and merge the JSON delta into the tool call input
-					var deltaData map[string]interface{}
-					if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
-						for k, v := range deltaData {
-							currentToolCall.Input[k] = v
-						}
-					}
-				}
-
-			case "tool_complete":
-				// Tool call is complete, execute it immediately
-				if currentToolCall != nil {
-					// Execute the tool immediately
-					eb.logger.WithFields(logrus.Fields{
-						"tool_name": currentToolCall.Name,
-						"tool_id":   currentToolCall.ID,
-					}).Info("Executing tool during stream")
-
-					// Add message ID to context for tool executor
-					toolCtx := ctx
-					if message.MessageID != "" {
-						toolCtx = context.WithValue(ctx, "message_id", message.MessageID)
-					}
-
-					// Process the single tool call
-					toolResults, err := eb.aiService.ProcessToolCallsWithMessageID(toolCtx, session.ID, []ai.ToolCall{*currentToolCall}, message.AutonomyMode, message.MessageID)
-
-					// Create a tool result chunk
-					var resultChunk ai.CompletionChunk
-					var isQueued bool
-
-					if err != nil {
-						eb.logger.WithError(err).Error("Tool execution failed during stream")
-						resultChunk = ai.CompletionChunk{
-							Type:     "tool_result",
-							ToolCall: currentToolCall,
-							Content:  fmt.Sprintf("Tool execution failed: %v", err),
-							Error:    err,
-							Done:     false,
-						}
-					} else if len(toolResults) > 0 {
-						// Check if the tool result indicates queued status
-						if toolResults[0].Content != nil {
-							if resultMap, ok := toolResults[0].Content.(map[string]interface{}); ok {
-								if status, ok := resultMap["status"].(string); ok && (status == "queued" || status == "queued_for_preview") {
-									isQueued = true
-
-									// Extract action data from the result
-									if action, ok := resultMap["action"].(map[string]interface{}); ok {
-										// Create a queued operation info
-										queuedOp := map[string]interface{}{
-											"type":         "preview_queued",
-											"operation_id": currentToolCall.ID,
-											"tool_type":    currentToolCall.Name,
-											"input":        currentToolCall.Input,
-											"preview":      resultMap["preview"],
-											"preview_type": action["preview_type"],
-											"description":  action["description"],
-										}
-										queuedOperations = append(queuedOperations, queuedOp)
-
-										eb.logger.WithFields(logrus.Fields{
-											"tool_name": currentToolCall.Name,
-											"tool_id":   currentToolCall.ID,
-											"preview":   action["description"],
-										}).Info("Tool queued for preview during stream")
-									}
-								}
-							}
-						}
-
-						// Convert tool result to JSON for streaming
-						resultJSON, _ := json.Marshal(toolResults[0])
-						resultChunk = ai.CompletionChunk{
-							Type:     "tool_result",
-							ToolCall: currentToolCall,
-							Content:  string(resultJSON),
-							Done:     false,
-						}
-					}
-
-					// Send the tool result chunk
-					select {
-					case outChan <- resultChunk:
-						eb.logger.WithFields(logrus.Fields{
-							"tool_name": currentToolCall.Name,
-							"has_error": err != nil,
-							"is_queued": isQueued,
-						}).Debug("Sent tool result chunk")
-					case <-ctx.Done():
-						return
-					}
-
-					// If the tool result is queued, we should continue the AI stream
-					// to allow it to generate more content or tool calls
-					if isQueued {
-						eb.logger.WithFields(logrus.Fields{
-							"tool_name": currentToolCall.Name,
-							"tool_id":   currentToolCall.ID,
-						}).Info("Tool returned queued status, AI should continue generating")
-
-						// Note: The AI provider should continue streaming after receiving
-						// the tool result. If it doesn't, we may need to implement a
-						// continuation mechanism here.
-					}
-
-					// Add to collected tool calls for tracking
-					collectedToolCalls = append(collectedToolCalls, *currentToolCall)
-					currentToolCall = nil
-				}
-			}
-
-			// If this is the final chunk, save to history and send actions
-			if chunk.Done {
-				// Save the complete message to history
-				if fullContent.Len() > 0 {
-					eb.chatHistory.AddMessage(session.ID, "assistant", fullContent.String())
-				}
-
-				// If we have queued operations, send them as actions
-				if len(queuedOperations) > 0 {
-					actionsChunk := ai.CompletionChunk{
-						Type:    "actions",
-						Content: "queued_operations",
-						Done:    false,
-					}
-					// Marshal the actions as the delta
-					if actionsJSON, err := json.Marshal(queuedOperations); err == nil {
-						actionsChunk.Delta = string(actionsJSON)
-					}
-
-					// Send the actions chunk before the final done chunk
-					select {
-					case outChan <- actionsChunk:
-						eb.logger.WithFields(logrus.Fields{
-							"operations_count": len(queuedOperations),
-						}).Info("Sent queued operations as actions chunk")
-					case <-ctx.Done():
-						return
-					}
-				}
-
-				eb.logger.WithFields(logrus.Fields{
-					"session_id":        session.ID,
-					"content_length":    fullContent.Len(),
-					"tool_calls_count":  len(collectedToolCalls),
-					"queued_operations": len(queuedOperations),
-					"total_chunks":      chunkCount,
-				}).Info("Streaming completed")
-
-				// Track AI-edited ranges in session context if any tools were executed
-				if len(collectedToolCalls) > 0 {
-					var editedRanges []string
-					for _, toolCall := range collectedToolCalls {
-						if rangeStr, ok := toolCall.Input["range"].(string); ok {
-							if toolCall.Name == "write_range" || toolCall.Name == "apply_formula" || toolCall.Name == "format_range" {
-								editedRanges = append(editedRanges, rangeStr)
-							}
-						}
-					}
-
-					// Update session selection to include all AI-edited ranges
-					if len(editedRanges) > 0 {
-						mergedRange := eb.mergeRanges(editedRanges)
-						session.Selection.SelectedRange = mergedRange
-
-						eb.logger.WithFields(logrus.Fields{
-							"session_id":    session.ID,
-							"edited_ranges": editedRanges,
-							"merged_range":  mergedRange,
-						}).Info("Updated session selection to union of AI-edited ranges for context expansion")
-					}
+			default:
+				// Check for tool responses
+				if eb.toolResponseHandler != nil {
+					// This will be handled by the SignalR response handler
+					time.Sleep(100 * time.Millisecond)
 				}
 			}
 		}
 	}()
-
-	return outChan, nil
+	
+	for chunk := range inChan {
+		// Forward most chunks immediately
+		select {
+		case outChan <- chunk:
+		case <-ctx.Done():
+			return
+		}
+		
+		// Handle tool-related chunks
+		switch chunk.Type {
+		case "tool_start":
+			if chunk.ToolCall != nil {
+				currentToolCall = &ai.ToolCall{
+					ID:    chunk.ToolCall.ID,
+					Name:  chunk.ToolCall.Name,
+					Input: make(map[string]interface{}),
+				}
+			}
+			
+		case "tool_progress":
+			if currentToolCall != nil && chunk.Delta != "" {
+				// Parse and merge the JSON delta
+				var deltaData map[string]interface{}
+				if err := json.Unmarshal([]byte(chunk.Delta), &deltaData); err == nil {
+					for k, v := range deltaData {
+						currentToolCall.Input[k] = v
+					}
+				}
+			}
+			
+		case "tool_complete":
+			if currentToolCall != nil {
+				// Add to pending tools
+				pendingToolCalls = append(pendingToolCalls, *currentToolCall)
+				
+				// Create response channel for this tool
+				respChan := make(chan interface{}, 1)
+				toolResponseChannels[currentToolCall.ID] = respChan
+				
+				// Execute the tool through SignalR
+				eb.logger.WithFields(logrus.Fields{
+					"tool_name": currentToolCall.Name,
+					"tool_id":   currentToolCall.ID,
+					"streaming": true,
+					"autonomy_mode": autonomyMode,
+				}).Info("Sending tool request through SignalR during streaming")
+				
+				// Create tool request
+				toolRequest := map[string]interface{}{
+					"request_id": currentToolCall.ID,
+					"tool":       currentToolCall.Name,
+					"parameters": currentToolCall.Input,
+					"streaming_mode": true,
+					"autonomy_mode": autonomyMode, // Pass autonomy mode
+				}
+				
+				// Add all input fields to the request
+				for k, v := range currentToolCall.Input {
+					toolRequest[k] = v
+				}
+				
+				// Send through SignalR bridge
+				if eb.signalRBridge != nil {
+					err := eb.signalRBridge.SendToolRequest(sessionID, toolRequest)
+					if err != nil {
+						eb.logger.WithError(err).Error("Failed to send tool request through SignalR")
+						// Send error chunk
+						outChan <- ai.CompletionChunk{
+							Type:     "tool_result",
+							ToolCall: currentToolCall,
+							Content:  fmt.Sprintf(`{"error": "Failed to send tool request: %v"}`, err),
+							Done:     false,
+						}
+					} else {
+						// For default mode, the tool might be queued for preview
+						// We don't need to wait for the response - the stream can continue
+						eb.logger.WithFields(logrus.Fields{
+							"tool_id": currentToolCall.ID,
+							"tool_name": currentToolCall.Name,
+						}).Info("Tool request sent - stream continuing")
+						
+						// Send a chunk indicating the tool was sent
+						outChan <- ai.CompletionChunk{
+							Type:     "tool_result", 
+							ToolCall: currentToolCall,
+							Content:  fmt.Sprintf(`{"status": "sent_to_client", "tool_use_id": "%s", "message": "Tool request sent for processing"}`, currentToolCall.ID),
+							Done:     false,
+						}
+					}
+				}
+				
+				currentToolCall = nil
+			}
+			
+		case "":
+			// Done chunk - the stream is complete
+			if chunk.Done && len(pendingToolCalls) > 0 {
+				eb.logger.WithFields(logrus.Fields{
+					"pending_tools": len(pendingToolCalls),
+					"autonomy_mode": autonomyMode,
+				}).Info("Stream completed with pending tool executions")
+			}
+		}
+	}
 }
 
 // GetCellValue retrieves a cell value from cache or requests it

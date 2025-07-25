@@ -30,7 +30,8 @@ export const useMessageHandlers = (
   const sendFinalToolResponse = useCallback(async (
     requestId: string, 
     result: any, 
-    error: string | null
+    error: string | null,
+    isStreamingMode: boolean = false
   ) => {
     const responseData = {
       sessionId: signalRClientRef.current?.sessionId || '',
@@ -38,7 +39,9 @@ export const useMessageHandlers = (
       result: result,
       error: error || '',
       errorDetails: error || '',
-      metadata: {},
+      metadata: {
+        streaming_mode: isStreamingMode
+      },
       timestamp: new Date().toISOString(),
       queued: false,
       acknowledged: false
@@ -253,7 +256,8 @@ export const useMessageHandlers = (
         await sendFinalToolResponse(
           request.request_id,
           result || null,
-          result ? null : 'Failed to read range'
+          result ? null : 'Failed to read range',
+          false // Batch reads are not in streaming mode
         );
       }
       
@@ -267,7 +271,8 @@ export const useMessageHandlers = (
         await sendFinalToolResponse(
           request.request_id,
           null,
-          error instanceof Error ? error.message : 'Batch processing failed'
+          error instanceof Error ? error.message : 'Batch processing failed',
+          false // Batch reads are not in streaming mode
         );
       }
     }
@@ -283,8 +288,13 @@ export const useMessageHandlers = (
     console.log('[DEBUG] Current autonomy mode:', autonomyMode);
     console.log('[DEBUG] Tool request parameters:', toolRequest.parameters);
     
-    // Auto-accept any existing preview before showing new one
-    if (pendingPreviewRef.current.size > 0) {
+    // Check if we're in streaming mode by checking if there's an active streaming message
+    const isStreamingMode = chatManager.messages.some(msg => 
+      'isStreaming' in msg && msg.isStreaming === true
+    );
+    
+    // Auto-accept any existing preview before showing new one (only in non-streaming mode)
+    if (!isStreamingMode && pendingPreviewRef.current.size > 0) {
       addDebugLog(`Auto-accepting ${pendingPreviewRef.current.size} pending previews before new tool request`, 'info');
       
       // Get the first pending preview (should only be one)
@@ -303,18 +313,34 @@ export const useMessageHandlers = (
     if (!toolRequest || typeof toolRequest !== 'object' || !toolRequest.tool) {
       const errorMsg = `Invalid tool request structure`;
       addDebugLog(errorMsg, 'error');
-      await sendFinalToolResponse(toolRequest.request_id, null, errorMsg);
+      await sendFinalToolResponse(toolRequest.request_id, null, errorMsg, isStreamingMode);
       return;
     }
     
     // Process the tool based on type
     if (WRITE_TOOLS.has(toolRequest.tool)) {
-      // Check if preview is requested
-      // If preview is explicitly set to true, use preview mode
-      const shouldPreview = (toolRequest.preview === true || (toolRequest.preview !== false && autonomyMode !== 'full-autonomy'));
+      // Determine if we should preview based on autonomy mode and tool type
+      let shouldPreview = false;
+      
+      if (autonomyMode === 'read-only') {
+        // In read-only mode, reject all write operations
+        const errorMsg = `Write operation ${toolRequest.tool} not allowed in read-only mode`;
+        addDebugLog(errorMsg, 'warning');
+        await sendFinalToolResponse(toolRequest.request_id, null, errorMsg, isStreamingMode);
+        return;
+      } else if (autonomyMode === 'full-autonomy' || autonomyMode === 'yolo') {
+        // In full-autonomy/yolo mode, execute immediately
+        shouldPreview = false;
+      } else if (autonomyMode === 'agent-default' || autonomyMode === 'default') {
+        // In default mode, show preview for write operations (even in streaming)
+        shouldPreview = true;
+      } else {
+        // For any other mode, check the preview flag
+        shouldPreview = toolRequest.preview !== false;
+      }
       
       // Debug logging for preview mode
-      addDebugLog(`Tool ${toolRequest.tool} - preview: ${toolRequest.preview}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
+      addDebugLog(`Tool ${toolRequest.tool} - streaming: ${isStreamingMode}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
       
       // Log tool execution
       AuditLogger.logToolExecution({
@@ -327,7 +353,7 @@ export const useMessageHandlers = (
       });
       
       if (shouldPreview) {
-        // Add to queue instead of showing immediately
+        // Add to queue for preview (even in streaming mode for default autonomy)
         addDebugLog(`Tool ${toolRequest.tool} adding to preview queue`);
         operationQueueRef.current.push(toolRequest);
         
@@ -348,9 +374,19 @@ export const useMessageHandlers = (
             }
           }, 200);
         }
+        
+        // In streaming mode, send a response indicating the tool is queued
+        if (isStreamingMode) {
+          await sendFinalToolResponse(
+            toolRequest.request_id, 
+            { status: 'queued_for_preview', message: 'Operation queued for user approval' }, 
+            null, 
+            isStreamingMode
+          );
+        }
       } else {
-        // Execute immediately without preview
-        addDebugLog(`Tool ${toolRequest.tool} executing immediately`);
+        // Execute immediately without preview (full-autonomy mode)
+        addDebugLog(`Tool ${toolRequest.tool} executing immediately (autonomy: ${autonomyMode})`);
         try {
           const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
           
@@ -370,30 +406,41 @@ export const useMessageHandlers = (
             }
           }
           
-          await sendFinalToolResponse(toolRequest.request_id, result, null);
+          await sendFinalToolResponse(toolRequest.request_id, result, null, isStreamingMode);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Operation failed';
-          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
+          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage, isStreamingMode);
         }
       }
     } else if (toolRequest.tool === 'read_range') {
-      // Batch read_range requests for performance
-      addDebugLog(`Tool ${toolRequest.tool} is read-only. Adding to batch queue.`);
-      addLog('info', `[Message Handler] Adding read_range request to batch queue`);
-      
-      // Add to queue
-      readRequestQueue.current.push(toolRequest);
-      
-      // Clear existing timeout and set new one
-      if (batchTimeout.current) {
-        clearTimeout(batchTimeout.current);
+      // In streaming mode, execute read operations immediately
+      if (isStreamingMode) {
+        addDebugLog(`Tool ${toolRequest.tool} executing immediately in streaming mode`);
+        try {
+          const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
+          await sendFinalToolResponse(toolRequest.request_id, result, null, isStreamingMode);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Read operation failed';
+          await sendFinalToolResponse(toolRequest.request_id, null, errorMessage, isStreamingMode);
+        }
+      } else {
+        // Batch read_range requests for performance in non-streaming mode
+        addDebugLog(`Tool ${toolRequest.tool} is read-only. Adding to batch queue.`);
+        addLog('info', `[Message Handler] Adding read_range request to batch queue`);
+        
+        // Add to queue
+        readRequestQueue.current.push(toolRequest);
+        
+        // Clear existing timeout and set new one
+        if (batchTimeout.current) {
+          clearTimeout(batchTimeout.current);
+        }
+        
+        // Process batch after 50ms of no new requests
+        batchTimeout.current = setTimeout(() => {
+          processReadBatch();
+        }, 50);
       }
-      
-      // Process batch after 50ms of no new requests
-      batchTimeout.current = setTimeout(() => {
-        processReadBatch();
-      }, 50);
-      
     } else {
       // Execute immediately for other tools
       addDebugLog(`Tool ${toolRequest.tool} is read-only. Executing immediately.`);
@@ -413,7 +460,7 @@ export const useMessageHandlers = (
         });
 
         // Send the final result back to the backend
-        await sendFinalToolResponse(toolRequest.request_id, result, null);
+        await sendFinalToolResponse(toolRequest.request_id, result, null, isStreamingMode);
 
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during tool execution.';
@@ -430,10 +477,10 @@ export const useMessageHandlers = (
         });
 
         // Send error response
-        await sendFinalToolResponse(toolRequest.request_id, null, errorMessage);
+        await sendFinalToolResponse(toolRequest.request_id, null, errorMessage, isStreamingMode);
       }
     }
-  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch, startProcessingQueue]);
+  }, [addDebugLog, addLog, autonomyMode, sendAcknowledgment, sendFinalToolResponse, showOperationPreview, processReadBatch, startProcessingQueue, chatManager]);
 
   const handleAIResponse = useCallback((response: SignalRAIResponse) => {
     addDebugLog(`AI response received: ${response.content?.substring(0, 50) || ''}...`);
@@ -704,7 +751,7 @@ export const useMessageHandlers = (
       }
       
       // Send final response to backend
-      await sendFinalToolResponse(requestId, result, null);
+      await sendFinalToolResponse(requestId, result, null, false); // Previews are not in streaming mode
       
       // Remove from pending
       pendingPreviewRef.current.delete(requestId);
@@ -725,7 +772,7 @@ export const useMessageHandlers = (
       }, 200);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Operation failed';
-      await sendFinalToolResponse(requestId, null, errorMessage);
+      await sendFinalToolResponse(requestId, null, errorMessage, false); // Previews are not in streaming mode
       pendingPreviewRef.current.delete(requestId);
       chatManager.removeMessage(`preview_${requestId}`);
       operationQueueRef.current.shift();
@@ -769,7 +816,7 @@ export const useMessageHandlers = (
     await diffPreview.rejectCurrentPreview();
     
     // Send rejection response to backend
-    await sendFinalToolResponse(requestId, null, 'Operation rejected by user');
+    await sendFinalToolResponse(requestId, null, 'Operation rejected by user', false); // Previews are not in streaming mode
     
     // Remove from pending
     pendingPreviewRef.current.delete(requestId);
@@ -1165,7 +1212,9 @@ export const useMessageHandlers = (
             
             // Check if the tool was queued
             if (result.status === 'queued' || result.status === 'queued_for_preview') {
-              addDebugLog(`Tool ${chunk.toolCall.name} queued for preview`);
+              addDebugLog(`Tool ${chunk.toolCall.name} queued for processing`);
+              // In streaming mode, the tool request will be handled through the normal tool_request flow
+              // No need to duplicate the logic here
             }
           } catch (error) {
             console.error('Failed to parse tool result:', error);

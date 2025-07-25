@@ -1090,79 +1090,73 @@ func (s *Service) streamWithToolContinuation(
 ) {
 	const maxIterations = 5 // Prevent infinite loops
 
-	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Get relevant tools
-		tools := s.getRelevantTools(messages[len(messages)-1].Content, financialContext)
+	// For streaming, we only need one iteration since tools are handled asynchronously
+	// The AI can continue generating content while tools are being approved
+	
+	// Get relevant tools
+	tools := s.getRelevantTools(messages[len(messages)-1].Content, financialContext)
 
-		log.Info().
-			Str("session", sessionID).
-			Int("tools_count", len(tools)).
-			Str("autonomy_mode", autonomyMode).
-			Int("iteration", iteration).
-			Msg("Starting streaming iteration with tools")
+	log.Info().
+		Str("session", sessionID).
+		Int("tools_count", len(tools)).
+		Str("autonomy_mode", autonomyMode).
+		Msg("Starting streaming with tools")
 
-		// Create request with streaming enabled
-		request := CompletionRequest{
-			Messages:  messages,
-			MaxTokens: 4096,
-			Tools:     tools,
-			Stream:    true,
+	// Create request with streaming enabled
+	request := CompletionRequest{
+		Messages:  messages,
+		MaxTokens: 4096,
+		Tools:     tools,
+		Stream:    true,
+	}
+
+	// Set tool choice based on autonomy mode
+	switch autonomyMode {
+	case "read-only":
+		// In read-only mode, only allow read tools
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	case "agent-default", "default":
+		// In default mode, allow tools but they'll be queued for approval
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	case "full-autonomy", "yolo":
+		// In full autonomy mode, allow any tools
+		request.ToolChoice = &ToolChoice{Type: "any"}
+	default:
+		request.ToolChoice = &ToolChoice{Type: "auto"}
+	}
+
+	// Get streaming response
+	providerChan, err := s.provider.GetStreamingCompletion(ctx, request)
+	if err != nil {
+		// Send error chunk
+		outChan <- CompletionChunk{
+			Type:  "error",
+			Error: err,
+			Done:  true,
 		}
+		return
+	}
 
-		// Set tool choice based on autonomy mode
-		switch autonomyMode {
-		case "ask":
-			request.ToolChoice = &ToolChoice{Type: "none"}
-		case "auto":
-			request.ToolChoice = &ToolChoice{Type: "auto"}
-		case "full":
-			request.ToolChoice = &ToolChoice{Type: "any"}
-		}
-
-		// Get streaming response
-		providerChan, err := s.provider.GetStreamingCompletion(ctx, request)
-		if err != nil {
-			// Send error chunk
-			outChan <- CompletionChunk{
-				Type:  "error",
-				Error: err,
-				Done:  true,
-			}
+	// Forward chunks - the AI can continue even if tools are queued
+	for chunk := range providerChan {
+		// Forward the chunk
+		select {
+		case outChan <- chunk:
+		case <-ctx.Done():
 			return
 		}
 
-		// Track if we've sent any tool calls
-		hasToolCalls := false
-
-		// Forward chunks
-		for chunk := range providerChan {
-			// Check for tool-related chunks
-			if chunk.Type == "tool_complete" && chunk.ToolCall != nil {
-				hasToolCalls = true
-			}
-
-			// Forward the chunk
-			select {
-			case outChan <- chunk:
-			case <-ctx.Done():
-				return
-			}
-
-			// If this is the final chunk
-			if chunk.Done {
-				// In streaming mode, tools are handled by the client
-				// No need to wait or continue iterations
-				return
-			}
+		// If this is the final chunk, we're done
+		if chunk.Done {
+			return
 		}
-		
-		// If we reach here, the provider channel closed without a done chunk
-		// Send a done chunk to complete the stream
-		outChan <- CompletionChunk{
-			Type: "",
-			Done: true,
-		}
-		return
+	}
+	
+	// If we reach here, the provider channel closed without a done chunk
+	// Send a done chunk to complete the stream
+	outChan <- CompletionChunk{
+		Type: "",
+		Done: true,
 	}
 }
 

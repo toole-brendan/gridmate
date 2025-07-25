@@ -77,7 +77,7 @@ type DataAnalysis struct {
 	Statistics map[string]Stats `json:"statistics,omitempty"`
 	Patterns   []string         `json:"patterns,omitempty"`
 	RowCount   int              `json:"rowCount"`
-	ColCount   int              `json:"colCount"`
+	ColCount   int             `json:"colCount"`
 }
 
 // Stats represents basic statistics
@@ -470,19 +470,9 @@ func (te *ToolExecutor) ExecuteTool(ctx context.Context, sessionID string, toolC
 		isStreamingMode = streaming
 	}
 	
-	// Override autonomy mode for streaming
+	// Use the provided autonomy mode without override
+	// The frontend will handle the preview logic based on the mode
 	effectiveAutonomyMode := autonomyMode
-	if isStreamingMode && autonomyMode == "agent-default" {
-		// Force immediate execution in streaming mode
-		effectiveAutonomyMode = "full-autonomy"
-		log.Info().
-			Str("tool", toolCall.Name).
-			Str("session", sessionID).
-			Str("original_autonomy", autonomyMode).
-			Str("effective_autonomy", effectiveAutonomyMode).
-			Bool("streaming_mode", true).
-			Msg("Overriding autonomy mode for streaming")
-	}
 	
 	log.Info().
 		Str("tool", toolCall.Name).

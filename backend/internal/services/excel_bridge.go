@@ -54,6 +54,9 @@ type ExcelBridge struct {
 
 	// Indexing service for vector memory
 	indexingService interface{} // Will be set by main.go
+
+	// Tool response handler for streaming
+	toolResponseHandler interface{} // Will be set by main.go
 }
 
 // ExcelSession represents an active Excel session
@@ -641,6 +644,23 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 ) {
 	var currentToolCall *ai.ToolCall
 	var pendingToolCalls []ai.ToolCall
+	toolResponseChannels := make(map[string]chan interface{})
+	
+	// Start a goroutine to handle tool responses
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Check for tool responses
+				if eb.toolResponseHandler != nil {
+					// This will be handled by the SignalR response handler
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+	}()
 	
 	for chunk := range inChan {
 		// Forward most chunks immediately
@@ -677,11 +697,16 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 				// Add to pending tools
 				pendingToolCalls = append(pendingToolCalls, *currentToolCall)
 				
+				// Create response channel for this tool
+				respChan := make(chan interface{}, 1)
+				toolResponseChannels[currentToolCall.ID] = respChan
+				
 				// Execute the tool through SignalR
 				eb.logger.WithFields(logrus.Fields{
 					"tool_name": currentToolCall.Name,
 					"tool_id":   currentToolCall.ID,
 					"streaming": true,
+					"autonomy_mode": autonomyMode,
 				}).Info("Sending tool request through SignalR during streaming")
 				
 				// Create tool request
@@ -689,7 +714,8 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 					"request_id": currentToolCall.ID,
 					"tool":       currentToolCall.Name,
 					"parameters": currentToolCall.Input,
-					"streaming_mode": true, // Mark as streaming
+					"streaming_mode": true,
+					"autonomy_mode": autonomyMode, // Pass autonomy mode
 				}
 				
 				// Add all input fields to the request
@@ -710,11 +736,18 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 							Done:     false,
 						}
 					} else {
-						// Send a tool_result chunk indicating the tool was sent for execution
+						// For default mode, the tool might be queued for preview
+						// We don't need to wait for the response - the stream can continue
+						eb.logger.WithFields(logrus.Fields{
+							"tool_id": currentToolCall.ID,
+							"tool_name": currentToolCall.Name,
+						}).Info("Tool request sent - stream continuing")
+						
+						// Send a chunk indicating the tool was sent
 						outChan <- ai.CompletionChunk{
 							Type:     "tool_result", 
 							ToolCall: currentToolCall,
-							Content:  fmt.Sprintf(`{"status": "sent_to_client", "tool_use_id": "%s"}`, currentToolCall.ID),
+							Content:  fmt.Sprintf(`{"status": "sent_to_client", "tool_use_id": "%s", "message": "Tool request sent for processing"}`, currentToolCall.ID),
 							Done:     false,
 						}
 					}
@@ -724,10 +757,11 @@ func (eb *ExcelBridge) processStreamingChunksWithTools(
 			}
 			
 		case "":
-			// Done chunk - check if we have pending tools
+			// Done chunk - the stream is complete
 			if chunk.Done && len(pendingToolCalls) > 0 {
 				eb.logger.WithFields(logrus.Fields{
 					"pending_tools": len(pendingToolCalls),
+					"autonomy_mode": autonomyMode,
 				}).Info("Stream completed with pending tool executions")
 			}
 		}

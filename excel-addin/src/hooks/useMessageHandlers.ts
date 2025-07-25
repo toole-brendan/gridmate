@@ -319,12 +319,28 @@ export const useMessageHandlers = (
     
     // Process the tool based on type
     if (WRITE_TOOLS.has(toolRequest.tool)) {
-      // In streaming mode, always execute immediately without preview
-      const shouldPreview = !isStreamingMode && 
-        (toolRequest.preview === true || (toolRequest.preview !== false && autonomyMode !== 'full-autonomy'));
+      // Determine if we should preview based on autonomy mode and tool type
+      let shouldPreview = false;
+      
+      if (autonomyMode === 'read-only') {
+        // In read-only mode, reject all write operations
+        const errorMsg = `Write operation ${toolRequest.tool} not allowed in read-only mode`;
+        addDebugLog(errorMsg, 'warning');
+        await sendFinalToolResponse(toolRequest.request_id, null, errorMsg, isStreamingMode);
+        return;
+      } else if (autonomyMode === 'full-autonomy' || autonomyMode === 'yolo') {
+        // In full-autonomy/yolo mode, execute immediately
+        shouldPreview = false;
+      } else if (autonomyMode === 'agent-default' || autonomyMode === 'default') {
+        // In default mode, show preview for write operations (even in streaming)
+        shouldPreview = true;
+      } else {
+        // For any other mode, check the preview flag
+        shouldPreview = toolRequest.preview !== false;
+      }
       
       // Debug logging for preview mode
-      addDebugLog(`Tool ${toolRequest.tool} - streaming: ${isStreamingMode}, preview: ${toolRequest.preview}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
+      addDebugLog(`Tool ${toolRequest.tool} - streaming: ${isStreamingMode}, autonomyMode: ${autonomyMode}, shouldPreview: ${shouldPreview}`);
       
       // Log tool execution
       AuditLogger.logToolExecution({
@@ -337,7 +353,7 @@ export const useMessageHandlers = (
       });
       
       if (shouldPreview) {
-        // Add to queue instead of showing immediately
+        // Add to queue for preview (even in streaming mode for default autonomy)
         addDebugLog(`Tool ${toolRequest.tool} adding to preview queue`);
         operationQueueRef.current.push(toolRequest);
         
@@ -358,9 +374,19 @@ export const useMessageHandlers = (
             }
           }, 200);
         }
+        
+        // In streaming mode, send a response indicating the tool is queued
+        if (isStreamingMode) {
+          await sendFinalToolResponse(
+            toolRequest.request_id, 
+            { status: 'queued_for_preview', message: 'Operation queued for user approval' }, 
+            null, 
+            isStreamingMode
+          );
+        }
       } else {
-        // Execute immediately without preview (streaming mode or full-autonomy)
-        addDebugLog(`Tool ${toolRequest.tool} executing immediately (streaming: ${isStreamingMode})`);
+        // Execute immediately without preview (full-autonomy mode)
+        addDebugLog(`Tool ${toolRequest.tool} executing immediately (autonomy: ${autonomyMode})`);
         try {
           const result = await ExcelService.getInstance().executeToolRequest(toolRequest.tool, toolRequest);
           

@@ -1,6 +1,6 @@
 export class ExcelChangeTracker {
   private static instance: ExcelChangeTracker
-  private changeHandlers: Excel.BindingDataChangedEventHandler[] = []
+  private changeHandlers: ((event: Excel.BindingDataChangedEventArgs) => void)[] = []
   private recentChanges: RecentEdit[] = []
   private readonly MAX_CHANGES = 50
   private onChangeCallback?: (changes: RecentEdit[]) => void

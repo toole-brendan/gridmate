@@ -2,7 +2,7 @@ import React from 'react'
 import { EnhancedChatInterface } from './EnhancedChatInterface'
 import { usePersistedChat } from '../../hooks/usePersistedChat'
 import { ExcelChangeTracker } from '../../services/excel/ExcelChangeTracker'
-import { EnhancedChatMessage } from '../../types/enhanced-chat'
+// import { EnhancedChatMessage } from '../../types/enhanced-chat'
 import { ContextItem } from '../chat/mentions'
 
 interface EnhancedChatWithPersistenceProps {
@@ -39,8 +39,8 @@ export const EnhancedChatWithPersistence: React.FC<EnhancedChatWithPersistencePr
   const { sessionId } = props
   const { 
     messages, 
-    addMessage, 
-    updateMessage, 
+    // addMessage, 
+    // updateMessage, 
     clearMessages 
   } = usePersistedChat(sessionId)
   
@@ -62,9 +62,10 @@ export const EnhancedChatWithPersistence: React.FC<EnhancedChatWithPersistencePr
     if (recentEdits.length > 0) {
       const recentEditsContext: ContextItem = {
         id: 'recent-edits',
-        type: 'recent-edits',
-        displayName: `${recentEdits.length} recent changes`,
-        data: recentEdits.slice(0, 10) // Include last 10 edits
+        type: 'edit' as const,
+        label: `${recentEdits.length} recent changes`,
+        value: JSON.stringify(recentEdits.slice(0, 10)),
+        metadata: { edits: recentEdits.slice(0, 10) }
       }
       return [...baseContext, recentEditsContext]
     }

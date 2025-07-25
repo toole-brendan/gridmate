@@ -800,6 +800,14 @@ export const useMessageHandlers = (
   
   // Add streaming message handler
   const sendStreamingMessage = useCallback(async (content: string, autonomyMode: string) => {
+    console.log('[sendStreamingMessage] Called with:', {
+      contentLength: content.length,
+      contentPreview: content.substring(0, 100),
+      autonomyMode,
+      hasSignalRClient: !!signalRClientRef.current,
+      timestamp: new Date().toISOString()
+    });
+    
     if (!signalRClientRef.current) {
       addDebugLog('Cannot send message: SignalR not connected', 'error');
       return;
@@ -807,6 +815,7 @@ export const useMessageHandlers = (
     
     // Cancel any existing stream
     if (currentStreamRef.current) {
+      console.log('[sendStreamingMessage] Cancelling existing stream');
       signalRClientRef.current.cancelStream(currentStreamRef.current);
       currentStreamRef.current = null;
     }
@@ -814,6 +823,11 @@ export const useMessageHandlers = (
     // Create streaming message ID
     const streamingMessageId = `stream_${Date.now()}`;
     currentMessageIdRef.current = streamingMessageId;
+    
+    console.log('[sendStreamingMessage] Creating streaming message:', {
+      messageId: streamingMessageId,
+      timestamp: new Date().toISOString()
+    });
     
     // Add initial streaming message
     const streamingMessage: StreamingMessage = {
@@ -826,6 +840,7 @@ export const useMessageHandlers = (
       chunks: []
     };
     
+    console.log('[sendStreamingMessage] Adding message to chat manager');
     chatManager.addMessage(streamingMessage);
     chatManager.setAiIsGenerating(true);
     
@@ -839,7 +854,19 @@ export const useMessageHandlers = (
         const updates = streamingUpdatesRef.current.get(streamingMessageId);
         if (updates) {
           const timeSinceLastUpdate = Date.now() - updates.lastUpdate;
+          console.log('[Stream Health Check]', {
+            messageId: streamingMessageId,
+            timeSinceLastUpdate,
+            updateCount: updates.count,
+            contentLength: updates.content.length
+          });
+          
           if (timeSinceLastUpdate > 10000) { // 10 seconds without update
+            console.error('[Stream Health Check] Stream stalled!', {
+              messageId: streamingMessageId,
+              timeSinceLastUpdate,
+              lastUpdateCount: updates.count
+            });
             addDebugLog(`Stream health check: No updates for ${timeSinceLastUpdate}ms, possible stream stall`, 'warning');
             
             // Clean up stalled stream
@@ -863,15 +890,29 @@ export const useMessageHandlers = (
       
       setupStreamHealthCheck();
       
+      console.log('[sendStreamingMessage] Setting up streaming handlers');
+      
       signalRClientRef.current.setupStreamingHandlers({
         onChunk: (data: string) => {
           chunkCount++;
           const elapsed = Date.now() - startTime;
-          console.log(`[Stream] Chunk #${chunkCount} received at ${elapsed}ms, length: ${data.length}`);
+          console.log('[Stream onChunk]', {
+            chunkNumber: chunkCount,
+            elapsed,
+            dataLength: data.length,
+            dataPreview: data.substring(0, 100),
+            messageId: streamingMessageId,
+            timestamp: new Date().toISOString()
+          });
           
           if (data === '[DONE]') {
             // Stream complete
-            console.log(`[Stream] Completed. Total chunks: ${chunkCount}, Duration: ${elapsed}ms`);
+            console.log('[Stream onChunk] Stream completed', {
+              totalChunks: chunkCount,
+              duration: elapsed,
+              messageId: streamingMessageId,
+              finalContentLength: streamingUpdatesRef.current.get(streamingMessageId)?.content.length || 0
+            });
             chatManager.finalizeStreamingMessage(streamingMessageId);
             chatManager.setAiIsGenerating(false);
             currentStreamRef.current = null;
@@ -889,15 +930,33 @@ export const useMessageHandlers = (
           
           try {
             const chunk: StreamChunk = JSON.parse(data);
-            console.log(`[Stream] Chunk type: ${chunk.type}, has delta: ${!!chunk.delta}, has content: ${!!chunk.content}, delta length: ${chunk.delta?.length || 0}, content length: ${chunk.content?.length || 0}`);
+            console.log('[Stream onChunk] Parsed chunk:', {
+              chunkType: chunk.type,
+              hasDelta: !!chunk.delta,
+              hasContent: !!chunk.content,
+              deltaLength: chunk.delta?.length || 0,
+              contentLength: chunk.content?.length || 0,
+              chunkId: chunk.id,
+              toolCall: chunk.toolCall,
+              timestamp: new Date().toISOString()
+            });
             handleStreamChunkRef.current?.(streamingMessageId, chunk);
           } catch (error) {
-            console.error('Failed to parse chunk:', error);
-            console.error('Raw chunk data:', data);
+            console.error('[Stream onChunk] Failed to parse chunk:', {
+              error: error instanceof Error ? error.message : error,
+              rawData: data,
+              dataLength: data.length
+            });
           }
         },
         onComplete: () => {
           const totalTime = Date.now() - startTime;
+          console.log('[Stream onComplete]', {
+            totalTime,
+            totalChunks: chunkCount,
+            messageId: streamingMessageId,
+            finalContent: streamingUpdatesRef.current.get(streamingMessageId)?.content.substring(0, 100)
+          });
           addDebugLog(`Streaming completed in ${totalTime}ms with ${chunkCount} chunks`, 'info');
           chatManager.finalizeStreamingMessage(streamingMessageId);
           chatManager.setAiIsGenerating(false);
@@ -916,8 +975,14 @@ export const useMessageHandlers = (
           streamingUpdatesRef.current.delete(streamingMessageId);
         },
         onError: (error: any) => {
+          console.error('[Stream onError]', {
+            error: error instanceof Error ? error.message : error,
+            errorType: error?.constructor?.name,
+            messageId: streamingMessageId,
+            chunksReceived: chunkCount,
+            elapsedTime: Date.now() - startTime
+          });
           addDebugLog('Streaming error occurred', 'error');
-          console.error('Streaming error:', error);
           chatManager.finalizeStreamingMessage(streamingMessageId);
           chatManager.setAiIsGenerating(false);
           currentStreamRef.current = null;
@@ -934,17 +999,23 @@ export const useMessageHandlers = (
       });
       
       // Start streaming via SignalR
+      console.log('[sendStreamingMessage] Starting stream via SignalR');
       await signalRClientRef.current.streamChat({
         content,
         autonomyMode,
         excelContext: {} // Add context if needed
       });
+      console.log('[sendStreamingMessage] Stream started successfully');
       
       // Store a reference to cancel if needed
       currentStreamRef.current = { close: () => { /* No-op for now */ } } as EventSource;
       
     } catch (error) {
-      console.error('Failed to start streaming:', error);
+      console.error('[sendStreamingMessage] Failed to start streaming:', {
+        error: error instanceof Error ? error.message : error,
+        errorType: error?.constructor?.name,
+        messageId: streamingMessageId
+      });
       addDebugLog('Failed to start streaming', 'error');
       chatManager.setAiIsGenerating(false);
     }
@@ -952,13 +1023,20 @@ export const useMessageHandlers = (
 
   // Handle individual chunks
   const handleStreamChunk = useCallback((messageId: string, chunk: StreamChunk) => {
-    console.log('[handleStreamChunk] Processing chunk:', {
+    const timestamp = new Date().toISOString();
+    console.log('[handleStreamChunk] START Processing chunk:', {
+      timestamp,
       messageId,
       chunkType: chunk.type,
+      chunkId: chunk.id,
       hasDelta: !!chunk.delta,
       hasContent: !!chunk.content,
-      deltaValue: chunk.delta,
-      contentValue: chunk.content
+      deltaLength: chunk.delta?.length || 0,
+      contentLength: chunk.content?.length || 0,
+      deltaValue: chunk.delta?.substring(0, 100),
+      contentValue: chunk.content?.substring(0, 100),
+      toolCall: chunk.toolCall,
+      isDone: chunk.done
     });
     
     // Don't verify message existence here - trust that it was created
@@ -1151,6 +1229,12 @@ export const useMessageHandlers = (
         }
         break;
     }
+    
+    console.log('[handleStreamChunk] END Processing chunk:', {
+      timestamp: new Date().toISOString(),
+      messageId,
+      chunkType: chunk.type
+    });
   }, [chatManager, addDebugLog]);
 
   // Cancel current stream

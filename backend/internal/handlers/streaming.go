@@ -40,6 +40,10 @@ func (h *StreamingHandler) getOrCreateSession(sessionID string) *StreamSession {
 	defer h.sessionsMu.Unlock()
 
 	if session, exists := h.sessions[sessionID]; exists {
+		h.logger.WithFields(logrus.Fields{
+			"session_id": sessionID,
+			"existing": true,
+		}).Debug("[STREAMING] Retrieved existing session")
 		return session
 	}
 
@@ -48,6 +52,10 @@ func (h *StreamingHandler) getOrCreateSession(sessionID string) *StreamSession {
 		LastSentIndex: make(map[string]int),
 	}
 	h.sessions[sessionID] = session
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"existing": false,
+	}).Debug("[STREAMING] Created new session")
 	return session
 }
 
@@ -60,16 +68,39 @@ func (h *StreamingHandler) calculateDelta(session *StreamSession, messageID stri
 	if !exists {
 		// First time sending this message
 		session.LastSentIndex[messageID] = len(fullContent)
+		h.logger.WithFields(logrus.Fields{
+			"message_id": messageID,
+			"content_length": len(fullContent),
+			"first_time": true,
+		}).Debug("[STREAMING] First delta for message")
 		return fullContent
 	}
 
 	// Calculate delta
 	if lastIndex >= len(fullContent) {
+		h.logger.WithFields(logrus.Fields{
+			"message_id": messageID,
+			"last_index": lastIndex,
+			"content_length": len(fullContent),
+		}).Debug("[STREAMING] No new content to send")
 		return "" // Nothing new to send
 	}
 
 	delta := fullContent[lastIndex:]
 	session.LastSentIndex[messageID] = len(fullContent)
+	
+	deltaPreview := delta
+	if len(delta) > 50 {
+		deltaPreview = delta[:50] + "..."
+	}
+	
+	h.logger.WithFields(logrus.Fields{
+		"message_id": messageID,
+		"last_index": lastIndex,
+		"new_index": len(fullContent),
+		"delta_length": len(delta),
+		"delta_preview": deltaPreview,
+	}).Debug("[STREAMING] Calculated delta")
 	return delta
 }
 
@@ -110,10 +141,16 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 		"session_id":    sessionID,
 		"content":       content,
 		"autonomy_mode": autonomyMode,
-	}).Info("Starting streaming chat request")
+		"content_length": len(content),
+		"timestamp": time.Now().Format(time.RFC3339Nano),
+	}).Info("[STREAMING] Starting streaming chat request")
 
 	// Get or create streaming session
 	streamSession := h.getOrCreateSession(sessionID)
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"session_ptr": fmt.Sprintf("%p", streamSession),
+	}).Debug("[STREAMING] Session ready for streaming")
 
 	// Create chat message
 	chatMsg := services.ChatMessage{
@@ -125,9 +162,18 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 
 	// Get streaming response
 	ctx := r.Context()
+	deadline, hasDeadline := ctx.Deadline()
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"has_deadline": hasDeadline,
+		"deadline": deadline,
+	}).Debug("[STREAMING] Calling ProcessChatMessageStreaming")
+	
 	chunks, err := h.excelBridge.ProcessChatMessageStreaming(ctx, sessionID, chatMsg)
 	if err != nil {
-		h.logger.WithError(err).Error("Failed to start streaming")
+		h.logger.WithError(err).WithFields(logrus.Fields{
+			"session_id": sessionID,
+		}).Error("[STREAMING] Failed to start streaming")
 		errorData, _ := json.Marshal(map[string]string{"error": err.Error()})
 		fmt.Fprintf(w, "data: %s\n\n", errorData)
 		if f, ok := w.(http.Flusher); ok {
@@ -135,12 +181,19 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
+	
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"channel_ptr": fmt.Sprintf("%p", chunks),
+	}).Debug("[STREAMING] Got chunks channel from ProcessChatMessageStreaming")
 
 	// Stream chunks to client
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		h.logger.Warn("ResponseWriter does not support flushing, attempting to continue anyway")
+		h.logger.Warn("[STREAMING] ResponseWriter does not support flushing, attempting to continue anyway")
 		// Continue anyway - the response will be buffered but should still work
+	} else {
+		h.logger.Debug("[STREAMING] Flusher interface available")
 	}
 
 	chunkCount := 0
@@ -149,17 +202,36 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 	currentMessageID := ""
 	fullContent := strings.Builder{}
 
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+	}).Debug("[STREAMING] Starting to read from chunks channel")
+	
 	for chunk := range chunks {
 		select {
 		case <-ctx.Done():
-			h.logger.Info("Client disconnected, stopping stream")
+			h.logger.WithFields(logrus.Fields{
+				"session_id": sessionID,
+				"chunks_sent": chunkCount,
+			}).Info("[STREAMING] Client disconnected, stopping stream")
 			return
 		default:
 			chunkCount++
+			h.logger.WithFields(logrus.Fields{
+				"chunk_number": chunkCount,
+				"chunk_type": chunk.Type,
+				"chunk_id": chunk.ID,
+				"has_content": chunk.Content != "",
+				"has_delta": chunk.Delta != "",
+				"is_done": chunk.Done,
+			}).Debug("[STREAMING] Received chunk from channel")
 
 			// Track message ID
 			if chunk.ID != "" && currentMessageID == "" {
 				currentMessageID = chunk.ID
+				h.logger.WithFields(logrus.Fields{
+					"message_id": currentMessageID,
+					"chunk_number": chunkCount,
+				}).Debug("[STREAMING] Set current message ID")
 			}
 
 			// For text chunks, calculate delta
@@ -184,7 +256,9 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 					h.logger.WithFields(logrus.Fields{
 						"first_chunk_delay_ms": time.Since(startTime).Milliseconds(),
 						"chunk_type":           chunk.Type,
-					}).Info("First chunk being sent - streaming is active")
+						"delta_length":         len(delta),
+						"message_id":           currentMessageID,
+					}).Info("[STREAMING] First chunk being sent - streaming is active")
 				}
 
 				h.logger.WithFields(logrus.Fields{
@@ -194,11 +268,18 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 					"delta_length": len(delta),
 					"is_done":      chunk.Done,
 					"elapsed_ms":   time.Since(startTime).Milliseconds(),
-				}).Debug("Sending delta chunk")
+					"message_id":   currentMessageID,
+					"full_content_length": fullContent.Len(),
+				}).Debug("[STREAMING] Sending delta chunk")
 
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				if flusher != nil {
 					flusher.Flush()
+					h.logger.WithFields(logrus.Fields{
+						"chunk_number": chunkCount,
+						"data_size": len(data),
+						"chunk_type": "text_delta",
+					}).Debug("[STREAMING] Flushed delta chunk to client")
 				}
 			} else if chunk.Type == "actions" {
 				// Handle actions chunk specially
@@ -228,30 +309,53 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 					"chunk_type":    chunk.Type,
 					"content":       chunk.Content,
 					"actions_count": len(actionsChunk["actions"].([]interface{})),
-				}).Info("Sending actions chunk")
+					"chunk_number":  chunkCount,
+					"elapsed_ms":    time.Since(startTime).Milliseconds(),
+				}).Info("[STREAMING] Sending actions chunk")
 
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				if flusher != nil {
 					flusher.Flush()
+					h.logger.WithFields(logrus.Fields{
+						"chunk_type": "actions",
+						"data_size": len(data),
+					}).Debug("[STREAMING] Flushed actions chunk to client")
 				}
 			} else {
 				// Non-text chunks (tool events, etc.) - send as-is
+				h.logger.WithFields(logrus.Fields{
+					"chunk_type": chunk.Type,
+					"chunk_number": chunkCount,
+					"has_content": chunk.Content != "",
+					"has_delta": chunk.Delta != "",
+				}).Debug("[STREAMING] Processing non-text chunk")
+				
 				data, err := json.Marshal(chunk)
 				if err != nil {
-					h.logger.WithError(err).Error("Failed to marshal chunk")
+					h.logger.WithError(err).Error("[STREAMING] Failed to marshal chunk")
 					continue
 				}
 
 				fmt.Fprintf(w, "data: %s\n\n", data)
 				if flusher != nil {
 					flusher.Flush()
+					h.logger.WithFields(logrus.Fields{
+						"chunk_type": chunk.Type,
+						"data_size": len(data),
+					}).Debug("[STREAMING] Flushed non-text chunk to client")
 				}
 			}
 
 			if chunk.Done {
+				h.logger.WithFields(logrus.Fields{
+					"chunk_number": chunkCount,
+					"total_content_length": fullContent.Len(),
+				}).Debug("[STREAMING] Sending DONE signal")
+				
 				fmt.Fprintf(w, "data: [DONE]\n\n")
 				if flusher != nil {
 					flusher.Flush()
+					h.logger.Debug("[STREAMING] Flushed DONE signal to client")
 				}
 
 				// Warn if we only sent one chunk for a non-trivial response
@@ -264,11 +368,20 @@ func (h *StreamingHandler) HandleChatStream(w http.ResponseWriter, r *http.Reque
 					"total_chunks":      chunkCount,
 					"duration_ms":       time.Since(startTime).Milliseconds(),
 					"avg_chunk_time_ms": time.Since(startTime).Milliseconds() / int64(chunkCount),
-				}).Log(logLevel, "Streaming completed")
+					"session_id":        sessionID,
+					"message_id":        currentMessageID,
+					"final_content_length": fullContent.Len(),
+				}).Log(logLevel, "[STREAMING] Streaming completed")
 				return
 			}
 		}
 	}
+	
+	h.logger.WithFields(logrus.Fields{
+		"session_id": sessionID,
+		"chunks_sent": chunkCount,
+		"duration_ms": time.Since(startTime).Milliseconds(),
+	}).Warn("[STREAMING] Channel closed without done signal")
 }
 
 // HandleTestStream provides a test endpoint for debugging streaming

@@ -98,10 +98,10 @@ async function processLLMEdit() {
  */
 async function analyzeSpecificRange() {
   try {
-    await Excel.run(async (context) => {
+    await Excel.run(async () => {
       // Get a specific range
-      const sheet = context.workbook.worksheets.getActiveWorksheet()
-      const range = sheet.getRange("A1:F20")
+      // const sheet = context.workbook.worksheets.getActiveWorksheet()
+      // const range = sheet.getRange("A1:F20")
       
       const query = "Create a forecast model based on historical data"
       
@@ -128,21 +128,24 @@ async function analyzeSpecificRange() {
  */
 async function useComponentsDirectly() {
   try {
-    await Excel.run(async (context) => {
+    await Excel.run(async () => {
       // You can also use individual components directly
       const { ExcelService } = await import('../services/excel/ExcelService')
       const { GridSerializer } = await import('../services/serialization/GridSerializer')
       const { FormulaTypeDetector } = await import('../services/formula/FormulaTypeDetector')
       
-      const excelService = new ExcelService()
-      const range = await excelService.getSelectedRange()
-      const rangeData = await excelService.getRangeData(range)
+      const excelService = ExcelService.getInstance()
+      const selection = await excelService.getSelectedValues()
+      const rangeData = { 
+        values: selection,
+        usedRange: 'A1:Z100'
+      }
       
       // Use GridSerializer directly
       const serialized = GridSerializer.toLLMFormat(
-        range,
-        rangeData.values,
-        rangeData.formulas || [],
+        rangeData.usedRange || 'A1:Z100',
+        rangeData.values || [],
+        [],
         {
           format: 'hybrid',
           maxTokens: 2000,

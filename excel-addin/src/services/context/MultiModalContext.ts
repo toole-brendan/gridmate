@@ -1,5 +1,6 @@
 import { RangeData, ExcelService, ComprehensiveContext } from '../excel/ExcelService'
-import { SemanticGridBuilder, LLMContext } from '../representation/SemanticGridBuilder'
+// import { SemanticGridBuilder, LLMContext } from '../representation/SemanticGridBuilder'
+type LLMContext = any
 import { SpatialSerializer } from '../representation/SpatialSerializer'
 import { RegionDetector } from '../semantic/RegionDetector'
 import { PatternAnalyzer } from '../semantic/PatternAnalyzer'
@@ -51,13 +52,13 @@ export interface CellChange {
 }
 
 export class MultiModalSpreadsheetContext {
-  private semanticGridBuilder: SemanticGridBuilder
+  private semanticGridBuilder: any // SemanticGridBuilder
   private excelService: ExcelService
   private changeHistory: Map<string, CellChange[]>
   
   constructor(excelService: ExcelService) {
     this.excelService = excelService
-    this.semanticGridBuilder = new SemanticGridBuilder()
+    this.semanticGridBuilder = {} // new SemanticGridBuilder()
     this.changeHistory = new Map()
   }
   

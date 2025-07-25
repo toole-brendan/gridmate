@@ -8,7 +8,7 @@ interface Props {
     queuePosition?: number;
 }
 
-export const ToolIndicator: React.FC<Props> = ({ tool, isStreaming, queuePosition }) => {
+export const ToolIndicator: React.FC<Props> = ({ tool, queuePosition }) => {
     const getIcon = () => {
         switch (tool.status) {
             case 'complete':

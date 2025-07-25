@@ -17,19 +17,48 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
     const contentRef = useRef(''); // Track accumulated content
     const processedChunksRef = useRef<Set<string>>(new Set()); // Track processed chunks
     
+    // Logging helper
+    const log = (action: string, data?: any) => {
+        console.log(`[StreamingMessage ${message.id}] ${action}`, {
+            timestamp: new Date().toISOString(),
+            messageId: message.id,
+            isStreaming: message.isStreaming,
+            ...data
+        });
+    };
+    
     useEffect(() => {
+        log('Mounting component');
+        
         // Create renderer on mount
         rendererRef.current = new ChunkedRenderer({
             onUpdate: (content) => {
                 // Append delta content
+                const previousLength = contentRef.current.length;
                 contentRef.current += content;
+                const newLength = contentRef.current.length;
+                
+                log('ChunkedRenderer onUpdate', {
+                    deltaContent: content,
+                    deltaLength: content.length,
+                    previousContentLength: previousLength,
+                    newContentLength: newLength,
+                    preview: content.substring(0, 50)
+                });
+                
                 setDisplayContent(contentRef.current);
             },
             flushInterval: 50, // Faster update rate for smoother streaming
             maxBufferSize: 300  // Smaller buffer for more frequent updates
         });
         
+        log('ChunkedRenderer created', {
+            flushInterval: 50,
+            maxBufferSize: 300
+        });
+        
         return () => {
+            log('Unmounting component - destroying renderer');
             // Cleanup on unmount
             rendererRef.current?.destroy();
         };
@@ -38,24 +67,52 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
     useEffect(() => {
         // Process new chunks
         if (message.chunks && rendererRef.current) {
-            message.chunks.forEach((chunk) => {
+            log('Processing chunks', {
+                totalChunks: message.chunks.length,
+                processedChunks: processedChunksRef.current.size
+            });
+            
+            message.chunks.forEach((chunk, index) => {
                 // Skip if we've already processed this chunk
                 if (processedChunksRef.current.has(chunk.id)) {
+                    log('Skipping already processed chunk', {
+                        chunkId: chunk.id,
+                        chunkIndex: index
+                    });
                     return;
                 }
+                
+                log('Processing new chunk', {
+                    chunkId: chunk.id,
+                    chunkIndex: index,
+                    chunkType: chunk.type,
+                    hasDelta: !!chunk.delta,
+                    deltaLength: chunk.delta?.length || 0,
+                    deltaPreview: chunk.delta?.substring(0, 50)
+                });
                 
                 // Mark as processed
                 processedChunksRef.current.add(chunk.id);
                 
                 // Handle text chunks with deltas
                 if (chunk.type === 'text' && chunk.delta) {
-                    rendererRef.current.addChunk(chunk.delta);
+                    log('Adding chunk to renderer', {
+                        chunkId: chunk.id,
+                        deltaLength: chunk.delta.length
+                    });
+                    rendererRef.current?.addChunk(chunk.delta);
+                } else if (chunk.type !== 'text') {
+                    log('Non-text chunk detected', {
+                        chunkId: chunk.id,
+                        chunkType: chunk.type
+                    });
                 }
             });
         }
         
         // Force flush when streaming completes
         if (!message.isStreaming && rendererRef.current) {
+            log('Streaming completed - forcing flush');
             rendererRef.current.forceFlush();
         }
     }, [message.chunks, message.isStreaming]);
@@ -63,6 +120,11 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
     // Reset content when message ID changes (new message)
     useEffect(() => {
         if (message.id) {
+            log('Message ID changed - resetting content', {
+                previousContentLength: contentRef.current.length,
+                processedChunksCount: processedChunksRef.current.size
+            });
+            
             contentRef.current = '';
             setDisplayContent('');
             processedChunksRef.current.clear();
@@ -188,9 +250,14 @@ export const StreamingMessage: React.FC<Props> = ({ message }) => {
                 )}
                 
                 {/* Streaming stats (dev mode) */}
-                {process.env.NODE_ENV === 'development' && message.streamEndTime && (
-                    <div className="text-xs text-gray-400 mt-2">
-                        Stream duration: {message.streamEndTime - (message.streamStartTime || 0)}ms
+                {process.env.NODE_ENV === 'development' && (
+                    <div className="text-xs text-gray-400 mt-2 space-y-1">
+                        {message.streamEndTime && (
+                            <div>Stream duration: {message.streamEndTime - (message.streamStartTime || 0)}ms</div>
+                        )}
+                        <div>Content length: {displayContent.length} chars</div>
+                        <div>Chunks processed: {processedChunksRef.current.size}</div>
+                        <div>Is streaming: {message.isStreaming ? 'Yes' : 'No'}</div>
                     </div>
                 )}
             </div>

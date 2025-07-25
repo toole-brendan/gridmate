@@ -24,8 +24,8 @@ import { AutonomyMode } from './AutonomyModeSelector';
 import { MentionItem, ContextItem } from '../chat/mentions';
 import { isToolSuggestion, isBatchOperation, ToolSuggestionMessage, isDiffPreview } from '../../types/enhanced-chat';
 import { StatusMessage } from '../../types/enhanced-chat';
-import { isStreamingMessage } from '../../types/streaming';
-import { StreamingMessage } from './messages/StreamingMessage';
+// import { isStreamingMessage } from '../../types/streaming';
+// import { StreamingMessage } from './messages/StreamingMessage';
 
 // --- Zustand Store ---
 import { useDiffSessionStore } from '../../store/useDiffSessionStore';
@@ -112,7 +112,7 @@ export const RefactoredChatInterface: React.FC = () => {
   const [isContextEnabled, setIsContextEnabled] = useState(true); // Default to true so AI can see spreadsheet data
   const [rawSelection, setRawSelection] = useState<string | null>(null);
   const debouncedSelection = useDebounce(rawSelection, 300);
-  const [contextSummary, setContextSummary] = useState<string>('');
+  const [contextSummary] = useState<string>('');
   const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   const updateAvailableMentions = useCallback(async () => {

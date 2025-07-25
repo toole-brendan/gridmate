@@ -172,13 +172,12 @@ export class GridSerializer {
     formulaGroups.forEach((group, template) => {
       if (group.cells.length > 1) {
         templates.push({
-          type: 'formula',
+          type: 'repeated',
           pattern: template,
           cells: group.cells,
           count: group.cells.length,
-          direction: this.detectFormulaDirection(group.cells),
-          isArrayFormula: false,
-          dependencies: []
+          description: `Formula pattern: ${template}`,
+          baseFormula: template
         } as FormulaPattern)
       }
     })

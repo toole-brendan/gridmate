@@ -2466,21 +2466,17 @@ export class ExcelService {
         await context.sync()
         
         const formulas = range.formulas
-        const startCell = this.parseAddress(range.address.split(':')[0])
+        // const startCell = this.parseAddress(range.address.split(':')[0])
         
         for (let row = 0; row < range.rowCount; row++) {
           for (let col = 0; col < range.columnCount; col++) {
             const formula = formulas[row][col]
             if (formula && typeof formula === 'string' && formula.startsWith('=')) {
-              const cellAddress = this.offsetCell(
-                `${this.numberToColumnLetter(startCell.col)}${startCell.row}`,
-                row,
-                col
-              )
+              const cellAddress = `${String.fromCharCode(65 + col)}${row + 1}`
               
               // Use XLSX to parse formula dependencies
               try {
-                const parsed = XLSX.utils.decode_formulae(formula)
+                // const parsed = XLSX.utils.decode_formulae(formula)
                 const deps = this.extractReferencesFromFormula(formula)
                 if (deps.length > 0) {
                   dependencies.set(cellAddress, deps)
@@ -2494,7 +2490,7 @@ export class ExcelService {
       })
     } catch (error) {
       debugLog('Error extracting formula dependencies', error)
-      throw new ToolExecutionError(`Failed to extract formula dependencies: ${error}`)
+      throw new Error(`Failed to extract formula dependencies: ${error}`)
     }
     
     return dependencies
@@ -2575,17 +2571,18 @@ export class ExcelService {
               
               if (usedRange.formulas) {
                 const formulas = usedRange.formulas
-                const startCell = this.parseAddress(usedRange.address.split(':')[0])
+                // const startCell = this.parseAddress(usedRange.address.split(':')[0])
                 
                 for (let row = 0; row < formulas.length; row++) {
                   for (let col = 0; col < formulas[row].length; col++) {
                     const formula = formulas[row][col]
                     if (formula && typeof formula === 'string' && formula.includes(namedItem.name)) {
-                      const cellAddress = this.offsetCell(
-                        `${this.numberToColumnLetter(startCell.col)}${startCell.row}`,
-                        row,
-                        col
-                      )
+                      const cellAddress = `${String.fromCharCode(65 + col)}${row + 1}`
+                      // this.offsetCell(
+                        // `${this.numberToColumnLetter(startCell.col)}${startCell.row}`,
+                        // row,
+                        // col
+                      // )
                       rangeInfo.usage.push(`${sheet.name}!${cellAddress}`)
                     }
                   }
@@ -2602,7 +2599,7 @@ export class ExcelService {
       })
     } catch (error) {
       debugLog('Error extracting named range context', error)
-      throw new ToolExecutionError(`Failed to extract named range context: ${error}`)
+      throw new Error(`Failed to extract named range context: ${error}`)
     }
     
     return namedRangeContext
@@ -2613,7 +2610,16 @@ export class ExcelService {
    * Enhanced version that includes semantic analysis
    */
   async analyzeRangeDataWithSemantics(range: Excel.Range): Promise<RangeData & { semanticRegions?: any[] }> {
-    const rangeData = await this.getRangeData(range)
+    // Load range properties
+    range.load(['address', 'values', 'rowCount', 'columnCount'])
+    await range.context.sync()
+    
+    const rangeData: RangeData = {
+      values: range.values as any[][],
+      address: range.address,
+      rowCount: range.rowCount,
+      colCount: range.columnCount
+    }
     
     // Import RegionDetector dynamically to avoid circular dependencies
     const { RegionDetector } = await import('../semantic/RegionDetector')

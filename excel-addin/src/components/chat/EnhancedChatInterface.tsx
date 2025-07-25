@@ -19,7 +19,7 @@ import {
   AuditMessage,
   StatusIndicator
 } from './messages'
-import { ChatMessageDiffPreview } from './ChatMessageDiffPreview'
+// import { ChatMessageDiffPreview } from './ChatMessageDiffPreview'
 import { ResponseToolsGroupCard } from './messages/ResponseToolsGroupCard'
 import { 
   MentionableTextarea, 

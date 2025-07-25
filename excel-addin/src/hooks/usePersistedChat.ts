@@ -61,7 +61,7 @@ export function usePersistedChat(sessionId: string) {
   
   const updateMessage = useCallback((id: string, updates: Partial<EnhancedChatMessage>) => {
     setMessages(prev => prev.map(msg => 
-      msg.id === id ? { ...msg, ...updates } : msg
+      msg.id === id ? { ...msg, ...updates } as EnhancedChatMessage : msg
     ))
   }, [])
   

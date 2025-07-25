@@ -635,15 +635,14 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 		"autonomy_mode":  message.AutonomyMode,
 	}).Info("Starting streaming chat processing")
 
-	// Call streaming AI service with message ID
-	chunks, err := eb.aiService.ProcessChatMessageStreaming(
+	// Call streaming AI service with message ID - use the method that includes history
+	chunks, err := eb.aiService.ProcessChatWithToolsAndHistoryStreaming(
 		ctx,
 		session.ID,
 		message.Content,
 		financialContext,
 		aiHistory,
 		message.AutonomyMode,
-		message.MessageID,
 	)
 
 	if err != nil {
@@ -661,13 +660,28 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 		var currentToolCall *ai.ToolCall
 		var queuedOperations []map[string]interface{}
 
+		chunkCount := 0
 		for chunk := range chunks {
+			chunkCount++
+			// Log chunk details for debugging
+			if chunkCount <= 5 || chunk.Done { // Log first 5 chunks and done chunk
+				eb.logger.WithFields(logrus.Fields{
+					"chunk_number": chunkCount,
+					"chunk_type":   chunk.Type,
+					"has_delta":    chunk.Delta != "",
+					"delta_length": len(chunk.Delta),
+					"is_done":      chunk.Done,
+					"session_id":   session.ID,
+				}).Debug("Processing streaming chunk")
+			}
+			
 			// Forward the chunk immediately
 			select {
 			case outChan <- chunk:
 				// Successfully sent
 			case <-ctx.Done():
 				// Context cancelled
+				eb.logger.Info("Streaming cancelled by client", "session_id", session.ID, "chunks_sent", chunkCount)
 				return
 			}
 
@@ -839,6 +853,7 @@ func (eb *ExcelBridge) ProcessChatMessageStreaming(ctx context.Context, clientID
 					"content_length":    fullContent.Len(),
 					"tool_calls_count":  len(collectedToolCalls),
 					"queued_operations": len(queuedOperations),
+					"total_chunks":      chunkCount,
 				}).Info("Streaming completed")
 
 				// Track AI-edited ranges in session context if any tools were executed

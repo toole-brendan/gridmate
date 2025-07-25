@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Upload, File, Trash2, RefreshCw, Search, Database } from 'lucide-react';
 import { useMemoryStore } from '../../stores/memoryStore';
 import { formatBytes } from '../../utils/formatters';

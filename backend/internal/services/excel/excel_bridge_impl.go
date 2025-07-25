@@ -124,6 +124,9 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 		Str("request_id", requestID).
 		Msg("Registering tool handler for response")
 
+	// Track if we've received the final response
+	finalResponseReceived := false
+	
 	handler := func(response interface{}, err error) {
 		log.Info().
 			Str("session_id", sessionID).
@@ -135,9 +138,58 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 
 		if err != nil {
 			errChan <- err
+			finalResponseReceived = true
 		} else {
-			// Always send the response to the channel
+			// Check if this is a read operation and just an acknowledgment
+			if respMap, ok := response.(map[string]interface{}); ok {
+				toolName, _ := request["tool"].(string)
+				isReadOp := toolName == "read_range" || toolName == "analyze_data" || toolName == "get_named_ranges"
+				
+				// For read operations, check if this is just an acknowledgment
+				if isReadOp {
+					// Check if response has "queued" field set to true
+					if queued, hasQueued := respMap["queued"].(bool); hasQueued && queued {
+						// This is just an acknowledgment, don't send to channel yet
+						log.Info().
+							Str("session_id", sessionID).
+							Str("request_id", requestID).
+							Str("tool", toolName).
+							Msg("Received acknowledgment for read operation, waiting for actual data")
+						return // Don't send to respChan, wait for actual data
+					}
+					
+					// Check if response has actual data (values, statistics, etc.)
+					hasData := false
+					if toolName == "read_range" {
+						hasData = respMap["values"] != nil || respMap["address"] != nil
+					} else if toolName == "analyze_data" {
+						hasData = respMap["summary"] != nil || respMap["statistics"] != nil
+					} else if toolName == "get_named_ranges" {
+						// For arrays, check if it's directly an array or has a result field
+						if _, isArray := response.([]interface{}); isArray {
+							hasData = true
+						} else if result, hasResult := respMap["result"]; hasResult && result != nil {
+							hasData = true
+						}
+					}
+					
+					if hasData {
+						// This is the actual data response
+						finalResponseReceived = true
+						if result, hasResult := respMap["result"]; hasResult {
+							// If the data is wrapped in a "result" field, unwrap it
+							respChan <- result
+						} else {
+							respChan <- response
+						}
+						return
+					}
+				}
+			}
+			
+			// For non-read operations or if we can't determine, send the response
 			respChan <- response
+			finalResponseReceived = true
 		}
 	}
 
@@ -147,13 +199,21 @@ func (b *BridgeImpl) sendToolRequest(ctx context.Context, sessionID string, requ
 
 	// Create a cleanup function that will only be called when we get a final response
 	cleanup := func() {
-		log.Debug().
-			Str("session_id", sessionID).
-			Str("client_id", clientID).
-			Str("request_id", requestID).
-			Msg("Unregistering tool handler after final response")
-		b.UnregisterToolHandler(sessionID, requestID)
-		b.UnregisterToolHandler(clientID, requestID)
+		// Only cleanup if we've received the final response
+		if finalResponseReceived {
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("client_id", clientID).
+				Str("request_id", requestID).
+				Msg("Unregistering tool handler after final response")
+			b.UnregisterToolHandler(sessionID, requestID)
+			b.UnregisterToolHandler(clientID, requestID)
+		} else {
+			log.Debug().
+				Str("session_id", sessionID).
+				Str("request_id", requestID).
+				Msg("Skipping cleanup - still waiting for final response")
+		}
 	}
 
 	// Set up a timeout cleanup in case we never get a response
